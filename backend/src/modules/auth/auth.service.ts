@@ -14,6 +14,7 @@ import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { User, type UserDocument } from '../users/schemas/user.schema';
 import { RefreshToken, type RefreshTokenDocument } from './schemas/refresh-token.schema';
 import type { LoginDto, RegisterDto } from './dto/auth.dto';
+import { EmailService } from './email.service';
 
 export interface TokenPair {
   accessToken: string;
@@ -50,14 +51,18 @@ export class AuthService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly email: EmailService,
   ) {}
 
   // ─────────────────────────────────────────────────────────── Inscription ──
 
   async register(dto: RegisterDto): Promise<{ user: unknown } & TokenPair> {
-    const phone = AuthService.normalisePhone(dto.phone);
+    const phone = dto.phone ? AuthService.normalisePhone(dto.phone) : undefined;
+    if (!phone && !dto.email) {
+      throw new AppError('CONTACT_REQUIRED', 'Un téléphone ou un email est requis.', 400);
+    }
 
-    if (await this.users.exists({ phone })) {
+    if (phone && (await this.users.exists({ phone }))) {
       throw new AppError('PHONE_ALREADY_USED', 'Ce numéro est déjà associé à un compte.', 409);
     }
     if (dto.email && (await this.users.exists({ email: dto.email.toLowerCase() }))) {
@@ -65,7 +70,7 @@ export class AuthService {
     }
 
     const user = await this.users.create({
-      phone,
+      ...(phone ? { phone } : {}),
       email: dto.email?.toLowerCase(),
       passwordHash: await argon2.hash(dto.password, ARGON2_OPTIONS),
       firstName: dto.firstName,
@@ -74,17 +79,35 @@ export class AuthService {
       status: 'active',
     });
 
+    if (user.email) {
+      const token = randomBytes(32).toString('base64url');
+      await this.redis.set(`emailverify:${AuthService.hashToken(token)}`, String(user._id), 'EX', 30 * 60);
+      await this.email.sendVerification(user.email, token);
+    }
+
     const tokens = await this.issueTokens(user);
     return { user: user.toJSON(), ...tokens };
+  }
+
+  async verifyEmail(token: string): Promise<void> {
+    const key = `emailverify:${AuthService.hashToken(token)}`;
+    const userId = await this.redis.get(key);
+    if (!userId) throw new AppError('EMAIL_TOKEN_INVALID', 'Ce lien a expiré.', 410);
+
+    await this.redis.del(key);
+    await this.users.updateOne({ _id: userId }, { $set: { emailVerifiedAt: new Date() } });
   }
 
   // ───────────────────────────────────────────────────────────── Connexion ──
 
   async login(dto: LoginDto, context: { ip?: string; userAgent?: string }): Promise<TokenPair> {
-    const phone = AuthService.normalisePhone(dto.phone);
-    await this.assertNotLockedOut(phone, context.ip);
+    const identifier = dto.phone.trim();
+    const phone = identifier.includes('@') ? undefined : AuthService.normalisePhone(identifier);
+    await this.assertNotLockedOut(phone ?? identifier, context.ip);
 
-    const user = await this.users.findOne({ phone }).select('+passwordHash');
+    const user = await this.users
+      .findOne(phone ? { phone } : { email: identifier.toLowerCase() })
+      .select('+passwordHash');
 
     // Vérification à durée constante même si le compte n'existe pas : sans ce
     // leurre, le temps de réponse révèle quels numéros sont enregistrés.
@@ -94,14 +117,14 @@ export class AuthService {
     const valid = await argon2.verify(hash, dto.password).catch(() => false);
 
     if (!user || !valid) {
-      await this.recordFailedAttempt(phone, context.ip);
+      await this.recordFailedAttempt(phone ?? identifier, context.ip);
       throw AppError.invalidCredentials();
     }
     if (user.status !== 'active') {
       throw new AppError('ACCOUNT_SUSPENDED', 'Ce compte est suspendu.', 403);
     }
 
-    await this.clearFailedAttempts(phone, context.ip);
+    await this.clearFailedAttempts(phone ?? identifier, context.ip);
 
     // Ré-empreinte transparente si les paramètres Argon2 ont durci depuis.
     if (argon2.needsRehash(user.passwordHash, ARGON2_OPTIONS)) {
@@ -308,7 +331,7 @@ export class AuthService {
     const claims: AuthenticatedUser & { sub: string } = {
       sub: String(user._id),
       id: String(user._id),
-      phone: user.phone,
+      phone: user.phone ?? user.email ?? '',
       roles: user.roles.map((r) => ({
         role: r.role,
         ...(r.shopId ? { shopId: String(r.shopId) } : {}),

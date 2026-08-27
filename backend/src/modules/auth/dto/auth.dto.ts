@@ -25,9 +25,10 @@ const MG_PHONE = /^(\+261|0)[23][0-9]{8}$/;
 const PASSWORD_RULE = /^(?=.*[A-Za-zÀ-ÿ])(?=.*\d).{10,128}$/;
 
 export class RegisterDto {
-  @ApiProperty({ example: '+261341234567' })
+  @ApiPropertyOptional({ example: '+261341234567' })
+  @IsOptional()
   @Matches(MG_PHONE, { message: 'Le numéro de téléphone n’est pas valide.' })
-  phone!: string;
+  phone?: string;
 
   @ApiPropertyOptional({ example: 'utilisateur@example.mg' })
   @IsOptional()
@@ -54,7 +55,7 @@ export class RegisterDto {
 }
 
 export class LoginDto {
-  @ApiProperty({ example: '+261341234567' })
+  @ApiProperty({ example: '+261341234567 ou client@example.mg' })
   @IsString()
   @IsNotEmpty()
   phone!: string;
@@ -118,6 +119,13 @@ export class ResetPasswordDto {
     message: 'Le mot de passe doit contenir au moins 10 caractères, dont une lettre et un chiffre.',
   })
   password!: string;
+}
+
+export class VerifyEmailDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  token!: string;
 }
 
 export class RegisterDeviceDto {

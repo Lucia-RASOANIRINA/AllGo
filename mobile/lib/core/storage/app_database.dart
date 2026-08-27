@@ -86,6 +86,23 @@ class CachedOrders extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
+@DataClassName('CachedCartItem')
+class CachedCartItems extends Table {
+  TextColumn get id => text()();
+  TextColumn get productId => text()();
+  TextColumn get variantId => text().nullable()();
+  TextColumn get name => text()();
+  IntColumn get unitPrice => integer()();
+  IntColumn get quantity => integer()();
+  TextColumn get shopId => text()();
+  TextColumn get shopName => text()();
+  TextColumn get image => text().nullable()();
+  BoolColumn get isPending => boolean().withDefault(const Constant(false))();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
 /// File d'actions différées — §9.3.
 ///
 /// Toute mutation réalisée hors ligne atterrit ici avant d'être rejouée.
@@ -108,7 +125,7 @@ class PendingActions extends Table {
 }
 
 @DriftDatabase(
-  tables: [CachedProducts, CachedShops, CachedCategories, CachedOrders, PendingActions],
+  tables: [CachedProducts, CachedShops, CachedCategories, CachedOrders, CachedCartItems, PendingActions],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_open());
@@ -117,7 +134,7 @@ class AppDatabase extends _$AppDatabase {
   /// versionnée : une mise à jour de l'application ne doit jamais effacer un
   /// panier ni une action en file d'attente.
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -129,6 +146,7 @@ class AppDatabase extends _$AppDatabase {
           // se compléteront à la prochaine synchronisation.
           if (from < 2) await m.addColumn(cachedProducts, cachedProducts.shopSlug);
           if (from < 3) await m.createTable(cachedOrders);
+          if (from < 4) await m.createTable(cachedCartItems);
         },
         beforeOpen: (details) async {
           await customStatement('PRAGMA foreign_keys = ON');
@@ -182,6 +200,15 @@ class AppDatabase extends _$AppDatabase {
     await transaction(() async {
       await delete(cachedOrders).go();
       await batch((batch) => batch.insertAll(cachedOrders, orders));
+    });
+  }
+
+  Future<List<CachedCartItem>> loadCartItems() => select(cachedCartItems).get();
+
+  Future<void> replaceCartItems(List<CachedCartItemsCompanion> items) async {
+    await transaction(() async {
+      await delete(cachedCartItems).go();
+      await batch((batch) => batch.insertAll(cachedCartItems, items));
     });
   }
 }

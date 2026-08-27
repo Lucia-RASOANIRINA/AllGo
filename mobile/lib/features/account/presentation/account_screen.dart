@@ -2,6 +2,7 @@ import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/sync/sync_providers.dart';
 import 'package:allgo/features/auth/presentation/session_controller.dart';
 import 'package:allgo/features/settings/presentation/settings_controller.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -113,6 +114,16 @@ class AccountScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: AllGoTokens.space8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space4),
+            child: TextButton.icon(
+              onPressed: () => _confirmDeleteAccount(context, ref),
+              icon: const Icon(Icons.delete_forever_outlined),
+              label: const Text('Supprimer mon compte'),
+              style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+            ),
+          ),
+          const SizedBox(height: AllGoTokens.space4),
         ],
       ),
     );
@@ -195,6 +206,41 @@ class AccountScreen extends ConsumerWidget {
     if (confirmed ?? false) {
       await ref.read(sessionControllerProvider.notifier).signOut();
       if (context.mounted) context.go('/');
+    }
+  }
+
+  Future<void> _confirmDeleteAccount(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer le compte ?'),
+        content: const Text(
+          'Votre accès et vos données personnelles seront supprimés. '
+          'Vos commandes et historiques d’activité resteront conservés.',
+        ),
+        actions: <Widget>[
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await ref.read(sessionControllerProvider.notifier).deleteAccount();
+      if (context.mounted) context.go('/');
+    } on DioException catch (error) {
+      if (!context.mounted) return;
+      final message = error.response?.data is Map<String, dynamic>
+          ? (error.response!.data as Map<String, dynamic>)['message'] as String?
+          : null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message ?? 'Impossible de supprimer le compte.')),
+      );
     }
   }
 }

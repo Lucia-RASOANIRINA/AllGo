@@ -3,12 +3,15 @@ import 'dart:async';
 import 'package:allgo/core/error/failure.dart';
 import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/core/network/json_parsing.dart';
+import 'package:allgo/core/storage/app_database.dart';
 import 'package:allgo/core/sync/pending_action.dart';
 import 'package:allgo/core/sync/sync_providers.dart';
 import 'package:allgo/features/auth/presentation/session_controller.dart';
 import 'package:allgo/features/cart/domain/cart.dart';
 import 'package:allgo/features/catalog/domain/entities/product.dart';
+import 'package:allgo/features/catalog/presentation/catalog_providers.dart';
 import 'package:dio/dio.dart';
+import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Panier — **mise à jour optimiste** (§8.2).
@@ -29,14 +32,17 @@ class CartController extends AsyncNotifier<Cart> {
     // provoquait un 401 à chaque démarrage — donc une tentative de
     // rafraîchissement de jeton parfaitement inutile.
     if (!ref.watch(sessionControllerProvider).isAuthenticated) return const Cart();
+    final database = ref.read(appDatabaseProvider);
+    final cached = _fromCache(await database.loadCartItems());
 
     try {
       final response = await ref.read(apiClientProvider).get<Map<String, dynamic>>('/cart');
-      return _fromJson(response.data!['data'] as Map<String, dynamic>?);
+      final cart = _fromJson(response.data!['data'] as Map<String, dynamic>?);
+      await _persist(cart, database);
+      return cart;
     } on DioException catch (error) {
-      // Hors ligne : panier vide plutôt qu'une erreur bloquante. Le panier
-      // local sera réconcilié à la reconnexion.
-      if (error.error is NetworkFailure) return const Cart();
+      // Hors ligne : conserver le panier local, y compris ses lignes en attente.
+      if (error.error is NetworkFailure) return cached;
       rethrow;
     }
   }
@@ -62,6 +68,8 @@ class CartController extends AsyncNotifier<Cart> {
     );
 
     state = AsyncData(optimistic);
+    final database = ref.read(appDatabaseProvider);
+    await _persist(optimistic, database);
 
     try {
       final response = await ref.read(apiClientProvider).post<Map<String, dynamic>>(
@@ -69,6 +77,7 @@ class CartController extends AsyncNotifier<Cart> {
         data: <String, dynamic>{'productId': product.id, 'quantity': quantity},
       );
       state = AsyncData(_fromJson(response.data!['data'] as Map<String, dynamic>?));
+      await _persist(state.requireValue, database);
     } on DioException catch (error) {
       if (error.error is NetworkFailure) {
         // La ligne reste affichée, marquée « en attente », et l'action part en
@@ -84,6 +93,7 @@ class CartController extends AsyncNotifier<Cart> {
       // Refus argumenté du serveur (stock insuffisant, produit retiré) : on
       // annule l'ajout optimiste et on remonte le message tel quel.
       state = AsyncData(current);
+      await _persist(current, database);
       rethrow;
     }
   }
@@ -100,6 +110,8 @@ class CartController extends AsyncNotifier<Cart> {
                 .toList(),
       ),
     );
+    final database = ref.read(appDatabaseProvider);
+    await _persist(state.requireValue, database);
 
     try {
       final api = ref.read(apiClientProvider);
@@ -110,8 +122,27 @@ class CartController extends AsyncNotifier<Cart> {
               data: <String, int>{'quantity': quantity},
             );
       state = AsyncData(_fromJson(response.data!['data'] as Map<String, dynamic>?));
+      await _persist(state.requireValue, database);
     } on DioException catch (error) {
-      if (error.error is! NetworkFailure) state = AsyncData(current);
+      if (error.error is NetworkFailure) {
+        if (lineId.startsWith('local-')) {
+          await ref.read(syncEngineProvider).enqueue(
+            PendingActionType.addToCart,
+            <String, dynamic>{
+              'productId': current.lines.firstWhere((l) => l.id == lineId).productId,
+              'quantity': quantity,
+            },
+          );
+        } else {
+          await ref.read(syncEngineProvider).enqueue(
+            quantity < 1 ? PendingActionType.removeCartItem : PendingActionType.updateCartItem,
+            <String, dynamic>{'lineId': lineId, 'quantity': quantity},
+          );
+        }
+        return;
+      }
+      state = AsyncData(current);
+      await _persist(current, database);
       rethrow;
     }
   }
@@ -152,6 +183,40 @@ class CartController extends AsyncNotifier<Cart> {
       }).toList(),
     );
   }
+
+  Cart _fromCache(List<CachedCartItem> rows) => Cart(
+        lines: rows
+            .map((row) => CartLine(
+                  id: row.id,
+                  productId: row.productId,
+                  variantId: row.variantId,
+                  name: row.name,
+                  unitPrice: row.unitPrice,
+                  quantity: row.quantity,
+                  shopId: row.shopId,
+                  shopName: row.shopName,
+                  image: row.image,
+                  isPending: row.isPending,
+                ),)
+            .toList(),
+      );
+
+  Future<void> _persist(Cart cart, AppDatabase database) => database.replaceCartItems(
+        cart.lines
+            .map((line) => CachedCartItemsCompanion.insert(
+                  id: line.id,
+                  productId: line.productId,
+                  variantId: Value(line.variantId),
+                  name: line.name,
+                  unitPrice: line.unitPrice,
+                  quantity: line.quantity,
+                  shopId: line.shopId,
+                  shopName: line.shopName,
+                  image: Value(line.image),
+                  isPending: Value(line.isPending),
+                ),)
+            .toList(),
+      );
 }
 
 final cartControllerProvider = AsyncNotifierProvider<CartController, Cart>(CartController.new);

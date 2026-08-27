@@ -5,7 +5,6 @@ import 'package:allgo/features/auth/presentation/session_controller.dart';
 import 'package:allgo/shared/widgets/allgo_logo.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -65,6 +64,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          onPressed: () => context.canPop() ? context.pop() : context.go(Routes.home),
+          icon: const Icon(Icons.arrow_back),
+          tooltip: 'Retour',
+        ),
+      ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -89,23 +95,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                     TextFormField(
                       controller: _phone,
-                      keyboardType: TextInputType.phone,
-                      autofillHints: const <String>[AutofillHints.telephoneNumber],
-                      inputFormatters: <TextInputFormatter>[
-                        FilteringTextInputFormatter.allow(RegExp(r'[0-9+\s]')),
-                      ],
+                      keyboardType: TextInputType.emailAddress,
+                      autofillHints: const <String>[AutofillHints.username],
                       decoration: const InputDecoration(
-                        labelText: 'Numéro de téléphone',
-                        hintText: '034 12 345 67',
-                        prefixIcon: Icon(Icons.phone_outlined),
+                        labelText: 'Téléphone ou email',
+                        hintText: '034 12 345 67 ou vous@exemple.com',
+                        prefixIcon: Icon(Icons.person_outline),
                       ),
                       validator: (value) {
-                        final digits = (value ?? '').replaceAll(RegExp(r'\s'), '');
-                        // Le numéro est l'identifiant principal : plus fiable
-                        // qu'une adresse email dans ce contexte (§12.2).
-                        return RegExp(r'^(\+261|0)[23]\d{8}$').hasMatch(digits)
+                        final identifier = (value ?? '').trim();
+                        final phone = identifier.replaceAll(RegExp(r'\s'), '');
+                        final valid = RegExp(r'^(\+261|0)[23]\d{8}$').hasMatch(phone) ||
+                            RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(identifier);
+                        return valid
                             ? null
-                            : 'Entrez un numéro malgache valide.';
+                            : 'Entrez un téléphone ou un email valide.';
                       },
                     ),
                     const SizedBox(height: AllGoTokens.space4),

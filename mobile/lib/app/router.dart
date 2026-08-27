@@ -1,9 +1,12 @@
 import 'package:allgo/features/account/presentation/account_screen.dart';
+import 'package:allgo/features/account/presentation/addresses_screen.dart';
+import 'package:allgo/features/account/presentation/profile_screen.dart';
 import 'package:allgo/features/auth/presentation/forgot_password_screen.dart';
 import 'package:allgo/features/auth/presentation/login_screen.dart';
 import 'package:allgo/features/auth/presentation/otp_screen.dart';
 import 'package:allgo/features/auth/presentation/register_screen.dart';
 import 'package:allgo/features/auth/presentation/session_controller.dart';
+import 'package:allgo/features/auth/presentation/token_action_screen.dart';
 import 'package:allgo/features/cart/presentation/cart_screen.dart';
 import 'package:allgo/features/cart/presentation/checkout_screen.dart';
 import 'package:allgo/features/catalog/presentation/explore_screen.dart';
@@ -145,6 +148,18 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: Routes.forgotPassword,
         builder: (context, state) => const ForgotPasswordScreen(),
       ),
+      GoRoute(
+        path: '/verification-email',
+        builder: (context, state) => EmailVerificationScreen(
+          token: state.uri.queryParameters['token'] ?? '',
+        ),
+      ),
+      GoRoute(
+        path: '/reinitialisation-mot-de-passe',
+        builder: (context, state) => ResetPasswordScreen(
+          token: state.uri.queryParameters['token'] ?? '',
+        ),
+      ),
 
       // --- Écrans empilés, hors coquille : ils occupent tout l'écran et
       //     masquent la barre de navigation (carte, fiche produit, tunnel). ---
@@ -211,7 +226,6 @@ final routerProvider = Provider<GoRouter>((ref) {
             routes: <RouteBase>[
               GoRoute(
                 path: ':id',
-                parentNavigatorKey: rootKey,
                 builder: (context, state) => OrderDetailScreen(
                   orderId: state.pathParameters['id']!,
                 ),
@@ -219,6 +233,14 @@ final routerProvider = Provider<GoRouter>((ref) {
             ],
           ),
           GoRoute(path: Routes.account, builder: (_, __) => const AccountScreen()),
+          GoRoute(
+            path: '/compte/profil',
+            builder: (_, __) => const ProfileScreen(),
+          ),
+          GoRoute(
+            path: '/compte/adresses',
+            builder: (_, __) => const AddressesScreen(),
+          ),
 
           // Onglets commerçant — lot L5.
           GoRoute(

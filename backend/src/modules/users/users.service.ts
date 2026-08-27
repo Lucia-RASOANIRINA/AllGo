@@ -39,6 +39,34 @@ export class UsersService {
     return user.toJSON();
   }
 
+  /**
+   * Désactive le compte sans supprimer les historiques métier.
+   * Les commandes gardent leurs instantanés client, prix et articles ; seules
+   * les données personnelles du compte sont anonymisées.
+   */
+  async deleteAccount(id: string): Promise<void> {
+    const user = await this.users.findById(id);
+    if (!user) throw AppError.notFound('Utilisateur');
+    if (user.status !== 'active') return;
+
+    const anonymisedPhone = `deleted-${user._id.toString()}`;
+    await this.users.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          phone: anonymisedPhone,
+          firstName: 'Compte',
+          lastName: 'supprimé',
+          status: 'suspended',
+          devices: [],
+          addresses: [],
+          sessionsInvalidBefore: new Date(),
+        },
+        $unset: { email: '', avatar: '', cover: '', bio: '' },
+      },
+    );
+  }
+
   async listAddresses(id: string): Promise<unknown[]> {
     const user = await this.users.findById(id).select('addresses').lean();
     return user?.addresses ?? [];

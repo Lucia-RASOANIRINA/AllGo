@@ -63,8 +63,8 @@ export const PreferencesSchema = SchemaFactory.createForClass(Preferences);
 export class User extends Document {
   // L'unicité est portée par les index déclarés en bas de fichier, jamais par
   // `unique: true` sur le champ : les deux ensemble créent l'index deux fois.
-  @Prop({ required: true, trim: true })
-  phone!: string;
+  @Prop({ trim: true })
+  phone?: string;
 
   @Prop({ lowercase: true, trim: true })
   email?: string;

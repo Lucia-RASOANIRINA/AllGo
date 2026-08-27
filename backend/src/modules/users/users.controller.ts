@@ -27,6 +27,17 @@ export class UsersController {
     return this.users.updateProfile(user.id, dto);
   }
 
+  @Delete()
+  @RequirePermission(Permission.ProfileUpdate)
+  @ApiOperation({
+    summary: 'Supprimer mon compte.',
+    description:
+      'Désactive et anonymise le compte. Les commandes et historiques métier sont conservés.',
+  })
+  deleteAccount(@CurrentUser() user: AuthenticatedUser) {
+    return this.users.deleteAccount(user.id);
+  }
+
   @Get('addresses')
   @RequirePermission(Permission.ProfileRead)
   @ApiOperation({ summary: 'Lister mes adresses de livraison.' })
