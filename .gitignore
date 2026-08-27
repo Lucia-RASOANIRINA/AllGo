@@ -1,0 +1,59 @@
+# --- Secrets : aucun identifiant dans le dépôt (§12.1) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.jks
+*.keystore
+key.properties
+service-account*.json
+google-services.json
+GoogleService-Info.plist
+
+# --- Node ---
+node_modules/
+dist/
+coverage/
+*.log
+npm-debug.log*
+
+# --- Flutter / Dart ---
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+*.g.dart
+*.freezed.dart
+*.gr.dart
+*.mocks.dart
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/.metadata
+
+# --- Outils ---
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.iml
+.DS_Store
+Thumbs.db
+
+# --- Données locales ---
+docker/data/
+migration/reports/
+migration/snapshots/
+
+# --- Artefacts générés ---
+# Contrat OpenAPI : reconstruit par `npm run openapi:export`, jamais édité à la main.
+backend/openapi.json
+
+# Classes de localisation : régénérées par `flutter gen-l10n` depuis les .arb.
+mobile/lib/l10n/generated/
+mobile/l10n_untranslated.json
+
+# Journaux d'outillage local
+mobile/*.log

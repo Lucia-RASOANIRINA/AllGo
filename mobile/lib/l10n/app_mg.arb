@@ -1,0 +1,29 @@
+{
+  "@@locale": "mg",
+
+  "_comment": "Malgache — seconde langue (§11.5). Traductions à faire valider par un locuteur natif de Mahajanga avant le lot L7 ; les entrées non traduites retombent automatiquement sur le français.",
+
+  "appName": "AllGo",
+  "tagline": "Ny tsenan'i Mahajanga, ao am-paosinao.",
+
+  "navHome": "Fandraisana",
+  "navExplore": "Hikaroka",
+  "navPublish": "Hamoaka",
+  "navMessages": "Hafatra",
+  "navAccount": "Kaonty",
+
+  "actionRetry": "Andramo indray",
+  "actionAddToCart": "Ampidiro anaty harona",
+  "actionOrder": "Hanafatra",
+  "actionConfirm": "Hamafiso",
+  "actionShare": "Zarao",
+  "actionCall": "Antsoy",
+  "actionSignIn": "Hiditra",
+  "actionSignOut": "Hivoaka",
+
+  "fieldPhone": "Laharana finday",
+  "fieldPassword": "Teny miafina",
+
+  "stateOffline": "Tsy misy fifandraisana",
+  "stockOut": "Lany"
+}

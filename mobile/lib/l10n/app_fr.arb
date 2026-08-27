@@ -1,0 +1,68 @@
+{
+  "@@locale": "fr",
+
+  "appName": "AllGo",
+  "tagline": "Le marché de Mahajanga, dans votre poche.",
+
+  "navHome": "Accueil",
+  "navExplore": "Explorer",
+  "navPublish": "Publier",
+  "navMessages": "Messages",
+  "navAccount": "Compte",
+  "navDashboard": "Bord",
+  "navOrders": "Commandes",
+  "navProducts": "Produits",
+  "navRound": "Tournée",
+  "navMap": "Carte",
+
+  "actionRetry": "Réessayer",
+  "actionAddToCart": "Ajouter au panier",
+  "actionOrder": "Commander",
+  "actionConfirm": "Confirmer",
+  "actionShare": "Partager",
+  "actionCall": "Appeler",
+  "actionSignIn": "Se connecter",
+  "actionSignOut": "Se déconnecter",
+  "actionOtpLogin": "Recevoir un code par SMS",
+  "actionForgotPassword": "Mot de passe oublié ?",
+
+  "fieldPhone": "Numéro de téléphone",
+  "fieldPassword": "Mot de passe",
+  "hintPhone": "034 12 345 67",
+
+  "validationPhone": "Entrez un numéro malgache valide.",
+  "validationPasswordRequired": "Entrez votre mot de passe.",
+
+  "stateOffline": "Hors ligne — données enregistrées",
+  "stateOfflineDetail": "Pas de connexion. Les données affichées peuvent ne pas être à jour.",
+  "stateEmptyCatalog": "Aucun produit pour le moment",
+  "stateEmptyCatalogDetail": "Les commerçants de Mahajanga publient chaque jour. Revenez bientôt.",
+  "stateErrorUnexpected": "Une erreur inattendue s’est produite. Réessayez dans un instant.",
+  "stateSessionExpired": "Votre session a expiré. Reconnectez-vous.",
+
+  "stockAvailable": "{count} en stock",
+  "@stockAvailable": {
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "stockOut": "Épuisé",
+
+  "orderPendingSync": "Commande en attente d’envoi",
+  "orderStatusPending": "En attente",
+  "orderStatusConfirmed": "Confirmée",
+  "orderStatusPreparing": "En préparation",
+  "orderStatusShipped": "En cours de livraison",
+  "orderStatusDelivered": "Livrée",
+  "orderStatusCancelled": "Annulée",
+
+  "distanceMetres": "{metres} m",
+  "@distanceMetres": {
+    "placeholders": { "metres": { "type": "int" } }
+  },
+  "distanceKilometres": "{km} km",
+  "@distanceKilometres": {
+    "placeholders": { "km": { "type": "String" } }
+  },
+
+  "updateRequiredTitle": "Mise à jour nécessaire",
+  "updateRequiredBody": "Cette version d’AllGo n’est plus prise en charge. Mettez à jour pour continuer."
+}

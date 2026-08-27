@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Vert AllGo, repris de l'identité web (§11.1). -->
+    <color name="ic_launcher_background">#198754</color>
+</resources>

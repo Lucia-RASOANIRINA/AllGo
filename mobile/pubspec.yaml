@@ -1,0 +1,127 @@
+name: allgo
+description: AllGo — commerce social à Mahajanga. Application Android et iOS.
+publish_to: none
+
+# MAJEUR.MINEUR.CORRECTIF+BUILD — §17.2
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # --- État et navigation ---
+  flutter_riverpod: ^2.6.1
+  go_router: ^14.6.1
+
+  # --- Réseau ---
+  dio: ^5.7.0
+  connectivity_plus: ^6.1.0
+  # `retrofit` (§5.2) n'est PAS retenu. Deux raisons :
+  #   1. il ne sait générer que des méthodes `Future<T>`, alors que le contrat
+  #      hors ligne d'abord repose sur `Stream<T>` — émettre le cache, puis le
+  #      réseau (§9.1). L'essentiel des dépôts ne serait donc pas généré ;
+  #   2. `retrofit_generator 9.7.0` ne compile pas avec `retrofit 4.10.0`
+  #      (`Parser.DartMappable` non couvert), ce qui casse toute la génération.
+  # À reconsidérer si des clients purement requête/réponse se multiplient.
+
+  # --- Modèles ---
+  # freezed 3.x : exigé sous Dart 3.13. La 2.x embarque un `analyzer` en langage
+  # 3.9 qui ne sait pas lire la syntaxe du SDK et plante en cours de génération
+  # (`Missing implementation of visitDotShorthandPropertyAccess`).
+  freezed_annotation: ^3.1.0
+  json_annotation: ^4.9.0
+
+  # --- Stockage local ---
+  # Drift plutôt qu'une base clé-valeur : le cache doit être INTERROGEABLE.
+  # Filtrer un catalogue hors ligne par catégorie et par prix impose du SQL (§5.2).
+  drift: ^2.34.3
+  # Une SEULE bibliothèque SQLite native. `sqlite3_flutter_libs` et
+  # `sqlcipher_flutter_libs` embarquent chacune une `libsqlite3.so` : les
+  # inclure toutes deux laisse l'éditeur de liens choisir, et l'application
+  # ouvre sa base avec une bibliothèque non chiffrée en croyant l'inverse.
+  #
+  # Le chiffrement local (§12.2) reste à brancher — TODO dans `app_database.dart`.
+  # La bascule sera un remplacement, pas un ajout : `sqlite3_flutter_libs`
+  # sortira au moment où `sqlcipher_flutter_libs` entrera.
+  sqlite3_flutter_libs: ^0.5.26
+  path_provider: ^2.1.5
+  path: ^1.9.0
+  flutter_secure_storage: ^9.2.2
+
+  # --- Cartographie et position ---
+  # flutter_map (OpenStreetMap) : cohérent avec Leaflet déjà utilisé sur le web,
+  # et sans coût de licence — Google Maps facturerait chaque chargement de carte.
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+  geolocator: ^13.0.2
+  geocoding: ^5.0.0
+
+  # --- Notifications ---
+  firebase_core: ^3.8.0
+  firebase_messaging: ^15.1.5
+  firebase_analytics: ^11.3.5
+  flutter_local_notifications: ^18.0.1
+
+  # --- Médias ---
+  cached_network_image: ^3.4.1
+  image_picker: ^1.1.2
+  mobile_scanner: ^6.0.2
+  # Réduction AVANT envoi : sur un forfait malgache, envoyer 4 Mo au lieu de
+  # 400 Ko n'est pas acceptable (§5.2).
+  flutter_image_compress: ^2.3.0
+
+  # --- Temps réel ---
+  socket_io_client: ^3.0.1
+
+  # --- Divers ---
+  local_auth: ^2.3.0
+  share_plus: ^10.1.2
+  url_launcher: ^6.3.1
+  # Version imposée par `flutter_localizations`, qui l'épingle exactement.
+  # La borne basse doit rester à 0.20.2 : Flutter 3.44 épingle 0.20.2, Flutter
+  # 3.47 épingle 0.20.3. Le caret couvre les deux.
+  intl: ^0.20.2
+  collection: ^1.18.0
+  sentry_flutter: ^9.27.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+
+  # Plafonné à 2.15.x : `build_runner` >= 2.15.2 réclame `analyzer` >= 13, que
+  # `freezed 3.2.5` ne supporte pas (il veut 9–11). Les deux ne peuvent pas
+  # avancer indépendamment.
+  build_runner: ">=2.15.1 <2.15.2"
+  freezed: ^3.2.5
+  json_serializable: ^6.14.1
+  drift_dev: ^2.34.0
+  mocktail: ^1.0.4
+  very_good_analysis: ^10.3.0
+
+  # --- Écartés, avec leur motif ---
+  #
+  # `custom_lint` / `riverpod_lint` : tirent `analyzer_plugin 0.12`, incompatible
+  #   avec l'`analyzer` 7.x de Dart 3.13. Le script de build de `build_runner`
+  #   cesse alors de compiler — toute la génération de code est bloquée par un
+  #   greffon de lint. À réintroduire quand l'écosystème aura suivi.
+  #
+  # `riverpod_annotation` / `riverpod_generator` : inutilisés. Les providers sont
+  #   déclarés à la main (`Provider`, `NotifierProvider`, `StreamProvider`), ce
+  #   qui reste lisible à cette échelle et évite une étape de génération de plus.
+  #
+  # `retrofit` / `retrofit_generator` : voir la note en dépendances.
+
+flutter:
+  uses-material-design: true
+  generate: true          # génère les classes de localisation depuis les .arb
+  assets:
+    - assets/images/
+    - assets/icons/

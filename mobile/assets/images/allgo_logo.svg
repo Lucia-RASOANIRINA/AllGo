@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AllGo">
+  <rect width="512" height="512" rx="116" fill="#FFFFFF"/>
+
+  <!-- Monogramme AllGo : A sombre et G turquoise traversé par la flèche. -->
+  <path d="M78 292 139 116h27l62 176h-29l-16-49h-62l-16 49Zm51-73h47l-24-72Z" fill="#0B302B"/>
+  <path d="M294 151c-42 0-73 30-73 74 0 43 31 73 73 73 25 0 43-8 58-25v-58h-76v23h47v24c-8 7-17 10-29 10-27 0-46-19-46-47 0-29 19-49 46-49 16 0 28 5 39 17l20-18c-15-16-37-24-59-24Z" fill="#18A6A6"/>
+  <path d="M302 225h72m0 0-24-24m24 24-24 24" fill="none" stroke="#18A6A6" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <text x="256" y="356" text-anchor="middle" fill="#0B302B" font-family="Arial, sans-serif" font-size="42" font-weight="500" letter-spacing="1">AllGo</text>
+</svg>

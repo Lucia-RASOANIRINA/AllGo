@@ -1,0 +1,37 @@
+# Analyse statique — §13.4 : aucun avertissement toléré en intégration continue.
+include: package:very_good_analysis/analysis_options.yaml
+
+analyzer:
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+    - "lib/l10n/generated/**"
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
+  errors:
+    # Une chaîne codée en dur est une chaîne qui ne sera jamais traduite en
+    # malgache. Les libellés sont externalisés en ARB dès la première ligne,
+    # jamais rétro-ajoutés (§11.5).
+    missing_required_param: error
+    missing_return: error
+    invalid_annotation_target: ignore
+  # Le greffon `custom_lint` est retiré : voir le motif dans `pubspec.yaml`.
+  # Le déclarer ici sans la dépendance ferait échouer `flutter analyze`.
+
+linter:
+  rules:
+    # Les dépendances du `pubspec.yaml` sont groupées par domaine (réseau,
+    # stockage, cartographie…) avec le motif de chaque choix. Un tri
+    # alphabétique disperserait ces groupes et rendrait les commentaires
+    # incompréhensibles.
+    sort_pub_dependencies: false
+    public_member_api_docs: false   # dartdoc exigé sur les API publiques de `domain` uniquement
+    lines_longer_than_80_chars: false
+    prefer_const_constructors: true
+    avoid_print: true
+    always_use_package_imports: true

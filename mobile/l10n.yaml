@@ -1,0 +1,10 @@
+arb-dir: lib/l10n
+template-arb-file: app_fr.arb
+output-localization-file: app_localizations.dart
+output-class: AppL10n
+output-dir: lib/l10n/generated
+nullable-getter: false
+
+# Les traductions malgaches encore absentes retombent sur le français plutôt
+# que d'afficher une clé brute (§11.5 — le malgache est livré au lot L7).
+untranslated-messages-file: l10n_untranslated.json

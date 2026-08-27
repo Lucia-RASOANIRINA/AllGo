@@ -1,0 +1,66 @@
+import 'reflect-metadata';
+import { ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { NestFactory } from '@nestjs/core';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import compression from 'compression';
+import helmet from 'helmet';
+import { AppModule } from './app.module';
+import { AllExceptionsFilter } from './common/http/all-exceptions.filter';
+import { ResponseInterceptor } from './common/http/response.interceptor';
+
+async function bootstrap(): Promise<void> {
+  // `rawBody` : la vérification de signature des rappels mobile money exige le
+  // corps reçu octet pour octet — re-sérialiser le JSON invaliderait le HMAC.
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
+  const config = app.get(ConfigService);
+
+  app.setGlobalPrefix(config.getOrThrow<string>('apiPrefix'));
+  app.enableShutdownHooks();
+
+  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+  app.use(compression());
+
+  // CORS strict : l'API est consommée par l'application mobile (sans origine)
+  // et par le web PHP pendant la migration. Aucune origine générique.
+  app.enableCors({
+    origin: config.getOrThrow<string[]>('corsOrigins'),
+    credentials: false,
+    maxAge: 86400,
+  });
+
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: false },
+    }),
+  );
+
+  app.useGlobalInterceptors(new ResponseInterceptor());
+  app.useGlobalFilters(new AllExceptionsFilter());
+
+  // Contrat OpenAPI généré depuis les DTO : jamais désynchronisé du code (§5.1).
+  const openapi = new DocumentBuilder()
+    .setTitle('API AllGo')
+    .setDescription(
+      'API de la plateforme de commerce social AllGo — Mahajanga, Madagascar.\n\n' +
+        'Toutes les listes sont paginées par curseur. Toute création de commande ' +
+        'ou de paiement exige un en-tête `Idempotency-Key`.',
+    )
+    .setVersion('1.0')
+    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' })
+    .addServer('https://api.allgo.mg/v1', 'Production')
+    .addServer('http://localhost:3000/v1', 'Développement local')
+    .build();
+
+  SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, openapi), {
+    swaggerOptions: { persistAuthorization: true },
+  });
+
+  const port = config.getOrThrow<number>('port');
+  await app.listen(port, '0.0.0.0');
+}
+
+void bootstrap();

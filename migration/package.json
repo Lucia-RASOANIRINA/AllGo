@@ -1,0 +1,22 @@
+{
+  "name": "@allgo/migration",
+  "version": "0.1.0",
+  "description": "Outillage de migration MariaDB → MongoDB, domaine par domaine",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "tsc",
+    "migrate": "ts-node src/cli.ts",
+    "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
+    "test": "jest"
+  },
+  "dependencies": {
+    "mongodb": "^6.11.0",
+    "mysql2": "^3.11.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  }
+}

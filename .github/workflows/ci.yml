@@ -1,0 +1,183 @@
+# Chaîne d'intégration continue — §17.1
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Analyse anti-fuite de secrets. Placée en premier et bloquante : le web
+  # versionnait des identifiants de production (§12.1), ce ne sera pas reconduit.
+  secrets:
+    name: Secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  backend:
+    name: API — lint, tests, contrat
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s
+          --health-timeout 3s --health-retries 5
+
+      # Le replica set est OBLIGATOIRE : sans lui, les transactions
+      # multi-documents de la création de commande (§6.3) n'existent pas, et
+      # les tests d'intégration échouent sur un défaut d'infrastructure plutôt
+      # que sur un défaut de code.
+      mongo:
+        image: mongo:7
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping:1}).ok'"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+
+    env:
+      MONGODB_URI: mongodb://127.0.0.1:27017/allgo-test?replicaSet=rs0&directConnection=true
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: test-access-secret-not-used-in-production
+      JWT_REFRESH_SECRET: test-refresh-secret-not-used-in-production
+      S3_ACCESS_KEY: test
+      S3_SECRET_KEY: test
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Initialiser le replica set
+        run: |
+          docker exec "$(docker ps -qf ancestor=mongo:7)" mongosh --quiet --eval '
+            rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "127.0.0.1:27017" }] })
+          '
+          # Attendre l'élection du primaire — sans quoi la première transaction
+          # part avant que le nœud sache qu'il est primaire.
+          for i in $(seq 1 30); do
+            if docker exec "$(docker ps -qf ancestor=mongo:7)" mongosh --quiet \
+                 --eval 'db.hello().isWritablePrimary' | grep -q true; then
+              echo "primaire élu"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Le primaire n'a pas été élu dans le délai imparti"; exit 1
+
+      - run: npm ci
+        working-directory: backend
+
+      - run: npm run lint
+        working-directory: backend
+
+      - name: Tests unitaires
+        working-directory: backend
+        run: npm run test:cov
+
+      # Test d'ossature des routes (§3.2, §12.1) : échoue si une route n'a ni
+      # `@Public()` ni `@RequirePermission()`. C'est le filet qui rend tenable
+      # la promesse de sécurité par défaut — il doit être bloquant.
+      - name: Tests d'intégration — ossature des routes
+        working-directory: backend
+        run: npm run test:integration
+
+      - name: Contrat OpenAPI reconstructible
+        working-directory: backend
+        run: npm run openapi:export -- openapi.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openapi
+          path: backend/openapi.json
+
+      - name: Audit des dépendances
+        working-directory: backend
+        run: npm audit --audit-level=high
+
+  mobile:
+    name: Flutter — analyse et tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+        working-directory: mobile
+
+      # `--delete-conflicting-outputs` a été retiré de build_runner 2.15 : le
+      # passer déclenche un avertissement et n'a plus aucun effet.
+      - name: Génération de code
+        working-directory: mobile
+        run: dart run build_runner build
+
+      # Les fichiers générés (`*.g.dart`, `*.freezed.dart`) sont exclus : leur
+      # mise en forme appartient à build_runner, pas à nous, et les inclure
+      # ferait échouer la CI sur du code que personne n'a écrit.
+      - name: Format
+        working-directory: mobile
+        run: |
+          FILES=$(find lib test -name '*.dart' \
+            ! -name '*.g.dart' ! -name '*.freezed.dart' \
+            ! -path 'lib/l10n/generated/*')
+          dart format --set-exit-if-changed --line-length 100 $FILES
+
+      # Seuil bloquant : `very_good_analysis` sans aucun avertissement toléré (§13.4).
+      - run: flutter analyze --fatal-infos --fatal-warnings
+        working-directory: mobile
+
+      # Couverture ≥ 70 % sur `domain` et `data` (§13.4).
+      - run: flutter test --coverage
+        working-directory: mobile
+
+      - name: Compilation APK de debug
+        working-directory: mobile
+        run: flutter build apk --debug --split-per-abi
+
+      # Budget de performance bloquant — mesure de maîtrise du risque R6 (§20).
+      # Taille de l'APK < 25 Mo, découpé par ABI (§13.1).
+      - name: Vérification du budget de taille
+        working-directory: mobile
+        run: |
+          LIMIT=$((25 * 1024 * 1024))
+          FAILED=0
+          for apk in build/app/outputs/flutter-apk/*.apk; do
+            SIZE=$(stat -c%s "$apk")
+            echo "$(basename "$apk") : $((SIZE / 1024 / 1024)) Mo"
+            if [ "$SIZE" -gt "$LIMIT" ]; then
+              echo "::error::$(basename "$apk") dépasse le budget de 25 Mo"
+              FAILED=1
+            fi
+          done
+          exit $FAILED
+
+  migration:
+    name: Outillage de migration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: migration
+      - run: npm run build
+        working-directory: migration
