@@ -5,6 +5,8 @@ import { Model, Types } from 'mongoose';
 import { AppError } from '../../common/http/app-error';
 import type { Paginated } from '../../common/http/response.interceptor';
 import { cursorFilter, decodeCursor, encodeCursor } from '../../common/pagination/cursor';
+import { openNowFilter } from '../../common/time/open-now';
+import { Review, type ReviewDocument } from './schemas/review.schema';
 import { Shop, type ShopDocument } from './schemas/shop.schema';
 
 export interface ShopQuery {
@@ -19,28 +21,12 @@ export interface ShopQuery {
   minRating?: number;
 }
 
-/**
- * Boutiques ouvertes maintenant, sur un décalage fixe UTC+3 (Madagascar, pas
- * de changement d'heure) — l'application ne cible qu'une seule ville
- * (Mahajanga), déjà assumé ailleurs (repli géographique codé en dur).
- * Comparaison de chaînes `HH:mm` zéro-paddées : valide pour du 24 h.
- */
-function openNowFilter(): Record<string, unknown> {
-  const utcPlus3 = new Date(Date.now() + 3 * 60 * 60 * 1000);
-  const isoDay = utcPlus3.getUTCDay() === 0 ? 7 : utcPlus3.getUTCDay();
-  const hhmm =
-    String(utcPlus3.getUTCHours()).padStart(2, '0') +
-    ':' +
-    String(utcPlus3.getUTCMinutes()).padStart(2, '0');
-
-  return {
-    openingHours: { $elemMatch: { day: isoDay, open: { $lte: hhmm }, close: { $gte: hhmm } } },
-  };
-}
-
 @Injectable()
 export class ShopsService {
-  constructor(@InjectModel(Shop.name) private readonly shops: Model<ShopDocument>) {}
+  constructor(
+    @InjectModel(Shop.name) private readonly shops: Model<ShopDocument>,
+    @InjectModel(Review.name) private readonly reviews: Model<ReviewDocument>,
+  ) {}
 
   async list(query: ShopQuery): Promise<Paginated<unknown>> {
     // Seules les boutiques validées sont publiques : la modération reste sur le
@@ -141,5 +127,87 @@ export class ShopsService {
       .find({ 'team.userId': new Types.ObjectId(userId) })
       .select('name slug logo status stats')
       .lean();
+  }
+
+  /** Avis d'une boutique, paginés par curseur — même motif que le catalogue. */
+  async listReviews(shopId: string, limit: number, cursor?: string): Promise<Paginated<unknown>> {
+    const filter: Record<string, unknown> = { shopId: new Types.ObjectId(shopId) };
+    if (cursor) Object.assign(filter, cursorFilter('createdAt', decodeCursor(cursor)));
+
+    const docs = await this.reviews
+      .find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(limit + 1)
+      .lean();
+
+    const hasMore = docs.length > limit;
+    const items = hasMore ? docs.slice(0, limit) : docs;
+    const last = items[items.length - 1];
+
+    return {
+      items,
+      hasMore,
+      nextCursor:
+        hasMore && last
+          ? encodeCursor({ value: last.createdAt.toISOString(), id: String(last._id) })
+          : null,
+    };
+  }
+
+  /**
+   * Dépose ou remplace mon avis (upsert sur l'index unique `{shopId, userId}`)
+   * — un client ne peut avoir qu'un avis par boutique, la déposer à nouveau la
+   * met simplement à jour plutôt que d'en créer un doublon.
+   */
+  async upsertReview(
+    shopId: string,
+    userId: string,
+    author: { name: string; avatar?: string },
+    rating: number,
+    comment: string | undefined,
+  ): Promise<unknown> {
+    const shop = await this.shops.findById(shopId).select('_id').lean();
+    if (!shop) throw AppError.notFound('Boutique');
+
+    await this.reviews.updateOne(
+      { shopId: new Types.ObjectId(shopId), userId: new Types.ObjectId(userId) },
+      { $set: { author, rating, comment, createdAt: new Date() } },
+      { upsert: true },
+    );
+    await this.recomputeReviewStats(shopId);
+
+    return this.reviews
+      .findOne({ shopId: new Types.ObjectId(shopId), userId: new Types.ObjectId(userId) })
+      .lean();
+  }
+
+  async removeOwnReview(shopId: string, userId: string): Promise<void> {
+    await this.reviews.deleteOne({
+      shopId: new Types.ObjectId(shopId),
+      userId: new Types.ObjectId(userId),
+    });
+    await this.recomputeReviewStats(shopId);
+  }
+
+  /**
+   * Recalcule `stats.rating`/`stats.reviewCount` par agrégation complète.
+   * Le volume par boutique reste faible à cette échelle : un recalcul entier
+   * est largement suffisant, pas besoin d'un compteur incrémental fragile.
+   */
+  private async recomputeReviewStats(shopId: string): Promise<void> {
+    const [agg] = await this.reviews.aggregate<{ avgRating: number; count: number }>([
+      { $match: { shopId: new Types.ObjectId(shopId) } },
+      { $group: { _id: null, avgRating: { $avg: '$rating' }, count: { $sum: 1 } } },
+    ]);
+
+    await this.shops.updateOne(
+      { _id: shopId },
+      {
+        $set: {
+          'stats.rating': agg ? Math.round(agg.avgRating * 10) / 10 : 0,
+          'stats.reviewCount': agg?.count ?? 0,
+        },
+      },
+    );
   }
 }

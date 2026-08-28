@@ -39,19 +39,35 @@ class NearbyQuery {
     required this.longitude,
     this.radiusKm = 5,
     this.categoryId,
+    this.openNow = false,
+    this.closedNow = false,
   });
 
   final double latitude;
   final double longitude;
   final double radiusKm;
   final String? categoryId;
+  final bool openNow;
 
-  NearbyQuery copyWith({double? radiusKm, String? categoryId, bool clearCategory = false}) {
+  /// Ignoré côté serveur si `openNow` est aussi vrai (§ `GeoService.nearbyShops`).
+  final bool closedNow;
+
+  NearbyQuery copyWith({
+    double? latitude,
+    double? longitude,
+    double? radiusKm,
+    String? categoryId,
+    bool clearCategory = false,
+    bool? openNow,
+    bool? closedNow,
+  }) {
     return NearbyQuery(
-      latitude: latitude,
-      longitude: longitude,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
       radiusKm: radiusKm ?? this.radiusKm,
       categoryId: clearCategory ? null : (categoryId ?? this.categoryId),
+      openNow: openNow ?? this.openNow,
+      closedNow: closedNow ?? this.closedNow,
     );
   }
 }

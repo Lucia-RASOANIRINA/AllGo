@@ -33,6 +33,15 @@ final AutoDisposeFutureProvider<List<NearbyShop>> nearbyShopsProvider =
   return ref.watch(geoRepositoryProvider).nearbyShops(query);
 });
 
+/// Produits à proximité — carte, même requête que `nearbyShopsProvider`.
+final AutoDisposeFutureProvider<List<NearbyProduct>> nearbyProductsMapProvider =
+    FutureProvider.autoDispose<List<NearbyProduct>>((ref) async {
+  final query = ref.watch(nearbyQueryProvider);
+  if (query == null) return <NearbyProduct>[];
+
+  return ref.watch(geoRepositoryProvider).nearbyProducts(query);
+});
+
 /// Boutiques proches — rail d'accueil, basé sur la position courante (repli
 /// Mahajanga inclus). Se vide silencieusement sans réseau/position.
 final AutoDisposeFutureProvider<List<NearbyShop>> nearbyShopsHomeProvider =

@@ -12,6 +12,8 @@ abstract class NearbyProduct with _$NearbyProduct {
     required String name,
     required int price,
     required int distanceM,
+    required double latitude,
+    required double longitude,
     String? slug,
     int? promoPrice,
     String? thumbUrl,

@@ -18,6 +18,8 @@ class GeoRepositoryImpl implements GeoRepository {
         'lng': query.longitude,
         'radius': query.radiusKm,
         if (query.categoryId != null) 'category': query.categoryId,
+        if (query.openNow) 'openNow': true,
+        if (query.closedNow) 'closedNow': true,
         'limit': 50,
       },
     );
@@ -102,6 +104,10 @@ class GeoRepositoryImpl implements GeoRepository {
     final media = (json['media'] as List<dynamic>?) ?? const <dynamic>[];
     final main = media.isEmpty ? null : media.first as Map<String, dynamic>;
     final shop = (json['shop'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    // ATTENTION : `coordinates` est en GeoJSON, donc [longitude, latitude].
+    final coordinates =
+        ((json['location'] as Map<String, dynamic>?)?['coordinates'] as List<dynamic>?) ??
+            const <dynamic>[0, 0];
 
     return NearbyProduct(
       id: idFromJson(json),
@@ -109,6 +115,8 @@ class GeoRepositoryImpl implements GeoRepository {
       price: moneyFromJson(json['price']),
       promoPrice: json['promoPrice'] == null ? null : moneyFromJson(json['promoPrice']),
       distanceM: (json['distanceM'] as num?)?.round() ?? 0,
+      longitude: doubleFromJson(coordinates[0]),
+      latitude: doubleFromJson(coordinates[1]),
       slug: json['slug'] as String?,
       thumbUrl: main?['thumbUrl'] as String?,
       shopId: json['shopId'] as String?,

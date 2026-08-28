@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { closedNowFilter, openNowFilter } from '../../common/time/open-now';
 import { Product, type ProductDocument } from '../catalog/schemas/product.schema';
 import { Shop, type ShopDocument } from '../shops/schemas/shop.schema';
 
@@ -9,6 +10,8 @@ export interface NearbyQuery {
   lat: number;
   radiusKm: number;
   categoryId?: string;
+  openNow?: boolean;
+  closedNow?: boolean;
   limit: number;
 }
 
@@ -35,6 +38,8 @@ export class GeoService {
   async nearbyShops(query: NearbyQuery): Promise<unknown[]> {
     const filter: Record<string, unknown> = { status: 'approved' };
     if (query.categoryId) filter.categoryId = new Types.ObjectId(query.categoryId);
+    if (query.openNow) Object.assign(filter, openNowFilter());
+    else if (query.closedNow) Object.assign(filter, closedNowFilter());
 
     return this.shops.aggregate([
       {

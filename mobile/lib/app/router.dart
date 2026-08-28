@@ -14,6 +14,8 @@ import 'package:allgo/features/catalog/presentation/product_detail_screen.dart';
 import 'package:allgo/features/geo/presentation/map_screen.dart';
 import 'package:allgo/features/home/presentation/home_screen.dart';
 import 'package:allgo/features/home/presentation/shell_scaffold.dart';
+import 'package:allgo/features/messaging/presentation/chat_screen.dart';
+import 'package:allgo/features/messaging/presentation/messages_list_screen.dart';
 import 'package:allgo/features/orders/presentation/order_detail_screen.dart';
 import 'package:allgo/features/orders/presentation/orders_screen.dart';
 import 'package:allgo/features/shops/presentation/shop_screen.dart';
@@ -51,6 +53,7 @@ abstract final class Routes {
   static const String checkout = '/panier/livraison';
   static const String publish = '/publier';
   static const String messages = '/messages';
+  static const String messageDetail = '/messages/:conversationId';
   static const String privacy = '/confidentialite';
 
   // --- Onglets commerçant (lot L5) ---
@@ -64,6 +67,7 @@ abstract final class Routes {
   static String productPath(String id) => '/produit/$id';
   static String orderPath(String id) => '/commandes/$id';
   static String shopPath(String slug) => '/boutique/$slug';
+  static String messagePath(String conversationId) => '/messages/$conversationId';
 
   /// Tous les chemins déclarés — vérifiés un à un par `router_test.dart`.
   ///
@@ -89,6 +93,7 @@ abstract final class Routes {
     checkout,
     publish,
     messages,
+    messageDetail,
     privacy,
     dashboard,
     shopOrders,
@@ -171,7 +176,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: Routes.map,
         parentNavigatorKey: rootKey,
-        builder: (context, state) => const MapScreen(),
+        builder: (context, state) =>
+            MapScreen(focus: state.extra as ({double latitude, double longitude})?),
       ),
       GoRoute(
         path: Routes.checkout,
@@ -195,10 +201,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: Routes.messages,
         parentNavigatorKey: rootKey,
-        builder: (context, state) => const ComingSoonScreen(
-          title: 'Messages',
-          lot: 'L4 — Communication',
-          detail: 'Messagerie temps réel par Socket.IO, en remplacement du sondage HTTP.',
+        builder: (context, state) => const MessagesListScreen(),
+      ),
+      GoRoute(
+        path: Routes.messageDetail,
+        parentNavigatorKey: rootKey,
+        builder: (context, state) => ChatScreen(
+          conversationId: state.pathParameters['conversationId']!,
+          title: state.extra as String?,
         ),
       ),
       GoRoute(

@@ -12,8 +12,14 @@ import {
   ReactionSchema,
 } from './schemas/interactions.schema';
 import { Product, ProductSchema } from '../catalog/schemas/product.schema';
+import { Shop, ShopSchema } from '../shops/schemas/shop.schema';
+import { UsersModule } from '../users/users.module';
 import { FavoritesController } from './favorites.controller';
 import { FavoritesService } from './favorites.service';
+import { FollowsController } from './follows.controller';
+import { FollowsService } from './follows.service';
+import { PostsController } from './posts.controller';
+import { PostsService } from './posts.service';
 import { Post, PostSchema } from './schemas/post.schema';
 import { Story, StorySchema } from './schemas/story.schema';
 
@@ -35,10 +41,12 @@ import { Story, StorySchema } from './schemas/story.schema';
       { name: Favorite.name, schema: FavoriteSchema },
       { name: Story.name, schema: StorySchema },
       { name: Product.name, schema: ProductSchema },
+      { name: Shop.name, schema: ShopSchema },
     ]),
+    UsersModule,
   ],
-  controllers: [FavoritesController],
-  providers: [FavoritesService],
+  controllers: [FavoritesController, FollowsController, PostsController],
+  providers: [FavoritesService, FollowsService, PostsService],
   exports: [MongooseModule],
 })
 export class SocialModule {}

@@ -1,14 +1,16 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
-import { ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
+import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsIn,
+  IsInt,
   IsMongoId,
   IsNumber,
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 
@@ -16,7 +18,22 @@ import { CurrentUser, Public, RequirePermission } from '../../common/decorators/
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 import { Permission } from '../../common/rbac/permissions';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
+import { UsersService } from '../users/users.service';
 import { ShopsService } from './shops.service';
+
+export class UpsertReviewDto {
+  @ApiProperty({ minimum: 1, maximum: 5 })
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  rating!: number;
+
+  @ApiPropertyOptional({ maxLength: 1000 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  comment?: string;
+}
 
 export class ShopQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional() @IsOptional() @IsString() q?: string;
@@ -65,7 +82,10 @@ export class ShopQueryDto extends PaginationQueryDto {
 @ApiTags('Boutiques')
 @Controller()
 export class ShopsController {
-  constructor(private readonly shops: ShopsService) {}
+  constructor(
+    private readonly shops: ShopsService,
+    private readonly users: UsersService,
+  ) {}
 
   @Public()
   @Get('shops')
@@ -110,5 +130,44 @@ export class ShopsController {
   @ApiOperation({ summary: 'Membres de l’équipe.' })
   team(@Param('shopId') shopId: string) {
     return this.shops.team(shopId);
+  }
+
+  @Public()
+  @Get('shops/:shopId/reviews')
+  @ApiOperation({ summary: 'Avis d’une boutique.' })
+  reviews(@Param('shopId') shopId: string, @Query() query: PaginationQueryDto) {
+    return this.shops.listReviews(shopId, query.limit, query.cursor);
+  }
+
+  @Post('shops/:shopId/reviews')
+  @RequirePermission(Permission.ProfileUpdate)
+  @ApiOperation({
+    summary: 'Déposer ou remplacer mon avis.',
+    description: 'Un seul avis par client et par boutique : le redéposer le met à jour.',
+  })
+  async upsertReview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('shopId') shopId: string,
+    @Body() dto: UpsertReviewDto,
+  ) {
+    const profile = (await this.users.findById(user.id)) as {
+      firstName: string;
+      lastName: string;
+      avatar?: string;
+    };
+    return this.shops.upsertReview(
+      shopId,
+      user.id,
+      { name: `${profile.firstName} ${profile.lastName}`.trim(), avatar: profile.avatar },
+      dto.rating,
+      dto.comment,
+    );
+  }
+
+  @Delete('shops/:shopId/reviews/me')
+  @RequirePermission(Permission.ProfileUpdate)
+  @ApiOperation({ summary: 'Retirer mon avis.' })
+  removeReview(@CurrentUser() user: AuthenticatedUser, @Param('shopId') shopId: string) {
+    return this.shops.removeOwnReview(shopId, user.id);
   }
 }

@@ -2,6 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiPropertyOptional, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsLatitude,
   IsLongitude,
   IsMongoId,
@@ -48,6 +49,21 @@ export class NearbyShopsQueryDto {
   @Min(1)
   @Max(100)
   limit = 50;
+
+  @ApiPropertyOptional({ description: 'Ne renvoyer que les boutiques ouvertes maintenant.' })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  openNow?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Ne renvoyer que les boutiques fermées maintenant. Ignoré si `openNow` est aussi vrai.',
+  })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  closedNow?: boolean;
 }
 
 export class NearbyProductsQueryDto extends NearbyShopsQueryDto {}
@@ -71,6 +87,8 @@ export class GeoController {
       lng: query.lng,
       radiusKm: query.radius,
       categoryId: query.category,
+      openNow: query.openNow,
+      closedNow: query.closedNow,
       limit: query.limit,
     });
   }

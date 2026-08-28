@@ -117,5 +117,10 @@ void main() {
       expect(Routes.shopPath('epicerie-mahavoky'), '/boutique/epicerie-mahavoky');
       expect(Routes.shop, '/boutique/:slug');
     });
+
+    test('messagePath correspond au motif déclaré', () {
+      expect(Routes.messagePath('abc123'), '/messages/abc123');
+      expect(Routes.messageDetail, '/messages/:conversationId');
+    });
   });
 }
