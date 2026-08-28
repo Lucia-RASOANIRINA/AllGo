@@ -50,6 +50,8 @@ export class NearbyShopsQueryDto {
   limit = 50;
 }
 
+export class NearbyProductsQueryDto extends NearbyShopsQueryDto {}
+
 @ApiTags('Géolocalisation')
 @Controller('geo')
 export class GeoController {
@@ -65,6 +67,24 @@ export class GeoController {
   })
   nearby(@Query() query: NearbyShopsQueryDto) {
     return this.geo.nearbyShops({
+      lat: query.lat,
+      lng: query.lng,
+      radiusKm: query.radius,
+      categoryId: query.category,
+      limit: query.limit,
+    });
+  }
+
+  @Public()
+  @Get('products')
+  @ApiOperation({
+    summary: 'Produits à proximité, triés par distance croissante.',
+    description:
+      'Même principe que `/geo/shops`, sur la position dénormalisée de chaque ' +
+      'produit : pas de jointure sur la boutique.',
+  })
+  nearbyProducts(@Query() query: NearbyProductsQueryDto) {
+    return this.geo.nearbyProducts({
       lat: query.lat,
       lng: query.lng,
       radiusKm: query.radius,

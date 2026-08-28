@@ -1,7 +1,16 @@
 import { Controller, Get, Header, Param, Query } from '@nestjs/common';
 import { ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsMongoId, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsMongoId,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 
 import { Public } from '../../common/decorators/auth.decorators';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
@@ -36,6 +45,35 @@ export class ProductQueryDto extends PaginationQueryDto {
   @Type(() => Boolean)
   @IsBoolean()
   inStock?: boolean;
+
+  @ApiPropertyOptional({
+    enum: ['new', 'popular'],
+    default: 'new',
+    description: 'Tri : plus récents ou plus consultés (`stats.views`).',
+  })
+  @IsOptional()
+  @IsIn(['new', 'popular'])
+  sort?: 'new' | 'popular';
+
+  @ApiPropertyOptional({ description: 'Ne renvoyer que les produits en promotion.' })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  onSale?: boolean;
+
+  @ApiPropertyOptional({ description: 'Ne renvoyer que les promotions flash actives.' })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  flashOnly?: boolean;
+
+  @ApiPropertyOptional({ description: 'Note minimale (`stats.rating`), de 0 à 5.' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(5)
+  minRating?: number;
 }
 
 @ApiTags('Catalogue')
@@ -57,6 +95,10 @@ export class CatalogController {
       minPrice: query.minPrice,
       maxPrice: query.maxPrice,
       inStock: query.inStock,
+      sort: query.sort,
+      onSale: query.onSale,
+      flashOnly: query.flashOnly,
+      minRating: query.minRating,
     });
   }
 

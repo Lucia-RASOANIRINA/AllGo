@@ -1,4 +1,5 @@
 import 'package:allgo/core/network/json_parsing.dart';
+import 'package:allgo/features/geo/domain/nearby_product.dart';
 import 'package:allgo/features/geo/domain/nearby_shop.dart';
 import 'package:dio/dio.dart';
 import 'package:geolocator/geolocator.dart';
@@ -23,6 +24,24 @@ class GeoRepositoryImpl implements GeoRepository {
 
     return (response.data!['data'] as List<dynamic>)
         .map((json) => _fromJson(json as Map<String, dynamic>))
+        .toList();
+  }
+
+  @override
+  Future<List<NearbyProduct>> nearbyProducts(NearbyQuery query) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/geo/products',
+      queryParameters: <String, dynamic>{
+        'lat': query.latitude,
+        'lng': query.longitude,
+        'radius': query.radiusKm,
+        if (query.categoryId != null) 'category': query.categoryId,
+        'limit': 50,
+      },
+    );
+
+    return (response.data!['data'] as List<dynamic>)
+        .map((json) => _productFromJson(json as Map<String, dynamic>))
         .toList();
   }
 
@@ -76,6 +95,24 @@ class GeoRepositoryImpl implements GeoRepository {
       reviewCount: stats['reviewCount'] as int? ?? 0,
       productCount: stats['productCount'] as int? ?? 0,
       deliveryRadiusKm: json['deliveryRadiusKm'] as int? ?? 5,
+    );
+  }
+
+  NearbyProduct _productFromJson(Map<String, dynamic> json) {
+    final media = (json['media'] as List<dynamic>?) ?? const <dynamic>[];
+    final main = media.isEmpty ? null : media.first as Map<String, dynamic>;
+    final shop = (json['shop'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+
+    return NearbyProduct(
+      id: idFromJson(json),
+      name: json['name'] as String? ?? '',
+      price: moneyFromJson(json['price']),
+      promoPrice: json['promoPrice'] == null ? null : moneyFromJson(json['promoPrice']),
+      distanceM: (json['distanceM'] as num?)?.round() ?? 0,
+      slug: json['slug'] as String?,
+      thumbUrl: main?['thumbUrl'] as String?,
+      shopId: json['shopId'] as String?,
+      shopName: shop['name'] as String?,
     );
   }
 }

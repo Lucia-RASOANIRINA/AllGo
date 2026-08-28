@@ -1,3 +1,4 @@
+import 'package:allgo/features/geo/domain/nearby_product.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 part 'nearby_shop.freezed.dart';
@@ -57,6 +58,9 @@ class NearbyQuery {
 
 abstract interface class GeoRepository {
   Future<List<NearbyShop>> nearbyShops(NearbyQuery query);
+
+  /// Produits à proximité — `GET /geo/products`.
+  Future<List<NearbyProduct>> nearbyProducts(NearbyQuery query);
 
   /// Position courante de l'appareil.
   ///

@@ -60,6 +60,15 @@ export class Shop extends Document {
 
   @Prop({ default: 5 }) deliveryRadiusKm!: number;
 
+  /**
+   * Modes de remise proposés. `delivery: true` par défaut : c'était déjà le
+   * seul mode possible avant l'ajout de ce champ (`deliveryRadiusKm` existait
+   * sans alternative) — les boutiques déjà en base restent donc correctement
+   * classées « livraison » sans migration.
+   */
+  @Prop({ type: Object, default: { delivery: true, pickup: false } })
+  fulfillment!: { delivery: boolean; pickup: boolean };
+
   @Prop({ type: [OpeningHoursSchema], default: [] }) openingHours!: OpeningHours[];
   @Prop({ type: [TeamMemberSchema], default: [] }) team!: TeamMember[];
 

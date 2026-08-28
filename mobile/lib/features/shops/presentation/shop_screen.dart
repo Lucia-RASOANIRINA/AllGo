@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/core/network/json_parsing.dart';
+import 'package:allgo/core/storage/app_database.dart';
 import 'package:allgo/features/catalog/domain/entities/product.dart';
 import 'package:allgo/features/catalog/domain/repositories/product_repository.dart';
 import 'package:allgo/features/catalog/presentation/catalog_providers.dart';
 import 'package:allgo/features/home/presentation/home_screen.dart';
 import 'package:allgo/shared/widgets/async_view.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -68,7 +70,7 @@ final AutoDisposeFutureProviderFamily<ShopDetail, String> shopBySlugProvider =
   final address = (json['address'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
   final stats = (json['stats'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
 
-  return ShopDetail(
+  final detail = ShopDetail(
     id: idFromJson(json),
     slug: json['slug'] as String,
     name: json['name'] as String,
@@ -92,6 +94,19 @@ final AutoDisposeFutureProviderFamily<ShopDetail, String> shopBySlugProvider =
       );
     }).toList(),
   );
+
+  // Alimente le rail « boutiques récemment consultées » de l'accueil.
+  await ref.watch(appDatabaseProvider).recordShopView(
+        RecentlyViewedShopsCompanion.insert(
+          id: detail.id,
+          slug: detail.slug,
+          name: detail.name,
+          logo: Value(detail.logo),
+          viewedAt: DateTime.now(),
+        ),
+      );
+
+  return detail;
 });
 
 /// Catalogue d'une boutique donnée, réutilisant le dépôt hors ligne d'abord.

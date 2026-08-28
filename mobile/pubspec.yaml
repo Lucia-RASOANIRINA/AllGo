@@ -72,6 +72,9 @@ dependencies:
   cached_network_image: ^3.4.1
   image_picker: ^1.1.2
   mobile_scanner: ^6.0.2
+  # Recherche vocale (§ Explorer) : gère elle-même la demande de permission
+  # micro, comme `geolocator`/`mobile_scanner` déjà ci-dessus.
+  speech_to_text: ^7.0.0
   # Réduction AVANT envoi : sur un forfait malgache, envoyer 4 Mo au lieu de
   # 400 Ko n'est pas acceptable (§5.2).
   flutter_image_compress: ^2.3.0

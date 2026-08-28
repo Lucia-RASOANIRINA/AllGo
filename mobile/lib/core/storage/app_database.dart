@@ -103,6 +103,52 @@ class CachedCartItems extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
+/// Historique local de consultation — alimente les rails « récemment
+/// consultés » de l'accueil. Local uniquement, non synchronisé : purement une
+/// commodité de navigation par appareil, pas une donnée métier.
+@DataClassName('RecentlyViewedProduct')
+class RecentlyViewedProducts extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  TextColumn get thumbUrl => text().nullable()();
+  IntColumn get price => integer()();
+  IntColumn get promoPrice => integer().nullable()();
+  TextColumn get shopId => text()();
+  TextColumn get shopName => text()();
+
+  /// Sert à dériver la catégorie dominante des recommandations personnalisées.
+  TextColumn get categoryId => text().nullable()();
+  DateTimeColumn get viewedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+@DataClassName('RecentlyViewedShop')
+class RecentlyViewedShops extends Table {
+  TextColumn get id => text()();
+  TextColumn get slug => text()();
+  TextColumn get name => text()();
+  TextColumn get logo => text().nullable()();
+  DateTimeColumn get viewedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+/// Historique de recherche local — alimente l'historique et les suggestions
+/// de l'écran Explorer. `scope` distingue les recherches produits/boutiques,
+/// qui partagent une seule barre de recherche mais des résultats séparés.
+@DataClassName('SearchHistoryEntry')
+class SearchHistoryEntries extends Table {
+  TextColumn get query => text()();
+  TextColumn get scope => text()();
+  DateTimeColumn get searchedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {query, scope};
+}
+
 /// File d'actions différées — §9.3.
 ///
 /// Toute mutation réalisée hors ligne atterrit ici avant d'être rejouée.
@@ -125,7 +171,17 @@ class PendingActions extends Table {
 }
 
 @DriftDatabase(
-  tables: [CachedProducts, CachedShops, CachedCategories, CachedOrders, CachedCartItems, PendingActions],
+  tables: [
+    CachedProducts,
+    CachedShops,
+    CachedCategories,
+    CachedOrders,
+    CachedCartItems,
+    PendingActions,
+    RecentlyViewedProducts,
+    RecentlyViewedShops,
+    SearchHistoryEntries,
+  ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_open());
@@ -134,7 +190,7 @@ class AppDatabase extends _$AppDatabase {
   /// versionnée : une mise à jour de l'application ne doit jamais effacer un
   /// panier ni une action en file d'attente.
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -147,6 +203,11 @@ class AppDatabase extends _$AppDatabase {
           if (from < 2) await m.addColumn(cachedProducts, cachedProducts.shopSlug);
           if (from < 3) await m.createTable(cachedOrders);
           if (from < 4) await m.createTable(cachedCartItems);
+          if (from < 5) {
+            await m.createTable(recentlyViewedProducts);
+            await m.createTable(recentlyViewedShops);
+          }
+          if (from < 6) await m.createTable(searchHistoryEntries);
         },
         beforeOpen: (details) async {
           await customStatement('PRAGMA foreign_keys = ON');
@@ -187,10 +248,55 @@ class AppDatabase extends _$AppDatabase {
   Future<void> evictExpired() async {
     final productCutoff = DateTime.now().subtract(const Duration(days: 30));
     final shopCutoff = DateTime.now().subtract(const Duration(days: 7));
+    final recentlyViewedCutoff = DateTime.now().subtract(const Duration(days: 90));
 
     await (delete(cachedProducts)..where((t) => t.cachedAt.isSmallerThanValue(productCutoff))).go();
     await (delete(cachedShops)..where((t) => t.cachedAt.isSmallerThanValue(shopCutoff))).go();
+    await (delete(recentlyViewedProducts)
+          ..where((t) => t.viewedAt.isSmallerThanValue(recentlyViewedCutoff)))
+        .go();
+    await (delete(recentlyViewedShops)
+          ..where((t) => t.viewedAt.isSmallerThanValue(recentlyViewedCutoff)))
+        .go();
   }
+
+  /// Enregistre (ou met à jour l'horodatage d') une consultation de produit.
+  Future<void> recordProductView(RecentlyViewedProductsCompanion row) =>
+      into(recentlyViewedProducts).insertOnConflictUpdate(row);
+
+  Future<void> recordShopView(RecentlyViewedShopsCompanion row) =>
+      into(recentlyViewedShops).insertOnConflictUpdate(row);
+
+  Future<List<RecentlyViewedProduct>> recentProducts({int limit = 10}) =>
+      (select(recentlyViewedProducts)
+            ..orderBy([(t) => OrderingTerm.desc(t.viewedAt)])
+            ..limit(limit))
+          .get();
+
+  Future<List<RecentlyViewedShop>> recentShops({int limit = 10}) => (select(recentlyViewedShops)
+        ..orderBy([(t) => OrderingTerm.desc(t.viewedAt)])
+        ..limit(limit))
+      .get();
+
+  /// Enregistre (ou met à jour l'horodatage d') une recherche aboutie.
+  Future<void> recordSearch(String query, String scope) => into(searchHistoryEntries)
+      .insertOnConflictUpdate(
+        SearchHistoryEntriesCompanion.insert(
+          query: query,
+          scope: scope,
+          searchedAt: DateTime.now(),
+        ),
+      );
+
+  Future<List<SearchHistoryEntry>> recentSearches(String scope, {int limit = 10}) =>
+      (select(searchHistoryEntries)
+            ..where((t) => t.scope.equals(scope))
+            ..orderBy([(t) => OrderingTerm.desc(t.searchedAt)])
+            ..limit(limit))
+          .get();
+
+  Future<void> clearSearchHistory(String scope) =>
+      (delete(searchHistoryEntries)..where((t) => t.scope.equals(scope))).go();
 
   Future<List<CachedOrder>> loadOrders() => (select(cachedOrders)
         ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))

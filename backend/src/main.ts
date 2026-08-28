@@ -19,7 +19,13 @@ async function bootstrap(): Promise<void> {
   app.enableShutdownHooks();
 
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-  app.use(compression());
+  // Seuil relevé (défaut 1 Ko) : le client mobile (Dio/dart:io sur émulateur
+  // Android) corrompt certaines réponses `Content-Encoding: gzip` en dessous
+  // de quelques Ko — bogue d'interaction plateforme, hors de portée ici. Les
+  // réponses de cette API restent presque toujours sous ce seuil (§7.1 :
+  // projections minimales), la compression garde donc son intérêt sur les
+  // rares réponses volumineuses (arborescence de catégories étendue, etc.).
+  app.use(compression({ threshold: '8kb' }));
 
   // CORS strict : l'API est consommée par l'application mobile (sans origine)
   // et par le web PHP pendant la migration. Aucune origine générique.

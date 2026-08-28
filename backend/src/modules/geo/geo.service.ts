@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { Product, type ProductDocument } from '../catalog/schemas/product.schema';
 import { Shop, type ShopDocument } from '../shops/schemas/shop.schema';
 
 export interface NearbyQuery {
@@ -13,7 +14,10 @@ export interface NearbyQuery {
 
 @Injectable()
 export class GeoService {
-  constructor(@InjectModel(Shop.name) private readonly shops: Model<ShopDocument>) {}
+  constructor(
+    @InjectModel(Shop.name) private readonly shops: Model<ShopDocument>,
+    @InjectModel(Product.name) private readonly products: Model<ProductDocument>,
+  ) {}
 
   /**
    * Recherche de boutiques par proximité — fonction « WiFiMarkets ».
@@ -57,6 +61,42 @@ export class GeoService {
           'stats.rating': 1,
           'stats.reviewCount': 1,
           'stats.productCount': 1,
+          distanceM: { $round: ['$distanceM', 0] },
+        },
+      },
+    ]);
+  }
+
+  /**
+   * Recherche de produits par proximité, sur la position dénormalisée du
+   * produit (recopiée de sa boutique — voir `Product.location`). Même
+   * pipeline que `nearbyShops` : `$geoNear` en premier, projection restreinte.
+   */
+  async nearbyProducts(query: NearbyQuery): Promise<unknown[]> {
+    const filter: Record<string, unknown> = { status: 'published' };
+    if (query.categoryId) filter.categoryId = new Types.ObjectId(query.categoryId);
+
+    return this.products.aggregate([
+      {
+        $geoNear: {
+          near: { type: 'Point', coordinates: [query.lng, query.lat] },
+          distanceField: 'distanceM',
+          maxDistance: query.radiusKm * 1000,
+          spherical: true,
+          query: filter,
+        },
+      },
+      { $limit: query.limit },
+      {
+        $project: {
+          name: 1,
+          slug: 1,
+          price: 1,
+          promoPrice: 1,
+          media: { $slice: ['$media', 1] },
+          shopId: 1,
+          'shop.name': 1,
+          location: 1,
           distanceM: { $round: ['$distanceM', 0] },
         },
       },

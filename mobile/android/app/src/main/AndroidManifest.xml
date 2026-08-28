@@ -14,6 +14,9 @@
     <!-- Appareil photo : scan de code-barres et publication (§2.2). -->
     <uses-permission android:name="android.permission.CAMERA"/>
 
+    <!-- Micro : recherche vocale (écran Explorer). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+
     <!-- L'appareil photo n'est pas exigée : un téléphone sans caméra doit
          pouvoir installer l'application et acheter. -->
     <uses-feature android:name="android.hardware.camera" android:required="false"/>

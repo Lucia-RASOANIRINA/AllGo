@@ -1,5 +1,6 @@
 import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/features/geo/data/geo_repository_impl.dart';
+import 'package:allgo/features/geo/domain/nearby_product.dart';
 import 'package:allgo/features/geo/domain/nearby_shop.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -30,4 +31,37 @@ final AutoDisposeFutureProvider<List<NearbyShop>> nearbyShopsProvider =
   if (query == null) return <NearbyShop>[];
 
   return ref.watch(geoRepositoryProvider).nearbyShops(query);
+});
+
+/// Boutiques proches — rail d'accueil, basé sur la position courante (repli
+/// Mahajanga inclus). Se vide silencieusement sans réseau/position.
+final AutoDisposeFutureProvider<List<NearbyShop>> nearbyShopsHomeProvider =
+    FutureProvider.autoDispose<List<NearbyShop>>((ref) async {
+  final position = await ref.watch(currentPositionProvider.future);
+  try {
+    return await ref.watch(geoRepositoryProvider).nearbyShops(
+          NearbyQuery(
+            latitude: position.latitude,
+            longitude: position.longitude,
+          ),
+        );
+  } on Exception {
+    return const <NearbyShop>[];
+  }
+});
+
+/// Produits proches — rail d'accueil, même position que ci-dessus.
+final AutoDisposeFutureProvider<List<NearbyProduct>> nearbyProductsHomeProvider =
+    FutureProvider.autoDispose<List<NearbyProduct>>((ref) async {
+  final position = await ref.watch(currentPositionProvider.future);
+  try {
+    return await ref.watch(geoRepositoryProvider).nearbyProducts(
+          NearbyQuery(
+            latitude: position.latitude,
+            longitude: position.longitude,
+          ),
+        );
+  } on Exception {
+    return const <NearbyProduct>[];
+  }
 });

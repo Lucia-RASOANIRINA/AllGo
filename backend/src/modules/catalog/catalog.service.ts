@@ -18,6 +18,18 @@ export interface ProductQuery {
   minPrice?: number;
   maxPrice?: number;
   inStock?: boolean;
+  sort?: 'new' | 'popular';
+  onSale?: boolean;
+  flashOnly?: boolean;
+  minRating?: number;
+}
+
+/** Lit une valeur par chemin à points (`'stats.views'`) sur un document `lean()`. */
+function getPath(doc: Record<string, unknown>, path: string): unknown {
+  return path.split('.').reduce<unknown>((value, key) => {
+    if (value && typeof value === 'object') return (value as Record<string, unknown>)[key];
+    return undefined;
+  }, doc);
 }
 
 @Injectable()
@@ -44,24 +56,41 @@ export class CatalogService {
       };
     }
 
-    if (query.cursor) Object.assign(filter, cursorFilter('createdAt', decodeCursor(query.cursor)));
+    if (query.onSale || query.flashOnly) filter.promoPrice = { $ne: null };
+    if (query.flashOnly) filter.promoEndAt = { $gt: new Date() };
+    if (query.minRating !== undefined) filter['stats.rating'] = { $gte: query.minRating };
+
+    // Popularité = nombre de vues (`stats.views`), déjà indexé. Utilisé pour
+    // des carrousels bornés (page d'accueil) : la pagination par curseur sur
+    // ce champ n'a pas besoin d'être aussi éprouvée que le fil par défaut.
+    const sortField = query.sort === 'popular' ? 'stats.views' : 'createdAt';
+
+    if (query.cursor) {
+      Object.assign(filter, cursorFilter(sortField, decodeCursor(query.cursor)));
+    }
 
     const docs = await this.products
       .find(filter, this.projection(query.fields))
-      .sort({ createdAt: -1, _id: -1 })
+      .sort({ [sortField]: -1, _id: -1 })
       .limit(query.limit + 1)
       .lean();
 
     const hasMore = docs.length > query.limit;
     const items = hasMore ? docs.slice(0, query.limit) : docs;
-    const last = items[items.length - 1] as { _id: unknown; createdAt: Date } | undefined;
+    const last = items[items.length - 1] as Record<string, unknown> | undefined;
 
     return {
       items,
       hasMore,
       nextCursor:
         hasMore && last
-          ? encodeCursor({ value: last.createdAt.toISOString(), id: String(last._id) })
+          ? encodeCursor({
+              value:
+                sortField === 'createdAt'
+                  ? (last.createdAt as Date).toISOString()
+                  : ((getPath(last, sortField) as number) ?? 0),
+              id: String(last._id),
+            })
           : null,
     };
   }
@@ -124,6 +153,8 @@ export class CatalogService {
       'slug',
       'price',
       'promoPrice',
+      'promoStartAt',
+      'promoEndAt',
       'currency',
       'media',
       'stock',

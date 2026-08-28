@@ -61,8 +61,11 @@ class ProductRepositoryImpl implements ProductRepository {
           if (filter.minPrice != null) 'minPrice': filter.minPrice,
           if (filter.maxPrice != null) 'maxPrice': filter.maxPrice,
           if (filter.inStockOnly) 'inStock': true,
+          if (filter.sort == ProductSort.popular) 'sort': 'popular',
+          if (filter.onSale) 'onSale': true,
+          if (filter.minRating != null) 'minRating': filter.minRating,
           // Projection partielle : une grille n'a pas besoin des descriptions.
-          'fields': 'id,name,price,promoPrice,media,stock,shop,shopId,categoryId',
+          'fields': 'id,name,price,promoPrice,media,stock,shop,shopId,categoryId,stats',
         },
       );
 
@@ -93,6 +96,7 @@ class ProductRepositoryImpl implements ProductRepository {
       final response = await _dio.get<Map<String, dynamic>>('/products/$id');
       final product = _fromJson(response.data!['data'] as Map<String, dynamic>);
       await _cache(<Product>[product]);
+      await _recordView(product);
       return product;
     } on DioException catch (error) {
       if (error.error is! NetworkFailure) rethrow;
@@ -101,9 +105,60 @@ class ProductRepositoryImpl implements ProductRepository {
       final cached =
           await (_db.select(_db.cachedProducts)..where((t) => t.id.equals(id))).getSingleOrNull();
       if (cached == null) rethrow;
-      return _fromCache(cached);
+      final product = _fromCache(cached);
+      await _recordView(product);
+      return product;
     }
   }
+
+  @override
+  Future<List<Product>> fetchRail({
+    String? categoryId,
+    ProductSort sort = ProductSort.newest,
+    bool onSale = false,
+    bool flashOnly = false,
+    double? minRating,
+    int limit = 10,
+  }) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/products',
+        queryParameters: <String, dynamic>{
+          'limit': limit,
+          if (categoryId != null) 'category': categoryId,
+          if (sort == ProductSort.popular) 'sort': 'popular',
+          if (onSale) 'onSale': true,
+          if (flashOnly) 'flashOnly': true,
+          if (minRating != null) 'minRating': minRating,
+          'fields': 'id,name,price,promoPrice,media,stock,shop,shopId,categoryId,stats',
+        },
+      );
+
+      return (response.data!['data'] as List<dynamic>)
+          .map((json) => _fromJson(json as Map<String, dynamic>))
+          .toList();
+    } on DioException catch (error) {
+      // Section secondaire : hors ligne, elle se masque plutôt que de casser
+      // l'écran d'accueil.
+      if (error.error is NetworkFailure) return const <Product>[];
+      rethrow;
+    }
+  }
+
+  /// Alimente le rail « récemment consultés » (§ accueil, historique local).
+  Future<void> _recordView(Product product) => _db.recordProductView(
+        RecentlyViewedProductsCompanion.insert(
+          id: product.id,
+          name: product.name,
+          thumbUrl: Value(product.thumbUrl),
+          price: product.price,
+          promoPrice: Value(product.promoPrice),
+          shopId: product.shopId,
+          shopName: product.shopName,
+          categoryId: Value(product.categoryId),
+          viewedAt: DateTime.now(),
+        ),
+      );
 
   @override
   Future<Product> getByBarcode(String barcode, {String? shopId}) async {
@@ -153,6 +208,7 @@ class ProductRepositoryImpl implements ProductRepository {
     final media = (json['media'] as List<dynamic>?) ?? const <dynamic>[];
     final main = media.isEmpty ? null : media.first as Map<String, dynamic>;
     final shop = (json['shop'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    final stats = (json['stats'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
 
     return Product(
       id: idFromJson(json),
@@ -173,6 +229,8 @@ class ProductRepositoryImpl implements ProductRepository {
           .map((m) => (m as Map<String, dynamic>)['previewUrl'] as String?)
           .whereType<String>()
           .toList(),
+      rating: stats['rating'] == null ? null : doubleFromJson(stats['rating']),
+      reviewCount: stats['reviewCount'] as int? ?? 0,
     );
   }
 
