@@ -17,6 +17,7 @@ import 'package:allgo/features/shops/presentation/reviews_providers.dart';
 import 'package:allgo/features/shops/presentation/shop_follow_controller.dart';
 import 'package:allgo/features/shops/presentation/shop_posts_providers.dart';
 import 'package:allgo/shared/widgets/async_view.dart';
+import 'package:allgo/shared/widgets/star_rating.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
@@ -671,7 +672,7 @@ class _ReviewTile extends StatelessWidget {
                     Expanded(
                       child: Text(review.authorName, style: theme.textTheme.labelLarge),
                     ),
-                    _StarRow(rating: review.rating),
+                    StarRow(rating: review.rating),
                   ],
                 ),
                 if (review.comment != null) ...<Widget>[
@@ -689,36 +690,6 @@ class _ReviewTile extends StatelessWidget {
             ),
         ],
       ),
-    );
-  }
-}
-
-class _StarRow extends StatelessWidget {
-  const _StarRow({required this.rating, this.onChanged});
-
-  final int rating;
-  final ValueChanged<int>? onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List<Widget>.generate(5, (i) {
-        final filled = i < rating;
-        final icon = Icon(
-          filled ? Icons.star : Icons.star_border,
-          size: onChanged == null ? 16 : 28,
-          color: Colors.amber,
-        );
-        if (onChanged == null) return icon;
-        return IconButton(
-          onPressed: () => onChanged!(i + 1),
-          icon: icon,
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(),
-          visualDensity: VisualDensity.compact,
-        );
-      }),
     );
   }
 }
@@ -759,7 +730,7 @@ class _ReviewSheetState extends ConsumerState<_ReviewSheet> {
           const SizedBox(height: AllGoTokens.space3),
           Center(
             child:
-                _StarRow(rating: _rating, onChanged: (value) => setState(() => _rating = value)),
+                StarRow(rating: _rating, onChanged: (value) => setState(() => _rating = value)),
           ),
           const SizedBox(height: AllGoTokens.space3),
           TextField(

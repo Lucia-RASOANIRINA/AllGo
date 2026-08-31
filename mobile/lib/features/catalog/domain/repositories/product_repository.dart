@@ -163,4 +163,11 @@ abstract interface class ProductRepository {
     double? minRating,
     int limit = 10,
   });
+
+  /// Produits similaires : même catégorie, plus récents (§ décisions de
+  /// portée — définition honnête, non personnalisée).
+  Future<List<Product>> similarProducts(String productId);
+
+  /// Produits recommandés : même catégorie, triés par popularité.
+  Future<List<Product>> recommendedProducts(String productId);
 }

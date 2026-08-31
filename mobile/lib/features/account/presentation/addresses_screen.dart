@@ -1,17 +1,10 @@
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/network/api_client.dart';
+import 'package:allgo/features/account/presentation/addresses_providers.dart';
 import 'package:allgo/features/geo/presentation/geo_providers.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-final AutoDisposeFutureProvider<List<Map<String, dynamic>>> addressesProvider =
-  FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
-  final response = await ref.watch(apiClientProvider).get<Map<String, dynamic>>('/me/addresses');
-  final data = response.data?['data'];
-  if (data is! List<dynamic>) return const <Map<String, dynamic>>[];
-  return data.whereType<Map<String, dynamic>>().toList();
-  });
 
 class AddressesScreen extends ConsumerWidget {
   const AddressesScreen({super.key});
@@ -41,20 +34,17 @@ class AddressesScreen extends ConsumerWidget {
                 separatorBuilder: (_, __) => const SizedBox(height: AllGoTokens.space3),
                 itemBuilder: (context, index) {
                   final address = items[index];
-                  final id = address['id']?.toString() ?? address['_id']?.toString();
                   return Card(
                     child: ListTile(
                       leading: const Icon(Icons.location_on_outlined),
-                      title: Text(address['label'] as String? ?? 'Adresse'),
-                      subtitle: Text('${address['line'] as String? ?? ''}\n${address['city'] as String? ?? ''}'),
+                      title: Text(address.label),
+                      subtitle: Text('${address.line}\n${address.city}'),
                       isThreeLine: true,
-                      trailing: id == null
-                          ? null
-                          : IconButton(
-                              onPressed: () => _removeAddress(context, ref, id),
-                              icon: const Icon(Icons.delete_outline),
-                              tooltip: 'Supprimer cette adresse',
-                            ),
+                      trailing: IconButton(
+                        onPressed: () => _removeAddress(context, ref, address.id),
+                        icon: const Icon(Icons.delete_outline),
+                        tooltip: 'Supprimer cette adresse',
+                      ),
                     ),
                   );
                 },

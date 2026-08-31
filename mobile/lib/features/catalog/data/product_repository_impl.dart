@@ -145,6 +145,28 @@ class ProductRepositoryImpl implements ProductRepository {
     }
   }
 
+  @override
+  Future<List<Product>> similarProducts(String productId) => _relatedProducts(productId, 'similar');
+
+  @override
+  Future<List<Product>> recommendedProducts(String productId) =>
+      _relatedProducts(productId, 'recommended');
+
+  /// Rails bornés (10 au plus) : pas de repli hors ligne — une fiche produit
+  /// affichée depuis le cache n'a de toute façon pas de connexion pour ces
+  /// sections secondaires.
+  Future<List<Product>> _relatedProducts(String productId, String mode) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>('/products/$productId/$mode');
+      return (response.data!['data'] as List<dynamic>)
+          .map((json) => _fromJson(json as Map<String, dynamic>))
+          .toList();
+    } on DioException catch (error) {
+      if (error.error is NetworkFailure) return const <Product>[];
+      rethrow;
+    }
+  }
+
   /// Alimente le rail « récemment consultés » (§ accueil, historique local).
   Future<void> _recordView(Product product) => _db.recordProductView(
         RecentlyViewedProductsCompanion.insert(

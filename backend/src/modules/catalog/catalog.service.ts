@@ -7,6 +7,7 @@ import type { Paginated } from '../../common/http/response.interceptor';
 import { cursorFilter, decodeCursor, encodeCursor } from '../../common/pagination/cursor';
 import { Category, type CategoryDocument } from './schemas/category.schema';
 import { Product, type ProductDocument } from './schemas/product.schema';
+import { ProductReview, type ProductReviewDocument } from './schemas/product-review.schema';
 
 export interface ProductQuery {
   limit: number;
@@ -22,6 +23,9 @@ export interface ProductQuery {
   onSale?: boolean;
   flashOnly?: boolean;
   minRating?: number;
+  /** Exclut un produit précis — sert « produits similaires »/« recommandés »
+   * pour ne jamais recommander le produit déjà consulté. */
+  excludeId?: string;
 }
 
 /** Lit une valeur par chemin à points (`'stats.views'`) sur un document `lean()`. */
@@ -37,6 +41,7 @@ export class CatalogService {
   constructor(
     @InjectModel(Product.name) private readonly products: Model<ProductDocument>,
     @InjectModel(Category.name) private readonly categories: Model<CategoryDocument>,
+    @InjectModel(ProductReview.name) private readonly productReviews: Model<ProductReviewDocument>,
   ) {}
 
   async listProducts(query: ProductQuery): Promise<Paginated<unknown>> {
@@ -46,6 +51,7 @@ export class CatalogService {
     // ramène la catégorie ET toutes ses sous-catégories, en une requête indexée.
     if (query.categoryId) filter.categoryPath = new Types.ObjectId(query.categoryId);
     if (query.shopId) filter.shopId = new Types.ObjectId(query.shopId);
+    if (query.excludeId) filter._id = { $ne: new Types.ObjectId(query.excludeId) };
     if (query.q) filter.$text = { $search: query.q };
     if (query.inStock) filter.stock = { $gt: 0 };
 
@@ -121,6 +127,113 @@ export class CatalogService {
       );
     }
     return product;
+  }
+
+  /**
+   * Produits similaires/recommandés — définitions honnêtes, non personnalisées
+   * (§ décisions de portée) : *similaires* = même catégorie, plus récents ;
+   * *recommandés* = même catégorie, triés par popularité. Aucun moteur de
+   * recommandation, réutilise `listProducts` telle quelle.
+   */
+  async relatedProducts(
+    id: string,
+    mode: 'similar' | 'recommended',
+    limit: number,
+  ): Promise<unknown[]> {
+    const product = await this.products.findById(id).select('categoryId').lean();
+    if (!product?.categoryId) return [];
+
+    const page = await this.listProducts({
+      limit,
+      categoryId: String(product.categoryId),
+      excludeId: id,
+      sort: mode === 'similar' ? 'new' : 'popular',
+    });
+    return page.items;
+  }
+
+  /** Avis d'un produit, paginés par curseur — même motif que les avis boutique. */
+  async listProductReviews(
+    productId: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<Paginated<unknown>> {
+    const filter: Record<string, unknown> = { productId: new Types.ObjectId(productId) };
+    if (cursor) Object.assign(filter, cursorFilter('createdAt', decodeCursor(cursor)));
+
+    const docs = await this.productReviews
+      .find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(limit + 1)
+      .lean();
+
+    const hasMore = docs.length > limit;
+    const items = hasMore ? docs.slice(0, limit) : docs;
+    const last = items[items.length - 1];
+
+    return {
+      items,
+      hasMore,
+      nextCursor:
+        hasMore && last
+          ? encodeCursor({ value: last.createdAt.toISOString(), id: String(last._id) })
+          : null,
+    };
+  }
+
+  /**
+   * Dépose ou remplace mon avis (upsert sur l'index unique
+   * `{productId, userId}`) — un client ne peut avoir qu'un avis par produit.
+   */
+  async upsertProductReview(
+    productId: string,
+    userId: string,
+    author: { name: string; avatar?: string },
+    rating: number,
+    comment: string | undefined,
+  ): Promise<unknown> {
+    const product = await this.products.findById(productId).select('_id').lean();
+    if (!product) throw AppError.notFound('Produit');
+
+    await this.productReviews.updateOne(
+      { productId: new Types.ObjectId(productId), userId: new Types.ObjectId(userId) },
+      { $set: { author, rating, comment, createdAt: new Date() } },
+      { upsert: true },
+    );
+    await this.recomputeProductReviewStats(productId);
+
+    return this.productReviews
+      .findOne({ productId: new Types.ObjectId(productId), userId: new Types.ObjectId(userId) })
+      .lean();
+  }
+
+  async removeOwnProductReview(productId: string, userId: string): Promise<void> {
+    await this.productReviews.deleteOne({
+      productId: new Types.ObjectId(productId),
+      userId: new Types.ObjectId(userId),
+    });
+    await this.recomputeProductReviewStats(productId);
+  }
+
+  /**
+   * Recalcule `stats.rating`/`stats.reviewCount` par agrégation complète —
+   * même motif que `ShopsService.recomputeReviewStats`.
+   */
+  private async recomputeProductReviewStats(productId: string): Promise<void> {
+    const [agg] = await this.productReviews.aggregate<{ avgRating: number; count: number }>([
+      { $match: { productId: new Types.ObjectId(productId) } },
+      { $group: { _id: null, avgRating: { $avg: '$rating' }, count: { $sum: 1 } } },
+    ]);
+
+    await this.products.updateOne(
+      { _id: productId },
+      {
+        $set: {
+          'stats.rating': agg ? Math.round(agg.avgRating * 10) / 10 : 0,
+          'stats.reviewCount': agg?.count ?? 0,
+        },
+      },
+    );
   }
 
   /**

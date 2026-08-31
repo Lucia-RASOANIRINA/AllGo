@@ -3,14 +3,23 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 
 import { AppError } from '../../common/http/app-error';
+import { GeoService } from '../geo/geo.service';
 import { Product, type ProductDocument } from '../catalog/schemas/product.schema';
+import { Shop, type ShopDocument } from '../shops/schemas/shop.schema';
 import { Cart, type CartDocument } from './schemas/cart.schema';
+import { Coupon, type CouponDocument } from './schemas/coupon.schema';
+import type { DeliveryDto } from './dto/create-order.dto';
+import { evaluateCoupon } from './utils/evaluate-coupon';
+import { groupByShop } from './utils/group-by-shop';
 
 @Injectable()
 export class CartService {
   constructor(
     @InjectModel(Cart.name) private readonly carts: Model<CartDocument>,
     @InjectModel(Product.name) private readonly products: Model<ProductDocument>,
+    @InjectModel(Shop.name) private readonly shops: Model<ShopDocument>,
+    @InjectModel(Coupon.name) private readonly coupons: Model<CouponDocument>,
+    private readonly geo: GeoService,
   ) {}
 
   async get(userId: string): Promise<unknown> {
@@ -91,5 +100,108 @@ export class CartService {
       { $pull: { items: { _id: new Types.ObjectId(itemId) } } },
     );
     return this.get(userId);
+  }
+
+  /** Vide le panier — même mise à jour que celle appliquée après création de commande. */
+  async clear(userId: string): Promise<void> {
+    await this.carts.updateOne({ _id: userId }, { $set: { items: [] } });
+  }
+
+  /**
+   * Aperçu du panier avant confirmation — « vérifier les produits » et
+   * « vérifier le total » du cahier des charges, en une seule route.
+   *
+   * Lecture pure : aucune écriture, aucun stock touché, aucune commande
+   * créée. Relit prix/stock ACTUELS (jamais l'instantané du panier — même
+   * principe que `OrdersService.consumeStock`), pour signaler les lignes
+   * devenues indisponibles ou dont le prix a changé avant que le client ne
+   * confirme — `POST /orders` revalidera intégralement de toute façon.
+   */
+  async preview(
+    userId: string,
+    delivery: Pick<DeliveryDto, 'method' | 'location'>,
+    couponCode?: string,
+  ): Promise<unknown> {
+    const cart = await this.carts.findById(userId).lean();
+    const items = cart?.items ?? [];
+    if (items.length === 0) return { shops: [], grandTotal: 0 };
+
+    const shopsOut: unknown[] = [];
+    let grandTotal = 0;
+
+    for (const [shopId, groupItems] of groupByShop(items)) {
+      let subtotal = 0;
+      const lineResults = [];
+
+      for (const item of groupItems) {
+        const product = await this.products.findById(item.productId).lean();
+        const published = !!product && product.status === 'published';
+        const available = published && product.stock >= item.quantity;
+        const currentPrice = published
+          ? Number(String(product.promoPrice ?? product.price))
+          : Number(String(item.snapshot.price));
+        const priceChanged = published && currentPrice !== Number(String(item.snapshot.price));
+        const lineSubtotal = currentPrice * item.quantity;
+        if (available) subtotal += lineSubtotal;
+
+        lineResults.push({
+          productId: String(item.productId),
+          name: item.snapshot.name,
+          image: item.snapshot.image,
+          quantity: item.quantity,
+          unitPrice: currentPrice,
+          subtotal: lineSubtotal,
+          available,
+          priceChanged,
+          stockRemaining: published ? product.stock : 0,
+        });
+      }
+
+      let shippingFee = 0;
+      let shippingEstimated = false;
+      if (delivery.method === 'delivery') {
+        const shop = await this.shops.findById(shopId).select('location').lean();
+        if (shop?.location && delivery.location) {
+          shippingFee = this.geo.computeDeliveryFee(shop.location, delivery.location).fee;
+        } else {
+          // Adresse non géolocalisable (courant pour une adresse informelle à
+          // Mahajanga) : repli sur le forfait seul, signalé au client plutôt
+          // que présenté comme un montant exact.
+          shippingFee = this.geo.baseDeliveryFee;
+          shippingEstimated = true;
+        }
+      }
+
+      let couponResult:
+        { code: string; valid: boolean; reason?: string; discountAmount: number } | undefined;
+      if (couponCode) {
+        const coupon = await this.coupons.findOne({ code: couponCode.toUpperCase() }).lean();
+        const evaluation = evaluateCoupon(coupon, shopId, subtotal);
+        couponResult = {
+          code: couponCode.toUpperCase(),
+          valid: evaluation.valid,
+          reason: evaluation.reason,
+          discountAmount: evaluation.discount,
+        };
+      }
+
+      const discount = couponResult?.valid ? couponResult.discountAmount : 0;
+      const total = subtotal + shippingFee - discount;
+      grandTotal += total;
+
+      shopsOut.push({
+        shopId,
+        shopName: groupItems[0].snapshot.shopName,
+        items: lineResults,
+        subtotal,
+        shippingFee,
+        shippingEstimated,
+        discount,
+        total,
+        coupon: couponResult,
+      });
+    }
+
+    return { shops: shopsOut, grandTotal };
   }
 }

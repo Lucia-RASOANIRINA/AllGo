@@ -19,6 +19,7 @@ class OrderDetail {
     this.deliveryAddress,
     this.deliveryMethod,
     this.paymentMethod,
+    this.paymentStatus,
   });
 
   final String id;
@@ -31,6 +32,7 @@ class OrderDetail {
   final String? deliveryAddress;
   final String? deliveryMethod;
   final String? paymentMethod;
+  final String? paymentStatus;
 }
 
 class OrderItemDetail {
@@ -83,6 +85,7 @@ OrderDetail _orderFromJson(Map<String, dynamic> json) {
     deliveryAddress: delivery['address'] as String?,
     deliveryMethod: delivery['method'] as String?,
     paymentMethod: payment['method'] as String?,
+    paymentStatus: payment['status'] as String?,
     items: itemValues.whereType<Map<String, dynamic>>().map((item) {
       return OrderItemDetail(
         name: item['name'] as String? ?? '',
@@ -140,7 +143,14 @@ class _OrderDetailContent extends StatelessWidget {
         const SizedBox(height: AllGoTokens.space1),
         Text(order.shopName, style: theme.textTheme.titleMedium),
         const SizedBox(height: AllGoTokens.space4),
-        _StatusHeader(status: order.status),
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: _StatusHeader(status: order.status, isPickup: order.deliveryMethod == 'pickup'),
+            ),
+            if (order.paymentStatus != null) _PaymentChip(status: order.paymentStatus!),
+          ],
+        ),
         const SizedBox(height: AllGoTokens.space6),
         Text('Articles', style: theme.textTheme.titleMedium),
         const SizedBox(height: AllGoTokens.space2),
@@ -175,7 +185,7 @@ class _OrderDetailContent extends StatelessWidget {
           (entry) => ListTile(
             contentPadding: EdgeInsets.zero,
             leading: Icon(entry.status.icon, color: theme.colorScheme.primary),
-            title: Text(entry.status.label),
+            title: Text(_statusLabel(entry.status, order.deliveryMethod)),
             subtitle: Text(entry.note ?? _formatDate(entry.at)),
           ),
         ),
@@ -186,10 +196,19 @@ class _OrderDetailContent extends StatelessWidget {
   String _formatDate(DateTime date) => '${date.day}/${date.month}/${date.year}';
 }
 
+/// « Livrée » n'a pas de sens pour un retrait en boutique — un seul statut
+/// backend (`delivered`) couvre les deux modes (§ décisions de portée), la
+/// nuance reste donc purement un libellé côté mobile.
+String _statusLabel(OrderStatus status, String? deliveryMethod) {
+  if (status == OrderStatus.delivered && deliveryMethod == 'pickup') return 'Retirée';
+  return status.label;
+}
+
 class _StatusHeader extends StatelessWidget {
-  const _StatusHeader({required this.status});
+  const _StatusHeader({required this.status, required this.isPickup});
 
   final OrderStatus status;
+  final bool isPickup;
 
   @override
   Widget build(BuildContext context) {
@@ -197,8 +216,40 @@ class _StatusHeader extends StatelessWidget {
       children: <Widget>[
         Icon(status.icon, color: Theme.of(context).colorScheme.primary),
         const SizedBox(width: AllGoTokens.space2),
-        Text(status.label, style: Theme.of(context).textTheme.titleMedium),
+        Text(
+          _statusLabel(status, isPickup ? 'pickup' : 'delivery'),
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
       ],
+    );
+  }
+}
+
+/// Paiement — dimension séparée du statut de la commande (§ décisions de
+/// portée) : une commande payée à la livraison reste légitimement `unpaid`
+/// jusqu'à `delivered`, ce n'est jamais une anomalie à signaler comme telle.
+class _PaymentChip extends StatelessWidget {
+  const _PaymentChip({required this.status});
+
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final (label, background, foreground) = switch (status) {
+      'paid' => ('Payée', scheme.primaryContainer, scheme.onPrimaryContainer),
+      'refunded' => ('Remboursée', scheme.secondaryContainer, scheme.onSecondaryContainer),
+      'pending' => ('Paiement en cours', scheme.tertiaryContainer, scheme.onTertiaryContainer),
+      _ => ('Non payée', scheme.surfaceContainerHighest, scheme.onSurfaceVariant),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space2, vertical: 4),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(AllGoTokens.radiusField),
+      ),
+      child: Text(label, style: TextStyle(color: foreground, fontSize: 12)),
     );
   }
 }

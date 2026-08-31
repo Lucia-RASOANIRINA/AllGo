@@ -149,6 +149,33 @@ class CartController extends AsyncNotifier<Cart> {
 
   Future<void> remove(String lineId) => setQuantity(lineId, 0);
 
+  /// Vide le panier — même mise à jour optimiste que `setQuantity`/`remove`.
+  Future<void> clear() async {
+    final current = state.valueOrNull ?? const Cart();
+    if (current.isEmpty) return;
+
+    state = const AsyncData(Cart());
+    final database = ref.read(appDatabaseProvider);
+    await _persist(const Cart(), database);
+
+    try {
+      await ref.read(apiClientProvider).delete<void>('/cart');
+    } on DioException catch (error) {
+      if (error.error is NetworkFailure) {
+        // Le vidage n'est pas rejouable comme une simple ligne (pas de
+        // `productId`/`quantity` à mettre en file) : hors ligne, on renonce
+        // et on restaure le panier plutôt que de promettre un vidage qui
+        // n'arrivera jamais.
+        state = AsyncData(current);
+        await _persist(current, database);
+        return;
+      }
+      state = AsyncData(current);
+      await _persist(current, database);
+      rethrow;
+    }
+  }
+
   Cart _withLine(Cart cart, CartLine line) {
     final existing = cart.lines.indexWhere((l) => l.productId == line.productId);
     if (existing < 0) return Cart(lines: <CartLine>[...cart.lines, line]);

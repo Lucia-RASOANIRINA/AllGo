@@ -6,7 +6,6 @@ import { Permission } from '../../common/rbac/permissions';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 import { IdempotencyInterceptor } from '../../common/idempotency/idempotency.interceptor';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
-import { AppError } from '../../common/http/app-error';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto, UpdateOrderStatusDto } from './dto/create-order.dto';
 import type { OrderStatus } from './schemas/order.schema';
@@ -49,11 +48,8 @@ export class OrdersController {
   @Get('orders/:id')
   @RequirePermission(Permission.OrderReadOwn)
   @ApiOperation({ summary: 'Consulter une commande.' })
-  async findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    const page = await this.orders.listForUser(user.id, 1);
-    const order = page.items.find((o) => String((o as { _id: unknown })._id) === id);
-    if (!order) throw AppError.notFound('Commande');
-    return order;
+  findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.orders.findByIdForUser(user.id, id);
   }
 
   // --- Espace commerçant : la portée est nommée par `:shopId` (§3.2) ---
@@ -75,7 +71,8 @@ export class OrdersController {
     summary: 'Faire avancer une commande.',
     description:
       'Les transitions sont contraintes : pending → confirmed → preparing → ' +
-      'shipped → delivered. Toute autre transition est refusée.',
+      'ready → (courier_assigned → shipped | delivered directement pour un ' +
+      'retrait) → delivered. Toute autre transition est refusée.',
   })
   updateStatus(
     @Param('id') id: string,

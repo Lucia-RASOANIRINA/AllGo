@@ -17,12 +17,24 @@ describe('Machine à états des commandes (§6.2)', () => {
     }
   });
 
-  it('intercale `preparing` entre `confirmed` et `shipped`', () => {
+  it('intercale `preparing` puis `ready` entre `confirmed` et `shipped`', () => {
     // Le web ne permet pas de distinguer « commande acceptée » de « commande en
     // préparation », ce qui rend le suivi client imprécis.
     expect(ORDER_TRANSITIONS.confirmed).toContain('preparing');
     expect(ORDER_TRANSITIONS.confirmed).not.toContain('shipped');
-    expect(ORDER_TRANSITIONS.preparing).toContain('shipped');
+    expect(ORDER_TRANSITIONS.confirmed).not.toContain('ready');
+    expect(ORDER_TRANSITIONS.preparing).toContain('ready');
+    expect(ORDER_TRANSITIONS.preparing).not.toContain('shipped');
+  });
+
+  it('depuis `ready`, distingue la branche livraison de la branche retrait', () => {
+    // `courier_assigned → shipped` est la livraison ; `ready → delivered`
+    // directement est le retrait en boutique (§ décisions de portée : pas de
+    // statut « retrait en boutique » distinct de `delivered`).
+    expect(ORDER_TRANSITIONS.ready).toContain('courier_assigned');
+    expect(ORDER_TRANSITIONS.ready).toContain('delivered');
+    expect(ORDER_TRANSITIONS.courier_assigned).toContain('shipped');
+    expect(ORDER_TRANSITIONS.courier_assigned).not.toContain('delivered');
   });
 
   it('rend `delivered` et `cancelled` terminaux', () => {
@@ -31,7 +43,14 @@ describe('Machine à états des commandes (§6.2)', () => {
   });
 
   it('permet l’annulation à toute étape antérieure à la livraison', () => {
-    const cancellable: OrderStatus[] = ['pending', 'confirmed', 'preparing', 'shipped'];
+    const cancellable: OrderStatus[] = [
+      'pending',
+      'confirmed',
+      'preparing',
+      'ready',
+      'courier_assigned',
+      'shipped',
+    ];
     for (const status of cancellable) {
       expect(ORDER_TRANSITIONS[status]).toContain('cancelled');
     }
@@ -39,9 +58,17 @@ describe('Machine à états des commandes (§6.2)', () => {
 
   it('n’autorise aucun retour en arrière', () => {
     const rank = new Map<OrderStatus, number>(
-      (['pending', 'confirmed', 'preparing', 'shipped', 'delivered'] as OrderStatus[]).map(
-        (s, i) => [s, i],
-      ),
+      (
+        [
+          'pending',
+          'confirmed',
+          'preparing',
+          'ready',
+          'courier_assigned',
+          'shipped',
+          'delivered',
+        ] as OrderStatus[]
+      ).map((s, i) => [s, i]),
     );
 
     for (const [from, targets] of Object.entries(ORDER_TRANSITIONS) as Array<

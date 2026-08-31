@@ -6,16 +6,21 @@ import { Decimal128 } from 'mongodb';
 import { AppError } from '../../common/http/app-error';
 import { encodeCursor, decodeCursor, cursorFilter } from '../../common/pagination/cursor';
 import type { Paginated } from '../../common/http/response.interceptor';
+import { GeoService } from '../geo/geo.service';
 import { Product, type ProductDocument } from '../catalog/schemas/product.schema';
+import { Shop, type ShopDocument } from '../shops/schemas/shop.schema';
 import { StockMovement, type StockMovementDocument } from '../stock/schemas/stock-movement.schema';
 import { Cart, type CartDocument } from './schemas/cart.schema';
 import { Counter, type CounterDocument } from './schemas/counter.schema';
+import { Coupon, type CouponDocument } from './schemas/coupon.schema';
 import {
   ORDER_TRANSITIONS,
   Order,
   type OrderDocument,
   type OrderStatus,
 } from './schemas/order.schema';
+import { evaluateCoupon } from './utils/evaluate-coupon';
+import { groupByShop } from './utils/group-by-shop';
 import type { CreateOrderDto } from './dto/create-order.dto';
 
 /** Somme de montants `Decimal128` sans jamais passer par un flottant. */
@@ -31,10 +36,13 @@ export class OrdersService {
     @InjectConnection() private readonly connection: Connection,
     @InjectModel(Order.name) private readonly orders: Model<OrderDocument>,
     @InjectModel(Product.name) private readonly products: Model<ProductDocument>,
+    @InjectModel(Shop.name) private readonly shops: Model<ShopDocument>,
     @InjectModel(Cart.name) private readonly carts: Model<CartDocument>,
     @InjectModel(Counter.name) private readonly counters: Model<CounterDocument>,
+    @InjectModel(Coupon.name) private readonly coupons: Model<CouponDocument>,
     @InjectModel(StockMovement.name)
     private readonly stockMovements: Model<StockMovementDocument>,
+    private readonly geo: GeoService,
   ) {}
 
   /**
@@ -69,7 +77,7 @@ export class OrdersService {
 
         created = [];
 
-        for (const [shopId, items] of OrdersService.groupByShop(cart.items)) {
+        for (const [shopId, items] of groupByShop(cart.items)) {
           const { lines, subtotal } = await this.consumeStock(shopId, items, userId, session);
           created.push(
             await this.persistOrder(
@@ -90,21 +98,6 @@ export class OrdersService {
     } finally {
       await session.endSession();
     }
-  }
-
-  /**
-   * Un panier peut contenir des articles de plusieurs boutiques : une commande
-   * est créée par boutique, chacune ayant son propre suivi et sa propre livraison.
-   */
-  private static groupByShop<T extends { snapshot: { shopId: unknown } }>(
-    items: T[],
-  ): Map<string, T[]> {
-    const byShop = new Map<string, T[]>();
-    for (const item of items) {
-      const key = String(item.snapshot.shopId);
-      byShop.set(key, [...(byShop.get(key) ?? []), item]);
-    }
-    return byShop;
   }
 
   /**
@@ -206,8 +199,8 @@ export class OrdersService {
   ): Promise<OrderDocument> {
     const { userId, customer, shopId, items, lines, subtotal, dto } = input;
 
-    const shippingFee = dto.delivery.method === 'pickup' ? 0 : (dto.shippingFee ?? 0);
-    const discount = 0;
+    const shippingFee = await this.computeShippingFee(shopId, dto, session);
+    const { discount, coupon } = await this.applyCoupon(shopId, subtotal, dto.couponCode, session);
     const shopName = items[0].snapshot.shopName;
 
     const [order] = await this.orders.create(
@@ -225,6 +218,7 @@ export class OrdersService {
             discount: toDecimal(discount),
             total: toDecimal(subtotal + shippingFee - discount),
           },
+          coupon,
           delivery: dto.delivery,
           payment: { method: dto.paymentMethod, status: 'unpaid' },
           status: 'pending',
@@ -235,6 +229,95 @@ export class OrdersService {
     );
 
     return order;
+  }
+
+  /**
+   * Frais de livraison — calculés côté serveur, jamais repris tels quels du
+   * client (§ correction : le mobile envoyait auparavant toujours `0`, sans
+   * validation). Le retrait ne coûte rien ; la livraison exige une position
+   * connue pour la boutique ET pour la destination.
+   */
+  private async computeShippingFee(
+    shopId: string,
+    dto: CreateOrderDto,
+    session: ClientSession,
+  ): Promise<number> {
+    if (dto.delivery.method === 'pickup') return 0;
+
+    const shop = await this.shops.findById(shopId).select('location').session(session);
+    if (!shop?.location || !dto.delivery.location) {
+      throw new AppError(
+        'DELIVERY_LOCATION_REQUIRED',
+        'Position introuvable : impossible de calculer les frais de livraison.',
+        400,
+      );
+    }
+
+    return this.geo.computeDeliveryFee(shop.location, dto.delivery.location).fee;
+  }
+
+  /**
+   * Valide et applique un coupon, DANS la transaction (§6.3). `NOT_FOUND`,
+   * `EXPIRED` et `LIMIT_REACHED` sont des états globaux du code : ils annulent
+   * toute la commande plutôt que d'être ignorés en silence —
+   * `CartService.preview` a déjà montré la réduction au client avant qu'il ne
+   * confirme, la lui retirer sans explication ressemblerait à un bug.
+   * `NOT_APPLICABLE`/`MIN_AMOUNT` sont propres à CETTE commande et ne font PAS
+   * échouer les autres commandes d'un même panier multi-boutiques.
+   */
+  private async applyCoupon(
+    shopId: string,
+    subtotal: number,
+    code: string | undefined,
+    session: ClientSession,
+  ): Promise<{ discount: number; coupon?: { code: string; type: string; value: unknown } }> {
+    if (!code) return { discount: 0 };
+
+    const coupon = await this.coupons.findOne({ code: code.toUpperCase() }).session(session);
+    const evaluation = evaluateCoupon(coupon, shopId, subtotal);
+
+    if (!evaluation.valid) {
+      if (evaluation.reason === 'NOT_APPLICABLE' || evaluation.reason === 'MIN_AMOUNT') {
+        return { discount: 0 };
+      }
+      const messages: Record<string, string> = {
+        NOT_FOUND: 'Ce code promotionnel est introuvable.',
+        EXPIRED: 'Ce code promotionnel a expiré.',
+        LIMIT_REACHED: "Ce code promotionnel n'est plus disponible.",
+      };
+      throw new AppError(
+        `COUPON_${evaluation.reason}`,
+        messages[evaluation.reason!],
+        evaluation.reason === 'NOT_FOUND' ? 404 : 409,
+      );
+    }
+
+    /**
+     * Incrément conditionnel, même motif que le décrément de stock
+     * (`consumeStock`) : `matchedCount === 0` signifie qu'un autre checkout a
+     * consommé le dernier usage entre l'évaluation et ici, annulant la
+     * transaction plutôt que de dépasser silencieusement le quota.
+     */
+    const increment = await this.coupons.updateOne(
+      {
+        _id: coupon!._id,
+        ...(coupon!.usageLimit != null ? { usageCount: { $lt: coupon!.usageLimit } } : {}),
+      },
+      { $inc: { usageCount: 1 } },
+      { session },
+    );
+    if (increment.matchedCount === 0) {
+      throw new AppError(
+        'COUPON_LIMIT_REACHED',
+        "Ce code promotionnel n'est plus disponible.",
+        409,
+      );
+    }
+
+    return {
+      discount: evaluation.discount,
+      coupon: { code: coupon!.code, type: coupon!.discountType, value: coupon!.discountValue },
+    };
   }
 
   /**
@@ -250,6 +333,16 @@ export class OrdersService {
       { upsert: true, new: true, session },
     );
     return `ALG-${year}-${String(counter.seq).padStart(4, '0')}`;
+  }
+
+  /** Une commande précise de l'utilisateur — jamais celle d'un autre. */
+  async findByIdForUser(userId: string, orderId: string): Promise<unknown> {
+    if (!Types.ObjectId.isValid(orderId)) throw AppError.notFound('Commande');
+    const order = await this.orders
+      .findOne({ _id: new Types.ObjectId(orderId), userId: new Types.ObjectId(userId) })
+      .lean();
+    if (!order) throw AppError.notFound('Commande');
+    return order;
   }
 
   /** Commandes de l'utilisateur, paginées par curseur. */
@@ -307,6 +400,17 @@ export class OrdersService {
         `Une commande « ${order.status} » ne peut pas passer à « ${next} ».`,
         409,
         { from: order.status, to: next, allowed: ORDER_TRANSITIONS[order.status] },
+      );
+    }
+
+    // `courier_assigned` n'a de sens que sur la branche livraison : la table
+    // `ORDER_TRANSITIONS` ne connaît pas `delivery.method`, cette garde
+    // complète donc la machine à états plutôt que de la dupliquer.
+    if (next === 'courier_assigned' && order.delivery.method === 'pickup') {
+      throw new AppError(
+        'INVALID_STATUS_TRANSITION',
+        'Une commande à retirer en boutique ne passe pas par « livreur affecté ».',
+        409,
       );
     }
 

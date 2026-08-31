@@ -14,5 +14,6 @@ import { GeoService } from './geo.service';
   ],
   controllers: [GeoController],
   providers: [GeoService],
+  exports: [GeoService],
 })
 export class GeoModule {}
