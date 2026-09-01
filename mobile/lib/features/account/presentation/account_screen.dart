@@ -1,8 +1,10 @@
 import 'package:allgo/app/router.dart';
 import 'package:allgo/app/theme.dart';
+import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/core/sync/sync_providers.dart';
 import 'package:allgo/features/auth/presentation/session_controller.dart';
 import 'package:allgo/features/settings/presentation/settings_controller.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -164,6 +166,19 @@ class AccountScreen extends ConsumerWidget {
               label: const Text('Se déconnecter'),
             ),
           ),
+          const SizedBox(height: AllGoTokens.space3),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space4),
+            child: OutlinedButton.icon(
+              onPressed: () => _confirmDeleteAccount(context, ref),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error,
+                side: BorderSide(color: Theme.of(context).colorScheme.error),
+              ),
+              icon: const Icon(Icons.delete_forever_outlined),
+              label: const Text('Supprimer mon compte'),
+            ),
+          ),
           const SizedBox(height: AllGoTokens.space8),
         ],
       ),
@@ -249,6 +264,46 @@ class AccountScreen extends ConsumerWidget {
     if (confirmed ?? false) {
       await ref.read(sessionControllerProvider.notifier).signOut();
       if (context.mounted) context.go('/');
+    }
+  }
+
+  Future<void> _confirmDeleteAccount(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer mon compte ?'),
+        content: const Text(
+          'Cette action est irréversible. Votre profil sera anonymisé et vous '
+          'serez déconnecté de tous vos appareils. Vos commandes passées restent '
+          'visibles par les boutiques concernées, sans vos coordonnées.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Supprimer définitivement'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(apiClientProvider).delete<void>('/me');
+      await ref.read(sessionControllerProvider.notifier).signOut();
+      if (context.mounted) context.go('/');
+    } on DioException {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Impossible de supprimer le compte. Réessayez.')),
+      );
     }
   }
 }

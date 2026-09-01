@@ -1,11 +1,16 @@
+import 'dart:async';
+
 import 'package:allgo/app/router.dart';
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/network/api_client.dart';
+import 'package:allgo/core/network/json_parsing.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:share_plus/share_plus.dart';
 
 final socialPostsProvider =
     FutureProvider.autoDispose<List<_PostData>>((ref) async {
@@ -26,79 +31,17 @@ class SocialFeedScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final apiPosts = ref.watch(socialPostsProvider).valueOrNull;
-
-    final stories = <_StorySummary>[
-      _StorySummary(
-          'Amina',
-          'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=400&q=80',
-          true),
-      _StorySummary(
-          'Mihary',
-          'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=400&q=80',
-          true),
-      _StorySummary(
-          'Laza',
-          'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&w=400&q=80',
-          false),
-      _StorySummary(
-          'Naina',
-          'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=400&q=80',
-          true),
-      _StorySummary(
-          'Tovo',
-          'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=400&q=80',
-          false),
-    ];
-
-    final demoPosts = <_PostData>[
-      _PostData(
-        author: 'Mihary Market',
-        handle: '@mihary.market',
-        avatar:
-            'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80',
-        content:
-            'Nouvelle récolte de vanilles de qualité premium, livrée le matin. Les clients en ligne prennent déjà les commandes.',
-        image:
-            'https://images.unsplash.com/photo-1518843875459-f738682238a6?auto=format&fit=crop&w=1200&q=80',
-        likes: 348,
-        comments: 26,
-        shares: 12,
-      ),
-      _PostData(
-        author: 'Kobato',
-        handle: '@kobato',
-        avatar:
-            'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=200&q=80',
-        content:
-            'Petite promo de la semaine sur les accessoires connectés. Commande rapide et paiement sécurisé via AllGo.',
-        image:
-            'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=1200&q=80',
-        likes: 214,
-        comments: 18,
-        shares: 9,
-      ),
-      _PostData(
-        author: 'Sahaza',
-        handle: '@sahaza',
-        avatar:
-            'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=200&q=80',
-        content:
-            'Service client en ligne disponible toute la journée pour répondre aux demandes de produits personnalisés.',
-        image:
-            'https://images.unsplash.com/photo-1524758631624-e2822e304c36?auto=format&fit=crop&w=1200&q=80',
-        likes: 421,
-        comments: 41,
-        shares: 18,
-      ),
-    ];
-    final posts = apiPosts == null || apiPosts.isEmpty ? demoPosts : apiPosts;
+    final posts = ref.watch(socialPostsProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Réseau AllGo'),
         actions: <Widget>[
+          IconButton(
+            onPressed: () => _createStory(context, ref),
+            icon: const Icon(Icons.add_circle_outline),
+            tooltip: 'Créer une story',
+          ),
           IconButton(
             onPressed: () => context.push(Routes.stories),
             icon: const Icon(Icons.auto_awesome_outlined),
@@ -114,59 +57,77 @@ class SocialFeedScreen extends ConsumerWidget {
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: () async => ref.invalidate(socialPostsProvider),
-          child: ListView(
-            padding: const EdgeInsets.all(AllGoTokens.space4),
-            children: <Widget>[
-              Container(
-                padding: const EdgeInsets.all(AllGoTokens.space4),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(AllGoTokens.radiusCard),
+          child: posts.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (_, __) => ListView(
+              children: const <Widget>[
+                Padding(
+                  padding: EdgeInsets.all(AllGoTokens.space8),
+                  child: Center(child: Text('Fil indisponible hors ligne.')),
                 ),
-                child: Row(
-                  children: <Widget>[
-                    const CircleAvatar(
-                      radius: 24,
-                      backgroundImage: NetworkImage(
-                        'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=200&q=80',
+              ],
+            ),
+            data: (list) => list.isEmpty
+                ? ListView(
+                    padding: const EdgeInsets.all(AllGoTokens.space4),
+                    children: <Widget>[
+                      _Composer(onTap: () => _showComposer(context, ref)),
+                      const SizedBox(height: AllGoTokens.space8),
+                      const Center(
+                        child: Text('Aucune publication pour l’instant. Soyez le premier.'),
                       ),
-                    ),
-                    const SizedBox(width: AllGoTokens.space3),
-                    Expanded(
-                      child: Text(
-                        'Partager une nouveauté avec votre communauté ?',
-                        style: theme.textTheme.titleMedium,
+                    ],
+                  )
+                : ListView(
+                    padding: const EdgeInsets.all(AllGoTokens.space4),
+                    children: <Widget>[
+                      _Composer(onTap: () => _showComposer(context, ref)),
+                      const SizedBox(height: AllGoTokens.space4),
+                      ...list.map(
+                        (post) => Padding(
+                          padding: const EdgeInsets.only(bottom: AllGoTokens.space4),
+                          child: _PostCard(post: post),
+                        ),
                       ),
-                    ),
-                    FilledButton.tonal(
-                      onPressed: () => context.push(Routes.publish),
-                      child: const Text('Créer'),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: AllGoTokens.space4),
-              SizedBox(
-                height: 104,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: stories.length,
-                  separatorBuilder: (_, __) =>
-                      const SizedBox(width: AllGoTokens.space2),
-                  itemBuilder: (context, index) =>
-                      _StoryItem(story: stories[index]),
-                ),
-              ),
-              const SizedBox(height: AllGoTokens.space4),
-              ...posts.map((post) => Padding(
-                    padding: const EdgeInsets.only(bottom: AllGoTokens.space4),
-                    child: _PostCard(post: post),
-                  )),
-            ],
+                    ],
+                  ),
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _createStory(BuildContext context, WidgetRef ref) async {
+    final image = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 82);
+    if (image == null || !context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final bytes = await image.readAsBytes();
+      final api = ref.read(apiClientProvider);
+      final upload = await api.post<Map<String, dynamic>>(
+        '/media/upload-url',
+        data: <String, dynamic>{'type': 'image/jpeg', 'size': bytes.length},
+      );
+      final data = upload.data?['data'];
+      if (data is! Map<String, dynamic>) throw const FormatException('Réponse média invalide.');
+      await api.put<void>(
+        data['uploadUrl'] as String,
+        data: bytes,
+        options: Options(
+          headers: <String, dynamic>{'Content-Type': 'image/jpeg', 'Content-Length': bytes.length},
+        ),
+      );
+      await api.post<void>(
+        '/social/stories',
+        data: <String, String>{'key': data['key'] as String, 'type': 'image'},
+      );
+      messenger.showSnackBar(const SnackBar(content: Text('Story publiée pour 24 heures.')));
+    } on DioException catch (error) {
+      final response = error.response?.data;
+      final message = response is Map<String, dynamic> ? response['message'] as String? : null;
+      messenger.showSnackBar(SnackBar(content: Text(message ?? 'Impossible de publier la story.')));
+    }
   }
 
   Future<void> _showComposer(BuildContext context, WidgetRef ref) async {
@@ -205,6 +166,7 @@ class SocialFeedScreen extends ConsumerWidget {
         '/social/posts',
         data: <String, dynamic>{'content': result.trim()},
       );
+      ref.invalidate(socialPostsProvider);
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Publication envoyée à la communauté.')),
@@ -223,59 +185,124 @@ class SocialFeedScreen extends ConsumerWidget {
   }
 }
 
-class _StoryItem extends StatelessWidget {
-  const _StoryItem({required this.story});
+class _Composer extends StatelessWidget {
+  const _Composer({required this.onTap});
 
-  final _StorySummary story;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
-    return InkWell(
-      onTap: () => context.push(Routes.stories),
-      borderRadius: BorderRadius.circular(AllGoTokens.radiusCard),
-      child: SizedBox(
-        width: 72,
-        child: Column(
-          children: <Widget>[
-            Container(
-              padding: story.isLive ? const EdgeInsets.all(2) : EdgeInsets.zero,
-              decoration: story.isLive
-                  ? BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF22C55E), Color(0xFF0EA5E9)],
-                      ),
-                    )
-                  : null,
-              child: CircleAvatar(
-                radius: 28,
-                backgroundImage: NetworkImage(story.imageUrl),
-              ),
+    return Container(
+      padding: const EdgeInsets.all(AllGoTokens.space4),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(AllGoTokens.radiusCard),
+      ),
+      child: Row(
+        children: <Widget>[
+          const CircleAvatar(radius: 24, child: Icon(Icons.person_outline)),
+          const SizedBox(width: AllGoTokens.space3),
+          Expanded(
+            child: Text(
+              'Partager une nouveauté avec votre communauté ?',
+              style: theme.textTheme.titleMedium,
             ),
-            const SizedBox(height: AllGoTokens.space2),
-            Text(
-              story.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall,
-            ),
-          ],
-        ),
+          ),
+          // Le thème impose une largeur minimale infinie aux `FilledButton`
+          // (pour les CTA pleine largeur des formulaires) — sans cette
+          // annulation locale, ce bouton posé dans un `Row` sans `Expanded`
+          // demande une largeur infinie et fait planter la mise en page.
+          FilledButton.tonal(
+            style: FilledButton.styleFrom(minimumSize: Size.zero),
+            onPressed: onTap,
+            child: const Text('Créer'),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _PostCard extends StatelessWidget {
+class _PostCard extends ConsumerStatefulWidget {
   const _PostCard({required this.post});
 
   final _PostData post;
 
   @override
+  ConsumerState<_PostCard> createState() => _PostCardState();
+}
+
+class _PostCardState extends ConsumerState<_PostCard> {
+  late bool _liked = widget.post.reactedLocally;
+  late int _likes = widget.post.likes;
+  late int _shares = widget.post.shares;
+  bool _saved = false;
+
+  Future<void> _toggleLike() async {
+    setState(() {
+      _liked = !_liked;
+      _likes += _liked ? 1 : -1;
+    });
+    try {
+      await ref.read(apiClientProvider).post<void>('/social/posts/${widget.post.id}/reactions');
+    } on DioException {
+      if (mounted) {
+        setState(() {
+          _liked = !_liked;
+          _likes += _liked ? 1 : -1;
+        });
+      }
+    }
+  }
+
+  Future<void> _share() async {
+    setState(() => _shares += 1);
+    try {
+      await ref.read(apiClientProvider).post<void>('/social/posts/${widget.post.id}/share');
+      await Share.share('${widget.post.author} sur AllGo : ${widget.post.content}');
+    } on DioException {
+      if (mounted) setState(() => _shares -= 1);
+    }
+  }
+
+  Future<void> _toggleSave() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final wasSaved = _saved;
+    setState(() => _saved = !_saved);
+    try {
+      final api = ref.read(apiClientProvider);
+      if (wasSaved) {
+        await api.delete<void>(
+          '/me/favorites/${widget.post.id}',
+          queryParameters: <String, String>{'type': 'post'},
+        );
+      } else {
+        await api.post<void>(
+          '/me/favorites',
+          data: <String, String>{'targetType': 'post', 'targetId': widget.post.id},
+        );
+      }
+    } on DioException {
+      if (mounted) setState(() => _saved = wasSaved);
+      messenger.showSnackBar(const SnackBar(content: Text('Action impossible. Réessayez.')));
+    }
+  }
+
+  Future<void> _report() async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(apiClientProvider).post<void>('/social/posts/${widget.post.id}/report');
+      messenger.showSnackBar(const SnackBar(content: Text('Publication signalée à la modération.')));
+    } on DioException {
+      messenger.showSnackBar(const SnackBar(content: Text('Impossible de signaler cette publication.')));
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final post = widget.post;
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -288,56 +315,63 @@ class _PostCard extends StatelessWidget {
               children: <Widget>[
                 CircleAvatar(
                   radius: 18,
-                  backgroundImage: NetworkImage(post.avatar),
+                  backgroundImage: post.avatar.isEmpty ? null : CachedNetworkImageProvider(post.avatar),
+                  child: post.avatar.isEmpty ? const Icon(Icons.storefront_outlined) : null,
                 ),
                 const SizedBox(width: AllGoTokens.space2),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(post.author, style: theme.textTheme.titleSmall),
-                      Text(post.handle,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant)),
-                    ],
-                  ),
+                  child: Text(post.author, style: theme.textTheme.titleSmall),
                 ),
-                IconButton(
-                  onPressed: () {},
-                  icon: const Icon(Icons.more_horiz),
+                PopupMenuButton<String>(
+                  onSelected: (value) {
+                    if (value == 'report') unawaited(_report());
+                  },
+                  itemBuilder: (context) => const <PopupMenuEntry<String>>[
+                    PopupMenuItem<String>(value: 'report', child: Text('Signaler')),
+                  ],
                 ),
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space3),
-            child: Text(post.content, style: theme.textTheme.bodyMedium),
-          ),
-          const SizedBox(height: AllGoTokens.space2),
-          CachedNetworkImage(
-            imageUrl: post.image,
-            fit: BoxFit.cover,
-            width: double.infinity,
-            height: 240,
-            placeholder: (_, __) => Container(
-              color: theme.colorScheme.surfaceContainerHighest,
+          if (post.content.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space3),
+              child: Text(post.content, style: theme.textTheme.bodyMedium),
             ),
-            errorWidget: (_, __, ___) => const Icon(Icons.image_not_supported),
-          ),
+          if (post.image.isNotEmpty) ...<Widget>[
+            const SizedBox(height: AllGoTokens.space2),
+            CachedNetworkImage(
+              imageUrl: post.image,
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: 240,
+              placeholder: (_, __) => Container(color: theme.colorScheme.surfaceContainerHighest),
+              errorWidget: (_, __, ___) => const Icon(Icons.image_not_supported),
+            ),
+          ],
           Padding(
             padding: const EdgeInsets.all(AllGoTokens.space3),
             child: Row(
               children: <Widget>[
                 _SocialAction(
-                    icon: Icons.favorite_border, label: '${post.likes}'),
+                  icon: _liked ? Icons.favorite : Icons.favorite_border,
+                  label: '$_likes',
+                  color: _liked ? theme.colorScheme.error : null,
+                  onTap: _toggleLike,
+                ),
                 const SizedBox(width: AllGoTokens.space3),
                 _SocialAction(
-                    icon: Icons.chat_bubble_outline, label: '${post.comments}'),
+                  icon: Icons.chat_bubble_outline,
+                  label: '${post.comments}',
+                ),
                 const SizedBox(width: AllGoTokens.space3),
-                _SocialAction(
-                    icon: Icons.share_outlined, label: '${post.shares}'),
+                _SocialAction(icon: Icons.share_outlined, label: '$_shares', onTap: _share),
                 const Spacer(),
-                const Icon(Icons.bookmark_border),
+                IconButton(
+                  onPressed: _toggleSave,
+                  icon: Icon(_saved ? Icons.bookmark : Icons.bookmark_border),
+                  tooltip: 'Enregistrer',
+                ),
               ],
             ),
           ),
@@ -348,54 +382,53 @@ class _PostCard extends StatelessWidget {
 }
 
 class _SocialAction extends StatelessWidget {
-  const _SocialAction({required this.icon, required this.label});
+  const _SocialAction({required this.icon, required this.label, this.color, this.onTap});
 
   final IconData icon;
   final String label;
+  final Color? color;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Row(
-      children: <Widget>[
-        Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
-        const SizedBox(width: 4),
-        Text(label,
-            style: theme.textTheme.bodySmall
-                ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-      ],
+    final effectiveColor = color ?? theme.colorScheme.onSurfaceVariant;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AllGoTokens.radiusCard),
+      child: Row(
+        children: <Widget>[
+          Icon(icon, size: 18, color: effectiveColor),
+          const SizedBox(width: 4),
+          Text(label, style: theme.textTheme.bodySmall?.copyWith(color: effectiveColor)),
+        ],
+      ),
     );
   }
 }
 
-class _StorySummary {
-  const _StorySummary(this.name, this.imageUrl, this.isLive);
-
-  final String name;
-  final String imageUrl;
-  final bool isLive;
-}
-
 class _PostData {
   const _PostData({
+    required this.id,
     required this.author,
-    required this.handle,
     required this.avatar,
     required this.content,
     required this.image,
     required this.likes,
     required this.comments,
     required this.shares,
+    required this.reactedLocally,
   });
 
+  final String id;
   final String author;
-  final String handle;
   final String avatar;
   final String content;
   final String image;
   final int likes;
   final int comments;
   final int shares;
+  final bool reactedLocally;
 
   factory _PostData.fromJson(Map<String, dynamic> json) {
     final author = json['author'] is Map<String, dynamic>
@@ -410,14 +443,18 @@ class _PostData {
         ? json['counters'] as Map<String, dynamic>
         : const <String, dynamic>{};
     return _PostData(
+      id: idFromJson(json),
       author: author['name'] as String? ?? 'Membre AllGo',
-      handle: '',
       avatar: author['avatar'] as String? ?? '',
       content: json['content'] as String? ?? '',
       image: firstMedia?['url'] as String? ?? '',
       likes: (counters['reactions'] as num?)?.toInt() ?? 0,
       comments: (counters['comments'] as num?)?.toInt() ?? 0,
       shares: (counters['shares'] as num?)?.toInt() ?? 0,
+      // Aucune route ne renvoie l'historique de mes réactions passées (même
+      // décision de portée que `ShopPostsController`) : vrai seulement si
+      // j'ai réagi PENDANT cette session.
+      reactedLocally: false,
     );
   }
 }

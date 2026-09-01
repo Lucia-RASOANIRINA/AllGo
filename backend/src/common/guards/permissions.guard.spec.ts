@@ -99,6 +99,36 @@ describe('PermissionsGuard', () => {
     });
   });
 
+  describe('livreur — permissions sans portée boutique (§26)', () => {
+    // `ShopCourier` est un rôle de boutique par construction (§3.1), mais un
+    // livreur exerce sur toute la plateforme : ses missions et ses revenus ne
+    // sont rattachés à aucune route `/shop/:shopId/...`. Découvert en
+    // exécutant l'application : sans ce cas, AUCUN livreur ne peut jamais
+    // consulter ses propres revenus ou missions (§4.2).
+    const courierOfA: AuthenticatedUser = {
+      id: 'u4',
+      phone: '+261340000005',
+      roles: [{ role: Role.Client }, { role: Role.ShopCourier, shopId: SHOP_A }],
+    };
+
+    it('accorde les revenus livreur sans qu’aucune boutique ne soit nommée par la route', () => {
+      const guard = guardWith({ [PERMISSION_KEY]: Permission.CourierEarningsRead });
+      expect(guard.canActivate(contextFor(courierOfA))).toBe(true);
+    });
+
+    it('accorde la mise à jour de livraison sans portée déclarée', () => {
+      const guard = guardWith({ [PERMISSION_KEY]: Permission.DeliveryUpdate });
+      expect(guard.canActivate(contextFor(courierOfA))).toBe(true);
+    });
+
+    it('ne dispense PAS les autres permissions du même rôle de leur portée boutique', () => {
+      // La liste est volontairement restreinte : élargir `PaymentCollect`
+      // romprait exactement la faille que ce garde corrige.
+      const guard = guardWith({ [PERMISSION_KEY]: Permission.PaymentCollect });
+      expect(() => guard.canActivate(contextFor(courierOfA))).toThrow(ForbiddenException);
+    });
+  });
+
   it('permet le cumul de rôles dans plusieurs boutiques', () => {
     // Impossible sur le web : `shop_team_members.user_id` est en contrainte UNIQUE.
     const polyvalent: AuthenticatedUser = {

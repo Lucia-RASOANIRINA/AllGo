@@ -24,6 +24,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool _loading = true;
   bool _saving = false;
   bool _uploadingPhoto = false;
+  bool _emailVerified = false;
+  bool _sendingVerification = false;
 
   @override
   void initState() {
@@ -49,6 +51,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         _lastName.text = data['lastName'] as String? ?? '';
         _email.text = data['email'] as String? ?? '';
         _bio.text = data['bio'] as String? ?? '';
+        _emailVerified = data['emailVerifiedAt'] != null;
       }
     } on DioException catch (error) {
       if (mounted) _showError(error);
@@ -111,6 +114,22 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
   }
 
+  Future<void> _sendVerification() async {
+    setState(() => _sendingVerification = true);
+    try {
+      await ref.read(apiClientProvider).post<void>('/auth/email/verify/send');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Lien de vérification envoyé par email.')),
+        );
+      }
+    } on DioException catch (error) {
+      if (mounted) _showError(error);
+    } finally {
+      if (mounted) setState(() => _sendingVerification = false);
+    }
+  }
+
   void _showError(DioException error) {
     final body = error.response?.data;
     final message = body is Map<String, dynamic> ? body['message'] as String? : null;
@@ -149,6 +168,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   TextFormField(controller: _lastName, decoration: const InputDecoration(labelText: 'Nom'), validator: _required),
                   const SizedBox(height: AllGoTokens.space3),
                   TextFormField(controller: _email, decoration: const InputDecoration(labelText: 'Email'), keyboardType: TextInputType.emailAddress),
+                  if (_email.text.trim().isNotEmpty && !_emailVerified) ...<Widget>[
+                    const SizedBox(height: AllGoTokens.space2),
+                    Row(
+                      children: <Widget>[
+                        Icon(Icons.error_outline, size: 18, color: Theme.of(context).colorScheme.error),
+                        const SizedBox(width: AllGoTokens.space1),
+                        const Expanded(child: Text('Adresse non vérifiée')),
+                        TextButton(
+                          onPressed: _sendingVerification ? null : _sendVerification,
+                          child: Text(_sendingVerification ? 'Envoi...' : 'Vérifier'),
+                        ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: AllGoTokens.space3),
                   TextFormField(controller: _bio, decoration: const InputDecoration(labelText: 'Présentation'), maxLength: 500, maxLines: 3),
                   const SizedBox(height: AllGoTokens.space4),

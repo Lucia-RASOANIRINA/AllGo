@@ -83,6 +83,20 @@ dependencies:
   local_auth: ^2.3.0
   share_plus: ^10.1.2
   url_launcher: ^6.3.1
+  # Recherche vocale (§2.2) — API `SpeechListenOptions` depuis la 7.x.
+  speech_to_text: ^7.0.0
+  # Historique « récemment consulté » (accueil) : local, non synchronisé,
+  # ne justifie pas une table Drift ni sa régénération de code.
+  shared_preferences: ^2.3.2
+  # Reçu de commande (§7, §20) : génération PDF côté client à partir des
+  # données de commande déjà chargées, ouverte dans la boîte de dialogue
+  # d'impression du système (impression, enregistrement ou partage).
+  pdf: ^3.11.1
+  printing: ^5.13.4
+  # Import de produits en masse (§18) : sélection d'un fichier CSV côté
+  # commerçant, analysé sur l'appareil avant envoi à l'API.
+  file_picker: ^10.0.0
+  csv: ^6.0.0
   # Version imposée par `flutter_localizations`, qui l'épingle exactement.
   # La borne basse doit rester à 0.20.2 : Flutter 3.44 épingle 0.20.2, Flutter
   # 3.47 épingle 0.20.3. Le caret couvre les deux.

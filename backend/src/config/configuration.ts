@@ -22,6 +22,14 @@ export interface AppConfig {
     forcePathStyle: boolean;
     publicBaseUrl: string;
   };
+  smtp: {
+    host?: string;
+    port: number;
+    user?: string;
+    password?: string;
+    from: string;
+    verificationUrl: string;
+  };
 }
 
 function required(name: string): string {
@@ -58,5 +66,15 @@ export default (): AppConfig => ({
     secretKey: required('S3_SECRET_KEY'),
     forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== 'false',
     publicBaseUrl: process.env.S3_PUBLIC_BASE_URL ?? 'http://localhost:9000/allgo-media',
+  },
+  // Absent en développement : `EmailService` journalise le lien au lieu
+  // d'envoyer un courriel (§ décision de portée L0).
+  smtp: {
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT ?? 587),
+    user: process.env.SMTP_USER,
+    password: process.env.SMTP_PASSWORD,
+    from: process.env.SMTP_FROM ?? 'no-reply@allgo.mg',
+    verificationUrl: process.env.EMAIL_VERIFICATION_URL ?? 'https://app.allgo.mg/verifier-email',
   },
 });

@@ -1,5 +1,7 @@
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/network/api_client.dart';
+import 'package:allgo/core/network/json_parsing.dart';
+import 'package:allgo/shared/utils/receipt_pdf.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -93,10 +95,10 @@ class _OrderTile extends ConsumerWidget {
       title: Text(order['orderNumber']?.toString() ?? id),
       subtitle: Text('${order['customer']?['phone'] ?? ''} • ${order['amounts']?['total'] ?? 0} Ar\nStatut : $status'),
       isThreeLine: true,
-      onTap: () => showDialog<void>(context: context, builder: (_) => AlertDialog(
+      onTap: () => showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
         title: Text('Commande ${order['orderNumber'] ?? id}'),
         content: Text('Articles : ${(order['items'] as List?)?.length ?? 0}\nClient : ${order['customer']?['name'] ?? ''}\nTotal : ${order['amounts']?['total'] ?? 0} Ar'),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Fermer')), TextButton(onPressed: () { Navigator.pop(context); _receipt(context, order); }, child: const Text('Reçu / imprimer'))],
+        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Fermer')), TextButton(onPressed: () { Navigator.pop(dialogContext); _receipt(context, order); }, child: const Text('Reçu / imprimer'))],
       )),
       trailing: next == null && !canCancel ? null : PopupMenuButton<String>(
         onSelected: (action) async {
@@ -120,12 +122,32 @@ class _OrderTile extends ConsumerWidget {
     ));
   }
 
-  void _receipt(BuildContext context, Map<String, dynamic> order) => showDialog<void>(
-    context: context,
-    builder: (_) => AlertDialog(
-      title: const Text('Reçu'),
-      content: Text('AllGo\nCommande ${order['orderNumber']}\nTotal : ${order['amounts']?['total'] ?? 0} Ar\nMerci pour votre commande.'),
-      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Fermer'))],
-    ),
-  );
+  Future<void> _receipt(BuildContext context, Map<String, dynamic> order) async {
+    final amounts = order['amounts'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+    final customer = order['customer'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+    final payment = order['payment'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+    final items = (order['items'] as List<dynamic>?) ?? const <dynamic>[];
+
+    await printReceipt(
+      orderNumber: order['orderNumber']?.toString() ?? '',
+      shopName: order['shop']?['name']?.toString() ?? '',
+      customerName: customer['name']?.toString() ?? '',
+      customerPhone: customer['phone']?.toString() ?? '',
+      lines: items.whereType<Map<String, dynamic>>().map((item) {
+        return ReceiptLine(
+          name: item['name']?.toString() ?? '',
+          quantity: item['quantity'] as int? ?? 1,
+          subtotal: moneyFromJson(item['subtotal']),
+        );
+      }).toList(),
+      subtotal: moneyFromJson(amounts['subtotal']),
+      shippingFee: moneyFromJson(amounts['shippingFee']),
+      discount: moneyFromJson(amounts['discount']),
+      tip: moneyFromJson(amounts['tip']),
+      total: moneyFromJson(amounts['total']),
+      paymentMethod: payment['method']?.toString() ?? '',
+      status: order['status']?.toString() ?? '',
+      date: DateTime.tryParse(order['createdAt']?.toString() ?? '') ?? DateTime.now(),
+    );
+  }
 }

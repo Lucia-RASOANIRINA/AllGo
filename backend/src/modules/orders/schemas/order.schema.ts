@@ -69,6 +69,8 @@ export class Delivery {
   @Prop({ type: GeoPointSchema }) location?: GeoPoint;
   @Prop({ type: Types.ObjectId, ref: 'User' }) courierId?: Types.ObjectId;
   @Prop({ type: DeliveryProofSchema }) proof?: DeliveryProof;
+  /** Pourboire — versé intégralement au livreur, jamais commissionné (§27). */
+  @Prop({ type: MongooseSchema.Types.Decimal128 }) tip?: unknown;
   @Prop({ type: String, enum: ['received', 'accepted', 'to_shop', 'picked_up', 'to_client', 'client_found', 'delivered'], default: 'received' })
   workflowStatus!: string;
   @Prop() otpCode?: string;
@@ -132,6 +134,7 @@ export class Order extends Document {
     subtotal: unknown;
     shippingFee: unknown;
     discount: unknown;
+    tip: unknown;
     total: unknown;
   };
 

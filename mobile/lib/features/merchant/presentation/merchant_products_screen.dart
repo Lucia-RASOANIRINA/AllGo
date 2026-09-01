@@ -1,5 +1,10 @@
+import 'dart:convert';
+
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/network/api_client.dart';
+import 'package:csv/csv.dart';
+import 'package:dio/dio.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -26,7 +31,16 @@ class MerchantProductsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final products = ref.watch(merchantProductsProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('Gestion des produits')),
+      appBar: AppBar(
+        title: const Text('Gestion des produits'),
+        actions: <Widget>[
+          IconButton(
+            onPressed: () => _importCsv(context, ref),
+            icon: const Icon(Icons.upload_file_outlined),
+            tooltip: 'Importer des produits (CSV)',
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openForm(context, ref),
         icon: const Icon(Icons.add),
@@ -84,11 +98,11 @@ class MerchantProductsScreen extends ConsumerWidget {
     } else if (action == 'delete' && context.mounted) {
       final confirmed = await showDialog<bool>(
         context: context,
-        builder: (_) => AlertDialog(
+        builder: (dialogContext) => AlertDialog(
           title: const Text('Supprimer ce produit ?'),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
-            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Supprimer')),
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuler')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Supprimer')),
           ],
         ),
       );
@@ -96,6 +110,102 @@ class MerchantProductsScreen extends ConsumerWidget {
         await api.delete<void>('/shop/$shopId/products/$id');
         ref.invalidate(merchantProductsProvider);
       }
+    }
+  }
+
+  /// Import en masse — colonnes attendues (dans n'importe quel ordre) :
+  /// `name,slug,price` obligatoires, `promoPrice,stock,sku,barcode,description`
+  /// optionnelles. La première ligne est l'en-tête.
+  Future<void> _importCsv(BuildContext context, WidgetRef ref) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: <String>['csv'],
+      withData: true,
+    );
+    final bytes = result?.files.single.bytes;
+    if (bytes == null || !context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    late final List<List<dynamic>> rows;
+    try {
+      rows = const CsvToListConverter(eol: '\n', shouldParseNumbers: false)
+          .convert(utf8.decode(bytes));
+    } on Exception {
+      messenger.showSnackBar(const SnackBar(content: Text('Fichier CSV illisible.')));
+      return;
+    }
+    if (rows.length < 2) {
+      messenger.showSnackBar(const SnackBar(content: Text('Le fichier ne contient aucune ligne de produit.')));
+      return;
+    }
+
+    final header = rows.first.map((cell) => cell.toString().trim().toLowerCase()).toList();
+    int colIndex(String name) => header.indexOf(name);
+    final nameCol = colIndex('name');
+    final slugCol = colIndex('slug');
+    final priceCol = colIndex('price');
+    if (nameCol == -1 || slugCol == -1 || priceCol == -1) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Colonnes obligatoires manquantes : name, slug, price.')),
+      );
+      return;
+    }
+    final promoCol = colIndex('promoprice');
+    final stockCol = colIndex('stock');
+    final skuCol = colIndex('sku');
+    final barcodeCol = colIndex('barcode');
+    final descriptionCol = colIndex('description');
+
+    String? cell(List<dynamic> row, int index) =>
+        index == -1 || index >= row.length || row[index].toString().trim().isEmpty
+            ? null
+            : row[index].toString().trim();
+
+    final items = <Map<String, dynamic>>[];
+    for (final row in rows.skip(1)) {
+      if (row.every((value) => value.toString().trim().isEmpty)) continue;
+      items.add(<String, dynamic>{
+        'name': cell(row, nameCol) ?? '',
+        'slug': cell(row, slugCol) ?? '',
+        'price': double.tryParse(cell(row, priceCol) ?? '') ?? 0,
+        if (cell(row, promoCol) != null) 'promoPrice': double.tryParse(cell(row, promoCol)!),
+        if (cell(row, stockCol) != null) 'stock': int.tryParse(cell(row, stockCol)!),
+        if (cell(row, skuCol) != null) 'sku': cell(row, skuCol),
+        if (cell(row, barcodeCol) != null) 'barcode': cell(row, barcodeCol),
+        if (cell(row, descriptionCol) != null) 'description': cell(row, descriptionCol),
+      });
+    }
+
+    final shops = await ref.read(apiClientProvider).get<Map<String, dynamic>>('/me/shops');
+    final shopItems = shops.data?['data'];
+    if (shopItems is! List || shopItems.isEmpty) return;
+    final shopId = ((shopItems.first as Map<String, dynamic>)['id'] ??
+            (shopItems.first as Map<String, dynamic>)['_id'])
+        .toString();
+
+    try {
+      final response = await ref.read(apiClientProvider).post<Map<String, dynamic>>(
+        '/shop/$shopId/products/import',
+        data: <String, dynamic>{'items': items},
+      );
+      final data = response.data?['data'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+      final created = data['created'] as int? ?? 0;
+      final errors = (data['errors'] as List<dynamic>?) ?? const <dynamic>[];
+      ref.invalidate(merchantProductsProvider);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            errors.isEmpty
+                ? '$created produit${created > 1 ? 's' : ''} importé${created > 1 ? 's' : ''}.'
+                : '$created importé(s), ${errors.length} ligne(s) en erreur.',
+          ),
+        ),
+      );
+    } on DioException catch (error) {
+      final message = error.response?.data is Map<String, dynamic>
+          ? (error.response!.data as Map<String, dynamic>)['message'] as String?
+          : null;
+      messenger.showSnackBar(SnackBar(content: Text(message ?? 'Import impossible.')));
     }
   }
 

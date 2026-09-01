@@ -17,7 +17,11 @@ final apiClientProvider = Provider<Dio>((ref) {
       sendTimeout: const Duration(seconds: 30),
       headers: <String, String>{
         'Accept': 'application/json',
-        'Accept-Encoding': 'br, gzip',
+        // `dart:io` (l'adaptateur HTTP par défaut de Dio) ne décompresse que le
+        // gzip automatiquement. Annoncer « br » fait répondre le serveur en
+        // Brotli — que Dio ne sait pas décoder — et casse le parsing JSON de
+        // toute réponse dépassant le seuil de compression.
+        'Accept-Encoding': 'gzip',
       },
       // Les codes 4xx sont traités par `ErrorInterceptor`, pas par une
       // exception brute de Dio : l'API renvoie un message déjà affichable.

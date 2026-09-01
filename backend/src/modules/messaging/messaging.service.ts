@@ -6,6 +6,8 @@ import { AppError } from '../../common/http/app-error';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { EventsGateway, RealtimeEvent } from '../realtime/events.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
+import { Role } from '../../common/rbac/roles';
+import { Shop, type ShopDocument } from '../shops/schemas/shop.schema';
 import {
   Conversation,
   type ConversationDocument,
@@ -18,6 +20,7 @@ export class MessagingService {
   constructor(
     @InjectModel(Conversation.name) private readonly conversations: Model<ConversationDocument>,
     @InjectModel(Message.name) private readonly messages: Model<MessageDocument>,
+    @InjectModel(Shop.name) private readonly shops: Model<ShopDocument>,
     private readonly realtime: EventsGateway,
     private readonly notifications: NotificationsService,
   ) {}
@@ -30,22 +33,53 @@ export class MessagingService {
       .lean();
   }
 
-  async create(user: AuthenticatedUser, participantId: string): Promise<unknown> {
-    if (participantId === user.id) throw new AppError('INVALID_PARTICIPANT', 'Une conversation nécessite un autre participant.', 400);
-    const ids = [new Types.ObjectId(user.id), new Types.ObjectId(participantId)];
+  async create(user: AuthenticatedUser, target: { participantId?: string; shopId?: string }): Promise<unknown> {
+    const other = target.shopId
+      ? await this.resolveShopParticipant(target.shopId)
+      : target.participantId
+        ? { userId: target.participantId, name: target.participantId, shopId: undefined as string | undefined, avatar: undefined as string | undefined }
+        : null;
+    if (!other) throw new AppError('INVALID_PARTICIPANT', 'Une conversation nécessite une boutique ou un autre participant.', 400);
+    if (other.userId === user.id) {
+      throw new AppError('INVALID_PARTICIPANT', 'Une conversation nécessite un autre participant.', 400);
+    }
+
+    const ids = [new Types.ObjectId(user.id), new Types.ObjectId(other.userId)];
     const existing = await this.conversations.findOne({
       'participants.userId': { $all: ids },
       'participants': { $size: 2 },
     });
     if (existing) return existing.toJSON();
+
     const conversation = await this.conversations.create({
       participants: [
         { userId: ids[0], name: user.phone },
-        { userId: ids[1], name: participantId },
+        {
+          userId: ids[1],
+          name: other.name,
+          avatar: other.avatar,
+          shopId: other.shopId ? new Types.ObjectId(other.shopId) : undefined,
+        },
       ],
-      unread: { [user.id]: 0, [participantId]: 0 },
+      unread: { [user.id]: 0, [other.userId]: 0 },
     });
     return conversation.toJSON();
+  }
+
+  /**
+   * Une conversation « avec une boutique » s'adresse en réalité à son
+   * propriétaire (à défaut, le premier membre actif) : le modèle
+   * `Conversation` ne connaît que des utilisateurs, jamais de boutique
+   * directement — `participants[].shopId` n'est qu'une étiquette d'affichage.
+   */
+  private async resolveShopParticipant(
+    shopId: string,
+  ): Promise<{ userId: string; name: string; avatar?: string; shopId: string }> {
+    const shop = await this.shops.findById(shopId).select('name logo team ownerId').lean();
+    if (!shop) throw AppError.notFound('Boutique');
+    const owner = shop.team.find((member) => member.role === Role.ShopOwner) ?? shop.team[0];
+    const userId = owner ? String(owner.userId) : String(shop.ownerId);
+    return { userId, name: shop.name, avatar: shop.logo, shopId: String(shop._id) };
   }
 
   private async member(conversationId: string, userId: string): Promise<ConversationDocument> {
@@ -69,6 +103,9 @@ export class MessagingService {
     attachments: Array<{ url: string; type: string; name?: string }> = [],
   ): Promise<unknown> {
     const conversation = await this.member(conversationId, user.id);
+    if (conversation.blockedBy.length > 0) {
+      throw new AppError('CONVERSATION_BLOCKED', 'Cette conversation est bloquée.', 403);
+    }
     if (!content.trim()) throw new AppError('MESSAGE_EMPTY', 'Le message ne peut pas être vide.', 400);
     const message = await this.messages.create({
       conversationId: new Types.ObjectId(conversationId),
@@ -104,5 +141,37 @@ export class MessagingService {
       }
     }
     return message.toJSON();
+  }
+
+  /**
+   * Bloquer ferme le CANAL dans les deux sens (`send` refuse dès qu'un
+   * participant, quel qu'il soit, a bloqué) — un blocage à sens unique
+   * laisserait l'autre partie continuer à écrire sans le savoir.
+   */
+  async block(conversationId: string, userId: string): Promise<{ blocked: true }> {
+    const conversation = await this.member(conversationId, userId);
+    await this.conversations.updateOne(
+      { _id: conversation._id },
+      { $addToSet: { blockedBy: new Types.ObjectId(userId) } },
+    );
+    return { blocked: true };
+  }
+
+  async unblock(conversationId: string, userId: string): Promise<{ blocked: false }> {
+    const conversation = await this.member(conversationId, userId);
+    await this.conversations.updateOne(
+      { _id: conversation._id },
+      { $pull: { blockedBy: new Types.ObjectId(userId) } },
+    );
+    return { blocked: false };
+  }
+
+  async report(conversationId: string, userId: string, reason?: string): Promise<{ reported: true }> {
+    await this.member(conversationId, userId);
+    await this.conversations.updateOne(
+      { _id: conversationId },
+      { $set: { reported: true, reportReason: reason } },
+    );
+    return { reported: true };
   }
 }

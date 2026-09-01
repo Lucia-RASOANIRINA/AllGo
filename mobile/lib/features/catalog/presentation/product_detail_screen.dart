@@ -1,6 +1,7 @@
 import 'package:allgo/app/router.dart';
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/error/failure.dart';
+import 'package:allgo/core/storage/recently_viewed_store.dart';
 import 'package:allgo/core/utils/currency.dart';
 import 'package:allgo/features/auth/presentation/session_controller.dart';
 import 'package:allgo/features/cart/presentation/cart_controller.dart';
@@ -23,6 +24,22 @@ class ProductDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final product = ref.watch(productDetailProvider(productId));
+
+    // Historique local « récemment consulté » (accueil) — enregistré une
+    // seule fois par arrivée de données, jamais à chaque reconstruction.
+    ref.listen(productDetailProvider(productId), (_, next) {
+      next.whenData((p) {
+        ref.read(recentlyViewedStoreProvider).addProduct(
+              RecentlyViewedProduct(
+                id: p.id,
+                name: p.name,
+                categoryId: p.categoryId,
+                thumbUrl: p.thumbUrl,
+                price: p.price,
+              ),
+            );
+      });
+    });
 
     return Scaffold(
       body: AsyncView<Product>(
@@ -161,7 +178,90 @@ class _Content extends StatelessWidget {
             ),
           ),
         ),
+        _SimilarProductsSliver(productId: product.id),
+        const SliverToBoxAdapter(child: SizedBox(height: AllGoTokens.space6)),
       ],
+    );
+  }
+}
+
+class _SimilarProductsSliver extends ConsumerWidget {
+  const _SimilarProductsSliver({required this.productId});
+
+  final String productId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final similar = ref.watch(similarProductsProvider(productId));
+
+    return similar.maybeWhen(
+      data: (list) => list.isEmpty
+          ? const SliverToBoxAdapter(child: SizedBox.shrink())
+          : SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AllGoTokens.space4,
+                      AllGoTokens.space6,
+                      AllGoTokens.space4,
+                      AllGoTokens.space2,
+                    ),
+                    child: Text('Produits similaires', style: theme.textTheme.titleMedium),
+                  ),
+                  SizedBox(
+                    height: 220,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space4),
+                      itemCount: list.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: AllGoTokens.space3),
+                      itemBuilder: (context, i) => SizedBox(
+                        width: 160,
+                        child: Card(
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            onTap: () => context.push(Routes.productPath(list[i].id)),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Expanded(
+                                  child: list[i].thumbUrl == null
+                                      ? ColoredBox(color: theme.colorScheme.surfaceContainerHighest)
+                                      : ProductImage(imageUrl: list[i].thumbUrl, productName: list[i].name),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.all(AllGoTokens.space2),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: <Widget>[
+                                      Text(
+                                        list[i].name,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.bodyMedium,
+                                      ),
+                                      Text(
+                                        Ariary.formatWithPromo(list[i].price, list[i].promoPrice).current,
+                                        style: theme.textTheme.titleSmall
+                                            ?.copyWith(color: AllGoTokens.brand, fontWeight: FontWeight.w700),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+      orElse: () => const SliverToBoxAdapter(child: SizedBox.shrink()),
     );
   }
 }

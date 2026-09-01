@@ -12,6 +12,9 @@ import { Counter, CounterSchema } from './schemas/counter.schema';
 import { Invoice, InvoiceSchema, Refund, RefundSchema } from './schemas/invoice.schema';
 import { User, UserSchema } from '../users/schemas/user.schema';
 import { Order, OrderSchema } from './schemas/order.schema';
+import { Coupon, CouponSchema } from './schemas/coupon.schema';
+import { Dispute, DisputeSchema } from './schemas/dispute.schema';
+import { Promotion, PromotionSchema } from '../campaigns/schemas/promotion.schema';
 
 @Module({
   imports: [
@@ -24,10 +27,17 @@ import { Order, OrderSchema } from './schemas/order.schema';
       { name: Invoice.name, schema: InvoiceSchema },
       { name: Refund.name, schema: RefundSchema },
       { name: User.name, schema: UserSchema },
+      { name: Coupon.name, schema: CouponSchema },
+      { name: Promotion.name, schema: PromotionSchema },
+      { name: Dispute.name, schema: DisputeSchema },
     ]),
   ],
   controllers: [OrdersController, CartController],
   providers: [OrdersService, CartService],
-  exports: [OrdersService],
+  // `MongooseModule` doit être réexporté, pas seulement importé : sans lui,
+  // un module qui importe `OrdersModule` pour son `Order` (ex.
+  // `CourierEarningsModule`) ne peut pas l'injecter — Nest limite la portée
+  // d'un modèle enregistré via `forFeature` au module qui l'enregistre.
+  exports: [OrdersService, MongooseModule],
 })
 export class OrdersModule {}

@@ -20,9 +20,14 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   final _cityController = TextEditingController(text: 'Mahajanga');
   final _phoneController = TextEditingController();
   final _noteController = TextEditingController();
+  final _couponController = TextEditingController();
+  final _tipController = TextEditingController();
   String _deliveryMethod = 'delivery';
   String _paymentMethod = 'cod';
   bool _submitting = false;
+  bool _checkingCoupon = false;
+  String? _couponMessage;
+  bool _couponValid = false;
 
   static const List<_PaymentMethodOption> _paymentOptions =
       <_PaymentMethodOption>[
@@ -38,7 +43,44 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     _cityController.dispose();
     _phoneController.dispose();
     _noteController.dispose();
+    _couponController.dispose();
+    _tipController.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkCoupon() async {
+    final code = _couponController.text.trim();
+    if (code.isEmpty) return;
+    setState(() {
+      _checkingCoupon = true;
+      _couponMessage = null;
+    });
+    try {
+      final response = await ref.read(apiClientProvider).get<Map<String, dynamic>>(
+        '/cart/coupon',
+        queryParameters: <String, dynamic>{'code': code},
+      );
+      final data = response.data?['data'] as Map<String, dynamic>?;
+      final totalDiscount = data?['totalDiscount'] as num? ?? 0;
+      final shops = (data?['shops'] as List<dynamic>?) ?? const <dynamic>[];
+      final anyValid = shops.any((s) => (s as Map<String, dynamic>)['valid'] == true);
+      setState(() {
+        _couponValid = anyValid && totalDiscount > 0;
+        _couponMessage = _couponValid
+            ? 'Réduction de ${totalDiscount.round()} Ar appliquée.'
+            : 'Ce code ne s’applique à aucun article de votre panier.';
+      });
+    } on DioException catch (error) {
+      final message = error.response?.data is Map<String, dynamic>
+          ? ((error.response!.data as Map<String, dynamic>)['message'] as String?)
+          : null;
+      setState(() {
+        _couponValid = false;
+        _couponMessage = message ?? 'Code promo invalide.';
+      });
+    } finally {
+      if (mounted) setState(() => _checkingCoupon = false);
+    }
   }
 
   Future<void> _submit() async {
@@ -73,6 +115,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                   'delivery': delivery,
                   'paymentMethod': _paymentMethod,
                   'shippingFee': _deliveryMethod == 'pickup' ? 0 : 0,
+                  if (_couponValid && _couponController.text.trim().isNotEmpty)
+                    'couponCode': _couponController.text.trim(),
+                  if (_deliveryMethod == 'delivery' && _tipController.text.trim().isNotEmpty)
+                    'tip': int.tryParse(_tipController.text.trim()) ?? 0,
                 },
                 options: Options(
                   headers: <String, String>{
@@ -243,6 +289,62 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                     .toList(),
               ),
             ),
+            if (_deliveryMethod == 'delivery') ...<Widget>[
+              const SizedBox(height: AllGoTokens.space6),
+              Text('Pourboire livreur (facultatif)',
+                  style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: AllGoTokens.space2),
+              TextFormField(
+                controller: _tipController,
+                decoration: const InputDecoration(
+                  labelText: 'Montant en Ariary',
+                  prefixIcon: Icon(Icons.volunteer_activism_outlined),
+                ),
+                keyboardType: TextInputType.number,
+              ),
+            ],
+            const SizedBox(height: AllGoTokens.space6),
+            Text('Code promotionnel', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: AllGoTokens.space2),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Expanded(
+                  child: TextFormField(
+                    controller: _couponController,
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: const InputDecoration(labelText: 'Code'),
+                    onChanged: (_) => setState(() {
+                      _couponValid = false;
+                      _couponMessage = null;
+                    }),
+                  ),
+                ),
+                const SizedBox(width: AllGoTokens.space2),
+                Padding(
+                  padding: const EdgeInsets.only(top: AllGoTokens.space1),
+                  child: OutlinedButton(
+                    onPressed: _checkingCoupon ? null : _checkCoupon,
+                    child: _checkingCoupon
+                        ? const SizedBox.square(
+                            dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Text('Appliquer'),
+                  ),
+                ),
+              ],
+            ),
+            if (_couponMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(top: AllGoTokens.space1),
+                child: Text(
+                  _couponMessage!,
+                  style: TextStyle(
+                    color: _couponValid
+                        ? Colors.green
+                        : Theme.of(context).colorScheme.error,
+                  ),
+                ),
+              ),
             const SizedBox(height: AllGoTokens.space6),
             FilledButton.icon(
               onPressed: _submitting ? null : _submit,

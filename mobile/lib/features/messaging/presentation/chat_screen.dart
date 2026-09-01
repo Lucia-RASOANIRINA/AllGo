@@ -45,7 +45,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title ?? 'Conversation')),
+      appBar: AppBar(
+        title: Text(widget.title ?? 'Conversation'),
+        actions: <Widget>[
+          PopupMenuButton<String>(
+            onSelected: (value) => _onMenuSelected(context, value),
+            itemBuilder: (context) => const <PopupMenuEntry<String>>[
+              PopupMenuItem<String>(value: 'block', child: Text('Bloquer')),
+              PopupMenuItem<String>(value: 'report', child: Text('Signaler')),
+            ],
+          ),
+        ],
+      ),
       body: Column(
         children: <Widget>[
           Expanded(
@@ -96,6 +107,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _onMenuSelected(BuildContext context, String action) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      if (action == 'block') {
+        await blockConversation(ref, widget.conversationId);
+        messenger.showSnackBar(const SnackBar(content: Text('Conversation bloquée.')));
+      } else if (action == 'report') {
+        await reportConversation(ref, widget.conversationId);
+        messenger.showSnackBar(const SnackBar(content: Text('Conversation signalée.')));
+      }
+    } on Exception {
+      messenger.showSnackBar(const SnackBar(content: Text('Action impossible. Réessayez.')));
+    }
   }
 
   Future<void> _send() async {

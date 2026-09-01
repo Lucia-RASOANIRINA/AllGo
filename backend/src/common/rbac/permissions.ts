@@ -11,7 +11,13 @@
 
 import { Role } from './roles';
 
-export const PERMISSIONS_VERSION = 1;
+/**
+ * v2 : ajout de `PostShare`, `PostReport`, `MessageBlock`, `MessageReport`,
+ * `OrderDispute` — fonctionnalités précédemment absentes (partage/signalement
+ * de publication, blocage/signalement de conversation, litige de commande).
+ * Aucune permission existante retirée ni renommée.
+ */
+export const PERMISSIONS_VERSION = 2;
 
 export const Permission = {
   // --- Session ---
@@ -49,6 +55,7 @@ export const Permission = {
   OrderReadShop: 'order:read_shop',
   OrderUpdateStatus: 'order:update_status',
   OrderCancel: 'order:cancel',
+  OrderDispute: 'order:dispute',
 
   // --- Paiement & facturation ---
   PaymentInitiate: 'payment:initiate',
@@ -67,6 +74,8 @@ export const Permission = {
   PostCreate: 'post:create',
   PostDelete: 'post:delete',
   PostUpdate: 'post:update',
+  PostShare: 'post:share',
+  PostReport: 'post:report',
   CommentCreate: 'comment:create',
   ReactionToggle: 'reaction:toggle',
   StoryCreate: 'story:create',
@@ -80,6 +89,8 @@ export const Permission = {
   // --- Messagerie & notifications ---
   MessageRead: 'message:read',
   MessageSend: 'message:send',
+  MessageBlock: 'message:block',
+  MessageReport: 'message:report',
   NotificationRead: 'notification:read',
   ReviewRead: 'review:read',
   ReviewCreate: 'review:create',
@@ -122,11 +133,14 @@ const CLIENT_PERMISSIONS: PermissionValue[] = [
   Permission.OrderCreate,
   Permission.OrderReadOwn,
   Permission.OrderCancel,
+  Permission.OrderDispute,
   Permission.PaymentInitiate,
   Permission.InvoiceRead,
   Permission.PostRead,
   Permission.PostCreate,
   Permission.PostDelete, Permission.PostUpdate,
+  Permission.PostShare,
+  Permission.PostReport,
   Permission.CommentCreate,
   Permission.ReactionToggle,
   Permission.StoryCreate,
@@ -135,6 +149,8 @@ const CLIENT_PERMISSIONS: PermissionValue[] = [
   Permission.RequestRead,
   Permission.MessageRead,
   Permission.MessageSend,
+  Permission.MessageBlock,
+  Permission.MessageReport,
   Permission.NotificationRead,
   Permission.ReviewRead,
   Permission.ReviewCreate,
@@ -150,6 +166,8 @@ const SHOP_BASE: PermissionValue[] = [
   Permission.OrderReadShop,
   Permission.MessageRead,
   Permission.MessageSend,
+  Permission.MessageBlock,
+  Permission.MessageReport,
   Permission.NotificationRead,
   Permission.MediaUpload,
 ];
@@ -254,3 +272,28 @@ export const ROLE_PERMISSIONS: Record<Role, readonly PermissionValue[]> = {
 export function permissionsOf(role: Role): Set<PermissionValue> {
   return new Set(ROLE_PERMISSIONS[role] ?? []);
 }
+
+/**
+ * Permissions qui échappent à la portée boutique de leur rôle porteur (§26).
+ *
+ * `ShopCourier` est un rôle de boutique par construction du modèle (§3.1) —
+ * l'équipe d'une boutique reste la façon dont un livreur y est rattaché.
+ * Mais un livreur exerce sur TOUTE la plateforme (missions, revenus,
+ * retraits) : `OrdersService.courierMissions()` ne filtre par aucune
+ * boutique, et il n'existe pas de route `/shop/:shopId/courier/...` où
+ * nommer une portée. Sans cette liste, `PermissionsGuard.holds()` refuse
+ * systématiquement ces quatre permissions — c'est un livreur entièrement
+ * verrouillé hors de son propre espace, découvert seulement en exécutant
+ * l'application (§4.2 : « validé » signifie exécuté).
+ *
+ * Volontairement restreinte à ces quatre permissions : `OrderReadShop` et
+ * `PaymentCollect`, portées par le même rôle, doivent rester cantonnées à la
+ * boutique de l'affectation — les y ajouter romprait exactement la faille
+ * que `PermissionsGuard` corrige (§3.1).
+ */
+export const PERMISSIONS_WITHOUT_SHOP_SCOPE: ReadonlySet<PermissionValue> = new Set([
+  Permission.DeliveryReadOwn,
+  Permission.DeliveryUpdate,
+  Permission.DeliveryProof,
+  Permission.CourierEarningsRead,
+]);

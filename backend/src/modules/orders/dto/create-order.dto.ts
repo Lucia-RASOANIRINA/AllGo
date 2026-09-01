@@ -82,6 +82,15 @@ export class CreateOrderDto {
   @IsString()
   @MaxLength(40)
   couponCode?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Pourboire pour le livreur, en Ariary. Sans effet pour un retrait en boutique (aucun livreur).',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  tip?: number;
 }
 
 export class UpdateOrderStatusDto {

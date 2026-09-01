@@ -32,6 +32,7 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
 import { CourierEarningsModule } from './modules/courier-earnings/courier-earnings.module';
 import { AdministrationModule } from './modules/administration/administration.module';
+import { SearchModule } from './modules/search/search.module';
 
 @Module({
   imports: [
@@ -100,6 +101,7 @@ import { AdministrationModule } from './modules/administration/administration.mo
     CampaignsModule,
     CourierEarningsModule,
     AdministrationModule,
+    SearchModule,
   ],
   providers: [
     // Ordre significatif : authentification, puis permissions, puis débit.

@@ -1,11 +1,14 @@
 import 'package:allgo/app/allgo_app.dart';
 import 'package:allgo/core/env/environment.dart';
+import 'package:allgo/core/storage/recently_viewed_store.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
 
   // Portrait par défaut ; le paysage n'est autorisé que sur la galerie, la
   // carte et le scan, écran par écran (§13.2).
@@ -19,7 +22,10 @@ Future<void> main() async {
         ..sendDefaultPii = false;
     },
     appRunner: () => runApp(
-      const ProviderScope(child: AllGoApp()),
+      ProviderScope(
+        overrides: <Override>[sharedPreferencesProvider.overrideWithValue(prefs)],
+        child: const AllGoApp(),
+      ),
     ),
   );
 }

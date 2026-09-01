@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsInt, IsMongoId, IsOptional, Max, Min } from 'class-validator';
 
@@ -67,5 +67,12 @@ export class CartController {
   @ApiOperation({ summary: 'Retirer une ligne du panier.' })
   remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.cart.removeItem(user.id, id);
+  }
+
+  @Get('coupon')
+  @RequirePermission(Permission.CartManage)
+  @ApiOperation({ summary: 'Prévisualiser une réduction avant de commander, boutique par boutique.' })
+  previewCoupon(@CurrentUser() user: AuthenticatedUser, @Query('code') code: string) {
+    return this.cart.previewCoupon(user.id, code);
   }
 }

@@ -22,4 +22,49 @@ export class CampaignsService {
     if (!result.deletedCount) throw AppError.notFound('Promotion');
     return { deleted: true };
   }
+
+  /**
+   * Promotions flash actives, avec leur produit — rail « Promotions flash »
+   * de l'accueil (§1.B). `productId` est optionnel sur `Promotion` : seules
+   * celles qui en portent un peuvent alimenter ce rail.
+   */
+  async activeFlash(limit: number): Promise<unknown[]> {
+    const now = new Date();
+    return this.promotions.aggregate([
+      {
+        $match: {
+          flash: true,
+          active: true,
+          startsAt: { $lte: now },
+          endsAt: { $gte: now },
+          productId: { $exists: true },
+        },
+      },
+      { $sort: { startsAt: -1 } },
+      { $limit: limit },
+      { $lookup: { from: 'products', localField: 'productId', foreignField: '_id', as: 'product' } },
+      { $unwind: '$product' },
+      { $match: { 'product.status': 'published', 'product.isHidden': { $ne: true } } },
+      {
+        $project: {
+          _id: 0,
+          promotionId: '$_id',
+          endsAt: 1,
+          product: {
+            _id: 1,
+            name: 1,
+            slug: 1,
+            price: 1,
+            promoPrice: 1,
+            currency: 1,
+            media: 1,
+            stock: 1,
+            shop: 1,
+            shopId: 1,
+            stats: 1,
+          },
+        },
+      },
+    ]);
+  }
 }

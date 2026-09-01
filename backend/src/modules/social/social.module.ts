@@ -12,8 +12,13 @@ import {
   ReactionSchema,
 } from './schemas/interactions.schema';
 import { Product, ProductSchema } from '../catalog/schemas/product.schema';
+import { Shop, ShopSchema } from '../shops/schemas/shop.schema';
+import { Promotion, PromotionSchema } from '../campaigns/schemas/promotion.schema';
+import { MediaModule } from '../media/media.module';
 import { FavoritesController } from './favorites.controller';
 import { FavoritesService } from './favorites.service';
+import { FollowsController } from './follows.controller';
+import { FollowsService } from './follows.service';
 import { SocialController } from './social.controller';
 import { SocialService } from './social.service';
 import { Post, PostSchema } from './schemas/post.schema';
@@ -31,6 +36,7 @@ import { StoriesService } from './stories.service';
  */
 @Module({
   imports: [
+    MediaModule,
     MongooseModule.forFeature([
       { name: Post.name, schema: PostSchema },
       { name: Comment.name, schema: CommentSchema },
@@ -39,10 +45,12 @@ import { StoriesService } from './stories.service';
       { name: Favorite.name, schema: FavoriteSchema },
       { name: Story.name, schema: StorySchema },
       { name: Product.name, schema: ProductSchema },
+      { name: Shop.name, schema: ShopSchema },
+      { name: Promotion.name, schema: PromotionSchema },
     ]),
   ],
-  controllers: [FavoritesController, SocialController, StoriesController],
-  providers: [FavoritesService, SocialService, StoriesService],
+  controllers: [FavoritesController, FollowsController, SocialController, StoriesController],
+  providers: [FavoritesService, FollowsService, SocialService, StoriesService],
   exports: [MongooseModule],
 })
 export class SocialModule {}

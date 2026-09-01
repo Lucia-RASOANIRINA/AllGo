@@ -4,6 +4,7 @@ import { Model, Types } from 'mongoose';
 
 import { AppError } from '../../common/http/app-error';
 import { MediaService } from '../media/media.service';
+import { AuthService } from '../auth/auth.service';
 import type { RegisterDeviceDto } from '../auth/dto/auth.dto';
 import type { CreateAddressDto, UpdateProfileDto } from './dto/profile.dto';
 import { User, type UserDocument } from './schemas/user.schema';
@@ -13,6 +14,7 @@ export class UsersService {
   constructor(
     @InjectModel(User.name) private readonly users: Model<UserDocument>,
     private readonly media: MediaService,
+    private readonly auth: AuthService,
   ) {}
 
   async findById(id: string): Promise<unknown> {
@@ -102,5 +104,36 @@ export class UsersService {
       );
     }
     return { registered: true };
+  }
+
+  /**
+   * Suppression de compte — anonymisation, jamais suppression physique.
+   *
+   * Les commandes, avis et publications passés référencent cet identifiant
+   * (`userId`) et doivent rester cohérents pour les autres utilisateurs et
+   * pour la comptabilité des boutiques : les supprimer romprait cet
+   * historique. Le téléphone anonymisé ne correspond plus à aucun numéro
+   * malgache valide, ce qui empêche toute reconnexion par mot de passe ou OTP
+   * sans qu'il soit nécessaire de neutraliser séparément l'empreinte du mot
+   * de passe.
+   */
+  async deleteAccount(id: string): Promise<{ deleted: true }> {
+    const user = await this.users.findById(id);
+    if (!user) throw AppError.notFound('Utilisateur');
+
+    user.firstName = 'Compte';
+    user.lastName = 'supprimé';
+    user.email = undefined;
+    user.phone = `deleted+${user._id}`;
+    user.avatar = undefined;
+    user.cover = undefined;
+    user.bio = undefined;
+    user.addresses = [];
+    user.devices = [];
+    user.status = 'suspended';
+    await user.save();
+
+    await this.auth.revokeAllSessions(id);
+    return { deleted: true };
   }
 }

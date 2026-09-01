@@ -1,17 +1,36 @@
 import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
-import { ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
-import { IsMongoId } from 'class-validator';
+import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { IsIn, IsMongoId, IsOptional } from 'class-validator';
 
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 import { Permission } from '../../common/rbac/permissions';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { FavoritesService } from './favorites.service';
+import { FAVORITABLE_TYPES, type FavoriteTargetType } from './schemas/interactions.schema';
 
 export class AddFavoriteDto {
+  @ApiPropertyOptional({ enum: FAVORITABLE_TYPES, default: 'product' })
+  @IsOptional()
+  @IsIn(FAVORITABLE_TYPES)
+  targetType?: FavoriteTargetType;
+
   @ApiProperty()
   @IsMongoId()
-  productId!: string;
+  targetId!: string;
+}
+
+/**
+ * `@Query() query: PaginationQueryDto` valide toute la requête brute contre
+ * cette classe (`whitelist`/`forbidNonWhitelisted` globaux) : un `type` lu à
+ * côté via `@Query('type')` sans être déclaré ici serait rejeté avec
+ * `VALIDATION_FAILED` — voir `ShopQueryDto` pour le même constat sur `/shops`.
+ */
+export class FavoritesQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: FAVORITABLE_TYPES, default: 'product' })
+  @IsOptional()
+  @IsIn(FAVORITABLE_TYPES)
+  type?: FavoriteTargetType;
 }
 
 @ApiTags('Favoris')
@@ -21,37 +40,41 @@ export class FavoritesController {
 
   @Get()
   @RequirePermission(Permission.ProfileRead)
-  @ApiOperation({ summary: 'Lister mes produits favoris.' })
-  list(@CurrentUser() user: AuthenticatedUser, @Query() query: PaginationQueryDto) {
-    return this.favorites.list(user.id, query.limit, query.cursor);
+  @ApiOperation({ summary: 'Lister mes favoris d’un type donné (produit par défaut).' })
+  list(@CurrentUser() user: AuthenticatedUser, @Query() query: FavoritesQueryDto) {
+    return this.favorites.list(user.id, query.type ?? 'product', query.limit, query.cursor);
   }
 
   @Get('ids')
   @RequirePermission(Permission.ProfileRead)
   @ApiOperation({
-    summary: 'Identifiants des produits favoris.',
+    summary: 'Identifiants des favoris d’un type donné.',
     description:
       'Charge utile minimale, destinée à colorer les cœurs d’une grille sans ' +
       'transporter les fiches complètes.',
   })
-  ids(@CurrentUser() user: AuthenticatedUser) {
-    return this.favorites.productIds(user.id);
+  ids(@CurrentUser() user: AuthenticatedUser, @Query('type') type?: FavoriteTargetType) {
+    return this.favorites.ids(user.id, type ?? 'product');
   }
 
   @Post()
   @RequirePermission(Permission.ProfileUpdate)
   @ApiOperation({
-    summary: 'Ajouter un favori.',
-    description: 'Idempotent : ajouter deux fois le même produit ne crée qu’une entrée.',
+    summary: 'Ajouter un favori — produit, boutique, promotion ou publication.',
+    description: 'Idempotent : ajouter deux fois la même cible ne crée qu’une entrée.',
   })
   add(@CurrentUser() user: AuthenticatedUser, @Body() dto: AddFavoriteDto) {
-    return this.favorites.add(user.id, dto.productId);
+    return this.favorites.add(user.id, dto.targetType ?? 'product', dto.targetId);
   }
 
-  @Delete(':productId')
+  @Delete(':targetId')
   @RequirePermission(Permission.ProfileUpdate)
   @ApiOperation({ summary: 'Retirer un favori.' })
-  remove(@CurrentUser() user: AuthenticatedUser, @Param('productId') productId: string) {
-    return this.favorites.remove(user.id, productId);
+  remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('targetId') targetId: string,
+    @Query('type') type?: FavoriteTargetType,
+  ) {
+    return this.favorites.remove(user.id, type ?? 'product', targetId);
   }
 }

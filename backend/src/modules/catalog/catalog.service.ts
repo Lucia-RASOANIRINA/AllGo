@@ -10,6 +10,8 @@ import { Product, type ProductDocument } from './schemas/product.schema';
 import { Shop, type ShopDocument } from '../shops/schemas/shop.schema';
 import type { CreateProductDto, UpdateProductDto } from './dto/product.dto';
 
+const SIMILAR_PRODUCTS_PROJECTION = 'name slug price promoPrice currency media stock shop shopId stats';
+
 export interface ProductQuery {
   limit: number;
   cursor?: string;
@@ -20,6 +22,9 @@ export interface ProductQuery {
   minPrice?: number;
   maxPrice?: number;
   inStock?: boolean;
+  /** Vitrine de l'accueil (§7.1) : sans effet si `cursor` est fourni — un rail n'est jamais paginé. */
+  sort?: 'newest' | 'popular';
+  onSale?: boolean;
 }
 
 @Injectable()
@@ -39,6 +44,7 @@ export class CatalogService {
     if (query.shopId) filter.shopId = new Types.ObjectId(query.shopId);
     if (query.q) filter.$text = { $search: query.q };
     if (query.inStock) filter.stock = { $gt: 0 };
+    if (query.onSale) filter.promoPrice = { $exists: true };
 
     if (query.minPrice !== undefined || query.maxPrice !== undefined) {
       filter.price = {
@@ -47,11 +53,18 @@ export class CatalogService {
       };
     }
 
+    // Un rail de vitrine (accueil) n'est jamais paginé : le tri par
+    // popularité n'a de sens que sur un aperçu borné, jamais sur un curseur.
+    const sort: Record<string, 1 | -1> =
+      query.sort === 'popular' && !query.cursor
+        ? { 'stats.views': -1, _id: -1 }
+        : { createdAt: -1, _id: -1 };
+
     if (query.cursor) Object.assign(filter, cursorFilter('createdAt', decodeCursor(query.cursor)));
 
     const docs = await this.products
       .find(filter, this.projection(query.fields))
-      .sort({ createdAt: -1, _id: -1 })
+      .sort(sort)
       .limit(query.limit + 1)
       .lean();
 
@@ -80,6 +93,9 @@ export class CatalogService {
       ...dto,
       shopId: new Types.ObjectId(shopId),
       shop: { name: shop.name, slug: shop.slug, logo: shop.logo, city: shop.address?.city },
+      // Recopiée depuis la boutique : permet un `$geoNear` direct sur les
+      // produits (« produits autour de moi »), sans jointure sur `shops`.
+      location: shop.location,
       status: dto.isHidden ? 'draft' : 'published',
     });
     return product.toJSON();
@@ -99,6 +115,91 @@ export class CatalogService {
     const result = await this.products.deleteOne({ _id: id, shopId: new Types.ObjectId(shopId) });
     if (!result.deletedCount) throw AppError.notFound('Produit');
     return { deleted: true };
+  }
+
+  /**
+   * Importation en masse (§18) — le commerçant crée à la main via l'interface
+   * de saisie, produit par produit ; cet appel permet de charger un catalogue
+   * entier en une fois (typiquement depuis un fichier préparé côté client).
+   */
+  async importProducts(
+    shopId: string,
+    items: CreateProductDto[],
+  ): Promise<{ created: number; errors: Array<{ index: number; message: string }> }> {
+    const shop = await this.shops.findById(shopId).lean();
+    if (!shop) throw AppError.notFound('Boutique');
+
+    let created = 0;
+    const errors: Array<{ index: number; message: string }> = [];
+
+    for (let index = 0; index < items.length; index += 1) {
+      const dto = items[index];
+      try {
+        await this.products.create({
+          ...dto,
+          shopId: new Types.ObjectId(shopId),
+          shop: { name: shop.name, slug: shop.slug, logo: shop.logo, city: shop.address?.city },
+          location: shop.location,
+          status: dto.isHidden ? 'draft' : 'published',
+        });
+        created += 1;
+      } catch (error) {
+        const message =
+          (error as { code?: number }).code === 11000
+            ? `Un produit porte déjà l'identifiant « ${dto.slug} ».`
+            : error instanceof Error
+              ? error.message
+              : 'Erreur inconnue.';
+        errors.push({ index, message });
+      }
+    }
+
+    return { created, errors };
+  }
+
+  /**
+   * Produits similaires (§5) — même catégorie d'abord, complétée par
+   * d'autres produits de la même boutique si la catégorie n'en fournit pas
+   * assez. Pas de moteur de recommandation : un héritage direct de la
+   * catégorie, qui reste vérifiable et n'exige aucun historique utilisateur.
+   */
+  async similarProducts(productId: string, limit: number): Promise<unknown[]> {
+    const product = await this.products
+      .findById(productId)
+      .select('categoryPath categoryId shopId')
+      .lean();
+    if (!product) throw AppError.notFound('Produit');
+
+    const baseFilter = { status: 'published', isHidden: { $ne: true } } as const;
+    const categoryFilter: Record<string, unknown> = { ...baseFilter, _id: { $ne: product._id } };
+    if (product.categoryPath?.length) {
+      categoryFilter.categoryPath = product.categoryPath[product.categoryPath.length - 1];
+    } else if (product.categoryId) {
+      categoryFilter.categoryId = product.categoryId;
+    } else {
+      categoryFilter.shopId = product.shopId;
+    }
+
+    const sameCategory = await this.products
+      .find(categoryFilter)
+      .select(SIMILAR_PRODUCTS_PROJECTION)
+      .sort({ 'stats.views': -1 })
+      .limit(limit)
+      .lean();
+
+    if (sameCategory.length >= limit) return sameCategory;
+
+    // La catégorie n'a pas fourni assez de résultats : on complète avec
+    // d'autres produits de la même boutique plutôt que de renvoyer une
+    // liste tronquée sans raison apparente pour le client.
+    const excludeIds = [product._id, ...sameCategory.map((p) => p._id)];
+    const fromShop = await this.products
+      .find({ ...baseFilter, _id: { $nin: excludeIds }, shopId: product.shopId })
+      .select(SIMILAR_PRODUCTS_PROJECTION)
+      .limit(limit - sameCategory.length)
+      .lean();
+
+    return [...sameCategory, ...fromShop];
   }
 
   async duplicateProduct(shopId: string, id: string): Promise<unknown> {

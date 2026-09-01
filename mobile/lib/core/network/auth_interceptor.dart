@@ -9,10 +9,18 @@ import 'package:dio/dio.dart';
 /// il est **rotatif** (§12.2). Le rafraîchissement est donc fréquent et doit
 /// rester invisible à l'utilisateur.
 class AuthInterceptor extends QueuedInterceptor {
-  AuthInterceptor(this._tokens, this._dio);
+  AuthInterceptor(this._tokens, this._dio) : _plainDio = Dio(_dio.options);
 
   final TokenStore _tokens;
   final Dio _dio;
+
+  /// `_dio` porte cet intercepteur en `QueuedInterceptor` : il sérialise
+  /// toutes les requêtes une par une. Rejouer la requête ou rafraîchir le
+  /// jeton EN PASSANT PAR `_dio` mettrait cette nouvelle requête dans la même
+  /// file — derrière la requête en cours de traitement, qui attend
+  /// justement que celle-ci se termine. Blocage mutuel garanti. Ce second
+  /// client, sans intercepteur, contourne la file.
+  final Dio _plainDio;
 
   /// Une seule tentative de rafraîchissement à la fois. Sans ce verrou, cinq
   /// requêtes recevant 401 simultanément déclencheraient cinq rotations
@@ -58,7 +66,7 @@ class AuthInterceptor extends QueuedInterceptor {
       ..extra['retried'] = true;
 
     try {
-      handler.resolve(await _dio.fetch<dynamic>(options));
+      handler.resolve(await _plainDio.fetch<dynamic>(options));
     } on DioException catch (error) {
       handler.reject(error);
     }
@@ -69,7 +77,7 @@ class AuthInterceptor extends QueuedInterceptor {
     if (refreshToken == null) return null;
 
     try {
-      final response = await _dio.post<Map<String, dynamic>>(
+      final response = await _plainDio.post<Map<String, dynamic>>(
         '/auth/refresh',
         data: <String, String>{'refreshToken': refreshToken},
         options: Options(extra: <String, bool>{'skipAuth': true}),

@@ -20,7 +20,8 @@ import 'package:allgo/features/favorites/presentation/favorites_screen.dart';
 import 'package:allgo/features/geo/presentation/map_screen.dart';
 import 'package:allgo/features/home/presentation/home_screen.dart';
 import 'package:allgo/features/home/presentation/shell_scaffold.dart';
-import 'package:allgo/features/messaging/presentation/messages_screen.dart';
+import 'package:allgo/features/messaging/presentation/messages_list_screen.dart';
+import 'package:allgo/features/messaging/presentation/chat_screen.dart';
 import 'package:allgo/features/merchant/presentation/merchant_dashboard_screen.dart';
 import 'package:allgo/features/notifications/presentation/notifications_screen.dart';
 import 'package:allgo/features/orders/presentation/order_detail_screen.dart';
@@ -59,11 +60,13 @@ abstract final class Routes {
   static const String shop = '/boutique/:slug';
   static const String orderDetail = '/commandes/:id';
   static const String map = '/carte';
+  static const String tracking = '/suivi';
   static const String checkout = '/panier/livraison';
   static const String favorites = '/compte/favoris';
   static const String publish = '/publier';
   static const String stories = '/stories';
   static const String messages = '/messages';
+  static const String message = '/messages/:id';
   static const String notifications = '/notifications';
   static const String privacy = '/confidentialite';
 
@@ -83,6 +86,7 @@ abstract final class Routes {
   static String productPath(String id) => '/produit/$id';
   static String orderPath(String id) => '/commandes/$id';
   static String shopPath(String slug) => '/boutique/$slug';
+  static String messagePath(String id) => '/messages/$id';
 
   /// Tous les chemins déclarés — vérifiés un à un par `router_test.dart`.
   ///
@@ -105,11 +109,13 @@ abstract final class Routes {
     shop,
     orderDetail,
     map,
+    tracking,
     checkout,
     favorites,
     publish,
     stories,
     messages,
+    message,
     notifications,
     privacy,
     dashboard,
@@ -132,6 +138,7 @@ abstract final class Routes {
 const _protectedPrefixes = <String>[
   Routes.cart,
   Routes.orders,
+  Routes.tracking,
   Routes.account,
   Routes.favorites,
   Routes.publish,
@@ -202,6 +209,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const MapScreen(),
       ),
       GoRoute(
+        path: Routes.tracking,
+        parentNavigatorKey: rootKey,
+        builder: (context, state) => const DeliveryScreen(),
+      ),
+      GoRoute(
         path: Routes.checkout,
         parentNavigatorKey: rootKey,
         builder: (context, state) => const CheckoutScreen(),
@@ -230,7 +242,15 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: Routes.messages,
         parentNavigatorKey: rootKey,
-        builder: (context, state) => const MessagesScreen(),
+        builder: (context, state) => const MessagesListScreen(),
+      ),
+      GoRoute(
+        path: Routes.message,
+        parentNavigatorKey: rootKey,
+        builder: (context, state) => ChatScreen(
+          conversationId: state.pathParameters['id']!,
+          title: state.extra as String?,
+        ),
       ),
       GoRoute(
         path: Routes.notifications,

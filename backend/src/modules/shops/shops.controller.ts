@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { IsIn, IsOptional, IsString } from 'class-validator';
 
 import { CurrentUser, Public, RequirePermission } from '../../common/decorators/auth.decorators';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
@@ -8,6 +9,33 @@ import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { ShopsService } from './shops.service';
 import { CreateShopDto, UpdateShopDto } from './dto/shop.dto';
 import { AddTeamMemberDto, UpdateTeamMemberDto } from './dto/team.dto';
+
+/**
+ * `@Query() query: PaginationQueryDto` valide l'INTÉGRALITÉ de la requête
+ * brute contre cette classe (`whitelist`/`forbidNonWhitelisted` globaux) : un
+ * paramètre lu séparément via `@Query('q')` sans être déclaré ici est rejeté
+ * avec `VALIDATION_FAILED`, jamais silencieusement ignoré. C'est ce qui
+ * rendait `q`, `openNow` et `sort` inutilisables sur `GET /shops`.
+ */
+export class ShopQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ description: 'Recherche plein texte sur le nom et la description.' })
+  @IsOptional()
+  @IsString()
+  q?: string;
+
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description: 'Ne renvoyer que les boutiques ouvertes (`true`) ou fermées (`false`).',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  openNow?: string;
+
+  @ApiPropertyOptional({ enum: ['popular'], description: 'Tri par nombre d’abonnés.' })
+  @IsOptional()
+  @IsIn(['popular'])
+  sort?: 'popular';
+}
 
 @ApiTags('Boutiques')
 @Controller()
@@ -29,8 +57,9 @@ export class ShopsController {
   @Public()
   @Get('shops')
   @ApiOperation({ summary: 'Lister les boutiques validées.' })
-  list(@Query() query: PaginationQueryDto, @Query('q') q?: string) {
-    return this.shops.list(query.limit, query.cursor, q);
+  list(@Query() query: ShopQueryDto) {
+    const openNowFlag = query.openNow === undefined ? undefined : query.openNow === 'true';
+    return this.shops.list(query.limit, query.cursor, query.q, openNowFlag, query.sort);
   }
 
   @Get('me/shops')
@@ -52,6 +81,13 @@ export class ShopsController {
   @ApiOperation({ summary: 'Tableau de bord de la boutique.' })
   dashboard(@Param('shopId') shopId: string) {
     return this.shops.dashboard(shopId);
+  }
+
+  @Public()
+  @Get('shop/:shopId/posts')
+  @ApiOperation({ summary: 'Publications d’une boutique — onglet « Publications » de sa fiche.' })
+  posts(@Param('shopId') shopId: string, @Query() query: PaginationQueryDto) {
+    return this.shops.postsFor(shopId, query.limit, query.cursor);
   }
 
   @Get('shop/:shopId/team')

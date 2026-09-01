@@ -3,20 +3,25 @@ import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/utils/currency.dart';
 import 'package:allgo/features/catalog/domain/entities/product.dart';
 import 'package:allgo/features/catalog/presentation/catalog_providers.dart';
+import 'package:allgo/features/geo/domain/nearby_shop.dart';
+import 'package:allgo/features/home/presentation/home_providers.dart';
 import 'package:allgo/shared/widgets/allgo_logo.dart';
-import 'package:allgo/shared/widgets/async_view.dart';
 import 'package:allgo/shared/widgets/product_image.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+/// Accueil — fil de rails plutôt qu'une grille unique : chaque section
+/// (populaires, nouveautés, promotions, proximité, historique) répond à un
+/// besoin de découverte différent (§1.B). Une section vide se masque plutôt
+/// que d'afficher un état vide — l'accueil ne doit jamais avoir l'air cassé
+/// simplement parce qu'un rail secondaire n'a rien à montrer.
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final products = ref.watch(catalogProvider);
-
     return Scaffold(
       appBar: AppBar(
         title: const Row(
@@ -35,28 +40,364 @@ class HomeScreen extends ConsumerWidget {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: () async => ref.invalidate(catalogProvider),
-        child: AsyncView<List<Product>>(
-          value: products,
-          emptyTitle: 'Aucun produit pour le moment',
-          emptyMessage: 'Les commerçants de Mahajanga publient chaque jour. Revenez bientôt.',
-          isEmpty: (list) => list.isEmpty,
-          onRetry: () => ref.invalidate(catalogProvider),
-          data: (list) => GridView.builder(
-            padding: const EdgeInsets.all(AllGoTokens.space4),
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              // Extension maximale plutôt qu'un nombre fixe de colonnes :
-              // l'application couvre 320 dp à 600 dp de large (§13.2).
-              maxCrossAxisExtent: 220,
-              mainAxisSpacing: AllGoTokens.space3,
-              crossAxisSpacing: AllGoTokens.space3,
-              childAspectRatio: 0.72,
+        onRefresh: () async {
+          ref
+            ..invalidate(popularProductsProvider)
+            ..invalidate(newProductsProvider)
+            ..invalidate(promoProductsProvider)
+            ..invalidate(flashPromoProductsProvider)
+            ..invalidate(recommendedProductsProvider)
+            ..invalidate(popularShopsProvider)
+            ..invalidate(nearbyShopsHomeProvider)
+            ..invalidate(nearbyProductsProvider);
+        },
+        child: ListView(
+          padding: const EdgeInsets.symmetric(vertical: AllGoTokens.space4),
+          children: <Widget>[
+            const _CategoryChips(),
+            _ProductRail(
+              title: 'Recommandé pour vous',
+              provider: recommendedProductsProvider,
             ),
-            itemCount: list.length,
-            itemBuilder: (context, i) => ProductCard(product: list[i]),
-          ),
+            _FlashPromoRail(),
+            _ProductRail(title: 'Promotions', provider: promoProductsProvider),
+            _ProductRail(title: 'Produits populaires', provider: popularProductsProvider),
+            _ShopRailSection(title: 'Boutiques populaires', provider: popularShopsProvider),
+            const _NearbyShopRailSection(),
+            _ProductRail(title: 'Produits à proximité', provider: nearbyProductsProvider),
+            _ProductRail(title: 'Nouveaux produits', provider: newProductsProvider),
+            const _RecentlyViewedSection(),
+          ],
         ),
       ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AllGoTokens.space4,
+        AllGoTokens.space4,
+        AllGoTokens.space4,
+        AllGoTokens.space2,
+      ),
+      child: Text(title, style: Theme.of(context).textTheme.titleMedium),
+    );
+  }
+}
+
+class _CategoryChips extends ConsumerWidget {
+  const _CategoryChips();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final categories = ref.watch(categoryTreeProvider);
+
+    return categories.maybeWhen(
+      data: (list) => list.isEmpty
+          ? const SizedBox.shrink()
+          : SizedBox(
+              height: 40,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space4),
+                itemCount: list.length,
+                separatorBuilder: (_, __) => const SizedBox(width: AllGoTokens.space2),
+                itemBuilder: (context, i) => ActionChip(
+                  avatar: list[i].icon == null ? null : Text(list[i].icon!),
+                  label: Text(list[i].name),
+                  onPressed: () {
+                    ref.read(catalogFilterProvider.notifier).state =
+                        ref.read(catalogFilterProvider).copyWith(categoryId: list[i].id);
+                    context.push(Routes.explore);
+                  },
+                ),
+              ),
+            ),
+      orElse: () => const SizedBox.shrink(),
+    );
+  }
+}
+
+/// Rail horizontal de produits, alimenté par n'importe quel provider de
+/// `home_providers.dart` — même structure pour populaires, nouveautés,
+/// promotions, proximité et recommandations.
+class _ProductRail extends ConsumerWidget {
+  const _ProductRail({required this.title, required this.provider});
+
+  final String title;
+  final AutoDisposeFutureProvider<List<Product>> provider;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final products = ref.watch(provider);
+
+    return products.maybeWhen(
+      data: (list) => list.isEmpty
+          ? const SizedBox.shrink()
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                _SectionHeader(title: title),
+                SizedBox(
+                  height: 220,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space4),
+                    itemCount: list.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: AllGoTokens.space3),
+                    itemBuilder: (context, i) =>
+                        SizedBox(width: 160, child: ProductCard(product: list[i])),
+                  ),
+                ),
+              ],
+            ),
+      orElse: () => const SizedBox.shrink(),
+    );
+  }
+}
+
+class _FlashPromoRail extends ConsumerWidget {
+  const _FlashPromoRail();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final promos = ref.watch(flashPromoProductsProvider);
+    final theme = Theme.of(context);
+
+    return promos.maybeWhen(
+      data: (list) => list.isEmpty
+          ? const SizedBox.shrink()
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AllGoTokens.space4,
+                    AllGoTokens.space4,
+                    AllGoTokens.space4,
+                    AllGoTokens.space2,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Icon(Icons.bolt, color: theme.colorScheme.error, size: 20),
+                      const SizedBox(width: 4),
+                      Text('Promotions flash', style: theme.textTheme.titleMedium),
+                    ],
+                  ),
+                ),
+                SizedBox(
+                  height: 220,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space4),
+                    itemCount: list.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: AllGoTokens.space3),
+                    itemBuilder: (context, i) =>
+                        SizedBox(width: 160, child: ProductCard(product: list[i].product)),
+                  ),
+                ),
+              ],
+            ),
+      orElse: () => const SizedBox.shrink(),
+    );
+  }
+}
+
+class _ShopCard extends StatelessWidget {
+  const _ShopCard({
+    required this.name,
+    required this.onTap,
+    this.logo,
+    this.subtitle,
+  });
+
+  final String name;
+  final String? logo;
+  final String? subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SizedBox(
+      width: 120,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AllGoTokens.radiusCard),
+        child: Column(
+          children: <Widget>[
+            CircleAvatar(
+              radius: 32,
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              backgroundImage: logo == null ? null : CachedNetworkImageProvider(logo!),
+              child: logo == null ? const Icon(Icons.storefront_outlined) : null,
+            ),
+            const SizedBox(height: AllGoTokens.space2),
+            Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium,
+            ),
+            if (subtitle != null)
+              Text(
+                subtitle!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ShopRailSection extends ConsumerWidget {
+  const _ShopRailSection({required this.title, required this.provider});
+
+  final String title;
+  final AutoDisposeFutureProvider<List<dynamic>> provider;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final shops = ref.watch(provider);
+
+    return shops.maybeWhen(
+      data: (list) => list.isEmpty
+          ? const SizedBox.shrink()
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                _SectionHeader(title: title),
+                SizedBox(
+                  height: 130,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space4),
+                    itemCount: list.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: AllGoTokens.space3),
+                    itemBuilder: (context, i) {
+                      final shop = list[i];
+                      return _ShopCard(
+                        name: shop.name as String,
+                        logo: shop.logo as String?,
+                        subtitle: shop.city as String?,
+                        onTap: () => context.push(Routes.shopPath(shop.slug as String)),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+      orElse: () => const SizedBox.shrink(),
+    );
+  }
+}
+
+class _NearbyShopRailSection extends ConsumerWidget {
+  const _NearbyShopRailSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final shops = ref.watch(nearbyShopsHomeProvider);
+
+    return shops.maybeWhen(
+      data: (list) => list.isEmpty
+          ? const SizedBox.shrink()
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const _SectionHeader(title: 'Boutiques proches'),
+                SizedBox(
+                  height: 130,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space4),
+                    itemCount: list.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: AllGoTokens.space3),
+                    itemBuilder: (context, i) {
+                      final NearbyShop shop = list[i];
+                      return _ShopCard(
+                        name: shop.name,
+                        logo: shop.logo,
+                        subtitle: DistanceFormat.format(shop.distanceM),
+                        onTap: () => context.push(Routes.shopPath(shop.slug)),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+      orElse: () => const SizedBox.shrink(),
+    );
+  }
+}
+
+class _RecentlyViewedSection extends ConsumerWidget {
+  const _RecentlyViewedSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final products = ref.watch(recentProductsLocalProvider);
+    final shops = ref.watch(recentShopsLocalProvider);
+
+    if (products.isEmpty && shops.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        if (products.isNotEmpty) ...<Widget>[
+          const _SectionHeader(title: 'Produits récemment consultés'),
+          SizedBox(
+            height: 56,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space4),
+              itemCount: products.length,
+              separatorBuilder: (_, __) => const SizedBox(width: AllGoTokens.space2),
+              itemBuilder: (context, i) => ActionChip(
+                avatar: products[i].thumbUrl == null
+                    ? null
+                    : CircleAvatar(backgroundImage: CachedNetworkImageProvider(products[i].thumbUrl!)),
+                label: Text(products[i].name, overflow: TextOverflow.ellipsis),
+                onPressed: () => context.push(Routes.productPath(products[i].id)),
+              ),
+            ),
+          ),
+        ],
+        if (shops.isNotEmpty) ...<Widget>[
+          const _SectionHeader(title: 'Boutiques récemment consultées'),
+          SizedBox(
+            height: 56,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space4),
+              itemCount: shops.length,
+              separatorBuilder: (_, __) => const SizedBox(width: AllGoTokens.space2),
+              itemBuilder: (context, i) => ActionChip(
+                avatar: shops[i].logo == null
+                    ? null
+                    : CircleAvatar(backgroundImage: CachedNetworkImageProvider(shops[i].logo!)),
+                label: Text(shops[i].name, overflow: TextOverflow.ellipsis),
+                onPressed: () => context.push(Routes.shopPath(shops[i].slug)),
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: AllGoTokens.space4),
+      ],
     );
   }
 }

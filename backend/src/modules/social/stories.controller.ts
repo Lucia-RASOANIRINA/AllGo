@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
-import { ApiProperty, ApiTags } from '@nestjs/swagger';
-import { IsIn, IsString } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { IsIn, IsMongoId, IsOptional, IsString } from 'class-validator';
 
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators';
 import { Permission } from '../../common/rbac/permissions';
@@ -8,8 +8,12 @@ import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { StoriesService } from './stories.service';
 
 export class CreateStoryDto {
-  @ApiProperty() @IsString() url!: string;
+  @ApiProperty({ description: 'Clé S3 renvoyée par POST /media/upload-url, après le PUT du fichier.' })
+  @IsString()
+  key!: string;
   @ApiProperty({ enum: ['image', 'video'] }) @IsIn(['image', 'video']) type!: 'image' | 'video';
+  @ApiPropertyOptional() @IsOptional() @IsMongoId() productId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsMongoId() promotionId?: string;
 }
 
 @ApiTags('Stories')
@@ -31,7 +35,13 @@ export class StoriesController {
 
   @Post(':id/view')
   @RequirePermission(Permission.PostRead)
-  view(@Param('id') id: string) {
-    return this.stories.view(id);
+  view(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.stories.view(id, { id: user.id, name: user.phone });
+  }
+
+  @Get(':id/viewers')
+  @RequirePermission(Permission.StoryCreate)
+  viewers(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.stories.viewers(id, user.id);
   }
 }

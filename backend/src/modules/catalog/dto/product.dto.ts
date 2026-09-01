@@ -52,3 +52,19 @@ export class CreateProductDto {
 }
 
 export class UpdateProductDto extends PartialType(CreateProductDto) {}
+
+/**
+ * Importation en masse (§18) — un tableau de `CreateProductDto`, validé
+ * élément par élément. Une erreur de FORME (champ requis manquant) rejette
+ * tout l'envoi avant d'atteindre le service : c'est la validation Nest
+ * habituelle. Une erreur MÉTIER (slug déjà pris) est en revanche capturée par
+ * ligne dans `CatalogService.importProducts`, pour qu'un import de 200 lignes
+ * ne s'arrête pas à la première boutique ayant déjà pris un identifiant.
+ */
+export class ImportProductsDto {
+  @ApiProperty({ type: [CreateProductDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateProductDto)
+  items!: CreateProductDto[];
+}

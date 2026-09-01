@@ -19,6 +19,17 @@ export class Conversation extends Document {
   @Prop({ type: Map, of: Number, default: {} })
   unread!: Map<string, number>;
 
+  /**
+   * Blocage — même motif que le reste de la modération (`reported` sur
+   * `Review`/`Post`) : un drapeau, jamais une suppression. Le blocage est
+   * porté par la conversation plutôt que par une relation `User`↔`User`
+   * séparée, car c'est bien LE canal entre ces deux personnes qui se ferme,
+   * pas leur compte l'un pour l'autre à l'échelle de toute l'application.
+   */
+  @Prop({ type: [Types.ObjectId], default: [] }) blockedBy!: Types.ObjectId[];
+  @Prop({ default: false, index: true }) reported!: boolean;
+  @Prop() reportReason?: string;
+
   createdAt!: Date;
   updatedAt!: Date;
 }

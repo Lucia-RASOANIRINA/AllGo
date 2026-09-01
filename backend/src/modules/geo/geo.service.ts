@@ -2,8 +2,19 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Shop, type ShopDocument } from '../shops/schemas/shop.schema';
+import { Product, type ProductDocument } from '../catalog/schemas/product.schema';
+import { closedNowFilter, openNowFilter, withOpenNow } from '../../common/time/open-now';
 
 export interface NearbyQuery {
+  lng: number;
+  lat: number;
+  radiusKm: number;
+  categoryId?: string;
+  openNow?: boolean;
+  limit: number;
+}
+
+export interface NearbyProductQuery {
   lng: number;
   lat: number;
   radiusKm: number;
@@ -13,7 +24,10 @@ export interface NearbyQuery {
 
 @Injectable()
 export class GeoService {
-  constructor(@InjectModel(Shop.name) private readonly shops: Model<ShopDocument>) {}
+  constructor(
+    @InjectModel(Shop.name) private readonly shops: Model<ShopDocument>,
+    @InjectModel(Product.name) private readonly products: Model<ProductDocument>,
+  ) {}
 
   /**
    * Recherche de boutiques par proximité — fonction « WiFiMarkets ».
@@ -31,8 +45,10 @@ export class GeoService {
   async nearbyShops(query: NearbyQuery): Promise<unknown[]> {
     const filter: Record<string, unknown> = { status: 'approved' };
     if (query.categoryId) filter.categoryId = new Types.ObjectId(query.categoryId);
+    if (query.openNow === true) Object.assign(filter, openNowFilter());
+    if (query.openNow === false) Object.assign(filter, closedNowFilter());
 
-    return this.shops.aggregate([
+    const shops = await this.shops.aggregate([
       {
         $geoNear: {
           near: { type: 'Point', coordinates: [query.lng, query.lat] },
@@ -54,9 +70,57 @@ export class GeoService {
           'address.city': 1,
           location: 1,
           deliveryRadiusKm: 1,
+          openingHours: 1,
+          closedDays: 1,
           'stats.rating': 1,
           'stats.reviewCount': 1,
           'stats.productCount': 1,
+          distanceM: { $round: ['$distanceM', 0] },
+        },
+      },
+    ]);
+
+    return shops.map(withOpenNow);
+  }
+
+  /**
+   * Produits à proximité — même mécanique que `nearbyShops`, sur la
+   * localisation recopiée depuis la boutique (§ schéma produit). Un produit
+   * dont la boutique n'a pas encore de position déclarée n'a pas de champ
+   * `location` : il ne peut logiquement pas apparaître ici.
+   */
+  async nearbyProducts(query: NearbyProductQuery): Promise<unknown[]> {
+    const filter: Record<string, unknown> = {
+      status: 'published',
+      isHidden: { $ne: true },
+      isAvailable: { $ne: false },
+    };
+    if (query.categoryId) filter.categoryPath = new Types.ObjectId(query.categoryId);
+
+    return this.products.aggregate([
+      {
+        $geoNear: {
+          near: { type: 'Point', coordinates: [query.lng, query.lat] },
+          distanceField: 'distanceM',
+          maxDistance: query.radiusKm * 1000,
+          spherical: true,
+          query: filter,
+        },
+      },
+      { $limit: query.limit },
+      {
+        $project: {
+          name: 1,
+          slug: 1,
+          price: 1,
+          promoPrice: 1,
+          currency: 1,
+          media: 1,
+          stock: 1,
+          shopId: 1,
+          shop: 1,
+          'stats.rating': 1,
+          'stats.reviewCount': 1,
           distanceM: { $round: ['$distanceM', 0] },
         },
       },

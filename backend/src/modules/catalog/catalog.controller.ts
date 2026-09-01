@@ -1,11 +1,11 @@
 import { Body, Controller, Delete, Get, Header, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsMongoId, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsMongoId, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 import { Public, RequirePermission } from '../../common/decorators/auth.decorators';
 import { Permission } from '../../common/rbac/permissions';
-import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
+import { CreateProductDto, ImportProductsDto, UpdateProductDto } from './dto/product.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 import { CatalogService } from './catalog.service';
 
@@ -38,6 +38,20 @@ export class ProductQueryDto extends PaginationQueryDto {
   @Type(() => Boolean)
   @IsBoolean()
   inStock?: boolean;
+
+  @ApiPropertyOptional({
+    enum: ['newest', 'popular'],
+    description: 'Tri d’un rail de vitrine (accueil). Sans effet si `cursor` est fourni.',
+  })
+  @IsOptional()
+  @IsIn(['newest', 'popular'])
+  sort?: 'newest' | 'popular';
+
+  @ApiPropertyOptional({ description: 'Ne renvoyer que les produits en promotion.' })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  onSale?: boolean;
 }
 
 @ApiTags('Catalogue')
@@ -75,6 +89,13 @@ export class CatalogController {
     return this.catalog.duplicateProduct(shopId, id);
   }
 
+  @Post('shop/:shopId/products/import')
+  @RequirePermission(Permission.ProductCreate, 'shopId')
+  @ApiOperation({ summary: 'Importer des produits en masse.' })
+  importProducts(@Param('shopId') shopId: string, @Body() dto: ImportProductsDto) {
+    return this.catalog.importProducts(shopId, dto.items);
+  }
+
   @Public()
   @Get('products')
   @ApiOperation({ summary: 'Lister le catalogue, filtré et paginé par curseur.' })
@@ -89,6 +110,8 @@ export class CatalogController {
       minPrice: query.minPrice,
       maxPrice: query.maxPrice,
       inStock: query.inStock,
+      sort: query.sort,
+      onSale: query.onSale,
     });
   }
 
@@ -104,6 +127,13 @@ export class CatalogController {
   @ApiOperation({ summary: 'Consulter une fiche produit.' })
   findProduct(@Param('id') id: string) {
     return this.catalog.findProduct(id);
+  }
+
+  @Public()
+  @Get('products/:id/similar')
+  @ApiOperation({ summary: 'Produits similaires — même catégorie, à défaut même boutique.' })
+  similarProducts(@Param('id') id: string, @Query('limit') limit?: number) {
+    return this.catalog.similarProducts(id, Math.min(Number(limit) || 8, 20));
   }
 
   @Public()

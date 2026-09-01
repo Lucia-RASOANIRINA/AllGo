@@ -107,6 +107,35 @@ class ProductRepositoryImpl implements ProductRepository {
   }
 
   @override
+  Future<List<Product>> fetchRail({
+    ProductSort sort = ProductSort.newest,
+    bool onSale = false,
+    String? categoryId,
+    int limit = 10,
+  }) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/products',
+        queryParameters: <String, dynamic>{
+          'limit': limit,
+          'sort': sort == ProductSort.popular ? 'popular' : 'newest',
+          if (onSale) 'onSale': true,
+          if (categoryId != null) 'category': categoryId,
+          'fields': 'id,name,price,promoPrice,media,stock,shop,shopId,categoryId',
+        },
+      );
+      return (response.data!['data'] as List<dynamic>)
+          .map((json) => _fromJson(json as Map<String, dynamic>))
+          .toList();
+    } on DioException catch (error) {
+      // Un rail de vitrine hors ligne reste vide plutôt que de faire échouer
+      // tout l'accueil : le catalogue complet, lui, reste servi par le cache.
+      if (error.error is NetworkFailure) return const <Product>[];
+      rethrow;
+    }
+  }
+
+  @override
   Future<Product> getByBarcode(String barcode, {String? shopId}) async {
     // Le scan sert d'abord au magasinier, souvent en réserve où le réseau est
     // mauvais : le cache local est interrogé en premier.

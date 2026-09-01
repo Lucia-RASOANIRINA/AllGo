@@ -22,22 +22,22 @@ class _CourierEarningsScreenState extends ConsumerState<CourierEarningsScreen> {
   Future<void> _load() async {
     final api = ref.read(apiClientProvider);
     final responses = await Future.wait([
-      api.get<dynamic>('/courier/earnings'),
-      api.get<dynamic>('/courier/earnings/history'),
-      api.get<dynamic>('/courier/earnings/withdrawals'),
+      api.get<Map<String, dynamic>>('/courier/earnings'),
+      api.get<Map<String, dynamic>>('/courier/earnings/history'),
+      api.get<Map<String, dynamic>>('/courier/earnings/withdrawals'),
     ]);
     if (!mounted) return;
-    final summaryData = responses[0].data;
-    final historyData = responses[1].data;
-    final withdrawalsData = responses[2].data;
     setState(() {
-      summary = summaryData?['data'] is Map
-          ? Map<String, dynamic>.from(summaryData!['data'] as Map)
-          : summaryData;
-      history = historyData?['data'] is List ? historyData!['data'] as List : historyData ?? const [];
-      withdrawals = withdrawalsData?['data'] is List ? withdrawalsData!['data'] as List : withdrawalsData ?? const [];
+      summary = _asMap(responses[0].data?['data']) ?? _asMap(responses[0].data);
+      history = _asList(responses[1].data?['data']);
+      withdrawals = _asList(responses[2].data?['data']);
     });
   }
+
+  Map<String, dynamic>? _asMap(dynamic data) =>
+      data is Map ? Map<String, dynamic>.from(data) : null;
+
+  List<dynamic> _asList(dynamic data) => data is List ? data : const <dynamic>[];
 
   String _money(dynamic value) {
     final amount = value is num ? value.toDouble() : double.tryParse(value?.toString() ?? '') ?? 0;
@@ -95,15 +95,15 @@ class _CourierEarningsScreenState extends ConsumerState<CourierEarningsScreen> {
   Future<void> _requestWithdrawal(BuildContext context) async {
     final amount = TextEditingController();
     final account = TextEditingController();
-    final confirmed = await showDialog<bool>(context: context, builder: (_) => AlertDialog(
+    final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
       title: const Text('Demander un retrait'),
       content: Column(mainAxisSize: MainAxisSize.min, children: [
         TextField(controller: amount, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Montant (Ar)')),
         TextField(controller: account, decoration: const InputDecoration(labelText: 'Compte mobile money')),
       ]),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
-        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Demander')),
+        TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuler')),
+        FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Demander')),
       ],
     ));
     if (confirmed != true) return;

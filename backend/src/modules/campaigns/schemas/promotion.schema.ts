@@ -16,6 +16,9 @@ export class Promotion extends Document {
   @Prop({ type: Object }) location?: { latitude: number; longitude: number; radiusKm: number };
   @Prop({ type: Types.ObjectId, ref: 'Product' }) productId?: Types.ObjectId;
   @Prop({ default: true }) active!: boolean;
+
+  /** Nombre de fois où `couponCode` a été rédimé — plafonné par `quantityLimit` (§21). */
+  @Prop({ default: 0 }) redeemedCount!: number;
 }
 export type PromotionDocument = HydratedDocument<Promotion>;
 export const PromotionSchema = SchemaFactory.createForClass(Promotion);

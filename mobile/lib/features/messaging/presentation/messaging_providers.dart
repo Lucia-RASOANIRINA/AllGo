@@ -81,7 +81,7 @@ class Message {
 final AutoDisposeFutureProvider<List<Conversation>> conversationsProvider =
     FutureProvider.autoDispose<List<Conversation>>((ref) async {
   final response =
-      await ref.watch(apiClientProvider).get<Map<String, dynamic>>('/me/conversations');
+      await ref.watch(apiClientProvider).get<Map<String, dynamic>>('/conversations');
 
   return (response.data!['data'] as List<dynamic>)
       .map((json) => Conversation.fromJson(json as Map<String, dynamic>))
@@ -93,7 +93,7 @@ final AutoDisposeFutureProvider<List<Conversation>> conversationsProvider =
 /// boutique.
 Future<String> startConversationWithShop(WidgetRef ref, String shopId) async {
   final response = await ref.read(apiClientProvider).post<Map<String, dynamic>>(
-    '/me/conversations',
+    '/conversations',
     data: <String, String>{'shopId': shopId},
   );
   return idFromJson(response.data!['data'] as Map<String, dynamic>);
@@ -104,7 +104,7 @@ class ConversationController extends AutoDisposeFamilyAsyncNotifier<List<Message
   @override
   Future<List<Message>> build(String conversationId) async {
     final response = await ref.read(apiClientProvider).get<Map<String, dynamic>>(
-      '/me/conversations/$conversationId/messages',
+      '/conversations/$conversationId/messages',
       queryParameters: <String, dynamic>{'limit': 50},
     );
 
@@ -131,7 +131,7 @@ class ConversationController extends AutoDisposeFamilyAsyncNotifier<List<Message
 
   Future<void> send(String content) async {
     final response = await ref.read(apiClientProvider).post<Map<String, dynamic>>(
-      '/me/conversations/$arg/messages',
+      '/conversations/$arg/messages',
       data: <String, String>{'content': content},
     );
 
@@ -152,3 +152,18 @@ final AutoDisposeAsyncNotifierProviderFamily<ConversationController, List<Messag
 /// Identifiant de l'utilisateur courant — pour distinguer « moi » de
 /// l'interlocuteur dans une bulle de conversation.
 String? currentUserId(WidgetRef ref) => ref.watch(sessionControllerProvider).userId;
+
+Future<void> blockConversation(WidgetRef ref, String conversationId) async {
+  await ref.read(apiClientProvider).post<void>('/conversations/$conversationId/block');
+}
+
+Future<void> unblockConversation(WidgetRef ref, String conversationId) async {
+  await ref.read(apiClientProvider).delete<void>('/conversations/$conversationId/block');
+}
+
+Future<void> reportConversation(WidgetRef ref, String conversationId, {String? reason}) async {
+  await ref.read(apiClientProvider).post<void>(
+    '/conversations/$conversationId/report',
+    data: <String, String?>{'reason': reason},
+  );
+}

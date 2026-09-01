@@ -4,6 +4,7 @@ import 'package:allgo/core/network/json_parsing.dart';
 import 'package:allgo/core/utils/currency.dart';
 import 'package:allgo/app/router.dart';
 import 'package:allgo/features/orders/presentation/orders_screen.dart';
+import 'package:allgo/shared/utils/receipt_pdf.dart';
 import 'package:allgo/shared/widgets/async_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,6 +20,13 @@ class OrderDetail {
     required this.items,
     required this.timeline,
     required this.shopId,
+    required this.customerName,
+    required this.customerPhone,
+    required this.subtotal,
+    required this.shippingFee,
+    required this.discount,
+    required this.tip,
+    required this.createdAt,
     this.deliveryAddress,
     this.deliveryMethod,
     this.paymentMethod,
@@ -33,6 +41,13 @@ class OrderDetail {
   final List<OrderItemDetail> items;
   final List<OrderTimeline> timeline;
   final String shopId;
+  final String customerName;
+  final String customerPhone;
+  final int subtotal;
+  final int shippingFee;
+  final int discount;
+  final int tip;
+  final DateTime createdAt;
   final String? courierId;
   final String? deliveryAddress;
   final String? deliveryMethod;
@@ -91,11 +106,22 @@ OrderDetail _orderFromJson(Map<String, dynamic> json) {
       ? json['timeline'] as List<dynamic>
       : const <dynamic>[];
 
+  final customer = json['customer'] is Map<String, dynamic>
+      ? json['customer'] as Map<String, dynamic>
+      : const <String, dynamic>{};
+
   return OrderDetail(
     id: idFromJson(json),
     orderNumber: json['orderNumber'] as String? ?? '',
     shopName: shop['name'] as String? ?? '',
     total: moneyFromJson(amounts['total']),
+    subtotal: moneyFromJson(amounts['subtotal']),
+    shippingFee: moneyFromJson(amounts['shippingFee']),
+    discount: moneyFromJson(amounts['discount']),
+    tip: moneyFromJson(amounts['tip']),
+    customerName: customer['name'] as String? ?? '',
+    customerPhone: customer['phone'] as String? ?? '',
+    createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
     status: OrderStatus.parse(json['status'] as String?),
     deliveryAddress: delivery['address'] as String?,
     deliveryMethod: delivery['method'] as String?,
@@ -161,8 +187,14 @@ class _OrderDetailContent extends StatelessWidget {
         Text(order.shopName, style: theme.textTheme.titleMedium),
         const SizedBox(height: AllGoTokens.space4),
         _StatusHeader(status: order.status),
+        const SizedBox(height: AllGoTokens.space3),
+        OutlinedButton.icon(
+          onPressed: () => _printReceipt(order),
+          icon: const Icon(Icons.receipt_long_outlined),
+          label: const Text('Reçu / imprimer'),
+        ),
         if (order.status == OrderStatus.delivered) ...<Widget>[
-          const SizedBox(height: AllGoTokens.space4),
+          const SizedBox(height: AllGoTokens.space3),
           FilledButton.icon(
             onPressed: () => _showReviewDialog(context, order),
             icon: const Icon(Icons.star_outline),
@@ -203,7 +235,7 @@ class _OrderDetailContent extends StatelessWidget {
             order.status != OrderStatus.cancelled) ...<Widget>[
           const SizedBox(height: AllGoTokens.space3),
           FilledButton.icon(
-            onPressed: () => context.push('/tournee'),
+            onPressed: () => context.push(Routes.tracking),
             icon: const Icon(Icons.local_shipping_outlined),
             label: const Text('Suivre le livreur'),
           ),
@@ -224,6 +256,24 @@ class _OrderDetailContent extends StatelessWidget {
   }
 
   String _formatDate(DateTime date) => '${date.day}/${date.month}/${date.year}';
+
+  Future<void> _printReceipt(OrderDetail order) => printReceipt(
+        orderNumber: order.orderNumber,
+        shopName: order.shopName,
+        customerName: order.customerName,
+        customerPhone: order.customerPhone,
+        lines: order.items
+            .map((item) => ReceiptLine(name: item.name, quantity: item.quantity, subtotal: item.subtotal))
+            .toList(),
+        subtotal: order.subtotal,
+        shippingFee: order.shippingFee,
+        discount: order.discount,
+        tip: order.tip,
+        total: order.total,
+        paymentMethod: order.paymentMethod ?? '',
+        status: order.status.label,
+        date: order.createdAt,
+      );
 
   Future<void> _showReviewDialog(
       BuildContext context, OrderDetail order) async {

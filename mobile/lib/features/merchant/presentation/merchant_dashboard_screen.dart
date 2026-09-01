@@ -47,7 +47,7 @@ class MerchantDashboardScreen extends ConsumerWidget {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => const MerchantShopScreen(),
+                    builder: (_) => MerchantShopScreen(shopId: data['shopId'] as String?),
                   ),
                 ),
               ),
@@ -143,15 +143,30 @@ class _MetricGrid extends StatelessWidget {
   }
 }
 
+const _weekdays = <int, String>{
+  1: 'Lundi',
+  2: 'Mardi',
+  3: 'Mercredi',
+  4: 'Jeudi',
+  5: 'Vendredi',
+  6: 'Samedi',
+  7: 'Dimanche',
+};
+
+/// Modifie la boutique existante — `PATCH /shop/:id`, jamais `POST /shops`
+/// (qui en créerait une seconde). La création d'une première boutique se fait
+/// ailleurs, avant que ce tableau de bord ne soit même accessible.
 class MerchantShopScreen extends ConsumerStatefulWidget {
-  const MerchantShopScreen({super.key});
+  const MerchantShopScreen({required this.shopId, super.key});
+
+  final String? shopId;
+
   @override
   ConsumerState<MerchantShopScreen> createState() => _MerchantShopScreenState();
 }
 
 class _MerchantShopScreenState extends ConsumerState<MerchantShopScreen> {
   final name = TextEditingController();
-  final slug = TextEditingController();
   final description = TextEditingController();
   final city = TextEditingController();
   final address = TextEditingController();
@@ -159,14 +174,79 @@ class _MerchantShopScreenState extends ConsumerState<MerchantShopScreen> {
   final whatsapp = TextEditingController();
   final logo = TextEditingController();
   final banner = TextEditingController();
+  final latitude = TextEditingController();
+  final longitude = TextEditingController();
   bool delivery = true;
   bool pickup = true;
+  bool _loading = true;
+  bool _saving = false;
+  final Map<int, bool> _openDays = {for (final day in _weekdays.keys) day: false};
+  final Map<int, TextEditingController> _openTime = {
+    for (final day in _weekdays.keys) day: TextEditingController(text: '08:00'),
+  };
+  final Map<int, TextEditingController> _closeTime = {
+    for (final day in _weekdays.keys) day: TextEditingController(text: '18:00'),
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    if (widget.shopId == null) {
+      setState(() => _loading = false);
+      return;
+    }
+    final response = await ref.read(apiClientProvider).get<Map<String, dynamic>>('/me/shops');
+    final shops = (response.data?['data'] as List<dynamic>?) ?? const <dynamic>[];
+    final mine = shops.cast<Map<String, dynamic>>().firstWhere(
+          (s) => (s['id'] ?? s['_id']).toString() == widget.shopId,
+          orElse: () => const <String, dynamic>{},
+        );
+    final slug = mine['slug'] as String?;
+    if (slug == null) {
+      setState(() => _loading = false);
+      return;
+    }
+    final detail = await ref.read(apiClientProvider).get<Map<String, dynamic>>('/shops/$slug');
+    final shop = detail.data?['data'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+    final contact = shop['contact'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+    final shopAddress = shop['address'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+    final location = shop['location'] as Map<String, dynamic>?;
+    final coordinates = location?['coordinates'] as List<dynamic>?;
+    final hours = (shop['openingHours'] as List<dynamic>?) ?? const <dynamic>[];
+
+    name.text = shop['name'] as String? ?? '';
+    description.text = shop['description'] as String? ?? '';
+    city.text = shopAddress['city'] as String? ?? '';
+    address.text = shopAddress['line'] as String? ?? '';
+    phone.text = contact['phone'] as String? ?? '';
+    whatsapp.text = contact['whatsapp'] as String? ?? '';
+    logo.text = shop['logo'] as String? ?? '';
+    banner.text = shop['banner'] as String? ?? '';
+    if (coordinates != null && coordinates.length == 2) {
+      longitude.text = coordinates[0].toString();
+      latitude.text = coordinates[1].toString();
+    }
+    delivery = shop['deliveryAvailable'] as bool? ?? true;
+    pickup = shop['pickupAvailable'] as bool? ?? true;
+    for (final raw in hours) {
+      final slot = raw as Map<String, dynamic>;
+      final day = slot['day'] as int?;
+      if (day == null || !_weekdays.containsKey(day)) continue;
+      _openDays[day] = true;
+      _openTime[day]!.text = slot['open'] as String? ?? '08:00';
+      _closeTime[day]!.text = slot['close'] as String? ?? '18:00';
+    }
+    if (mounted) setState(() => _loading = false);
+  }
 
   @override
   void dispose() {
     for (final controller in <TextEditingController>[
       name,
-      slug,
       description,
       city,
       address,
@@ -174,63 +254,144 @@ class _MerchantShopScreenState extends ConsumerState<MerchantShopScreen> {
       whatsapp,
       logo,
       banner,
+      latitude,
+      longitude,
+      ..._openTime.values,
+      ..._closeTime.values,
     ]) {
       controller.dispose();
     }
     super.dispose();
   }
 
+  Future<void> _save() async {
+    if (widget.shopId == null) return;
+    setState(() => _saving = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(apiClientProvider).patch<void>('/shop/${widget.shopId}', data: <String, dynamic>{
+        'name': name.text,
+        'description': description.text,
+        'city': city.text,
+        'address': address.text,
+        'phone': phone.text,
+        'whatsapp': whatsapp.text,
+        'logo': logo.text,
+        'banner': banner.text,
+        'deliveryAvailable': delivery,
+        'pickupAvailable': pickup,
+        if (latitude.text.trim().isNotEmpty) 'latitude': double.tryParse(latitude.text.trim()),
+        if (longitude.text.trim().isNotEmpty) 'longitude': double.tryParse(longitude.text.trim()),
+        'openingHours': <Map<String, dynamic>>[
+          for (final day in _weekdays.keys)
+            if (_openDays[day] == true)
+              <String, dynamic>{
+                'day': day,
+                'open': _openTime[day]!.text.trim(),
+                'close': _closeTime[day]!.text.trim(),
+              },
+        ],
+      });
+      messenger.showSnackBar(const SnackBar(content: Text('Boutique mise à jour.')));
+      if (mounted) Navigator.pop(context);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Gestion de boutique')),
-        body: ListView(
-          padding: const EdgeInsets.all(AllGoTokens.space4),
-          children: <Widget>[
-            for (final field in <(String, TextEditingController)>[
-              ('Nom', name),
-              ('Identifiant', slug),
-              ('Description', description),
-              ('Ville', city),
-              ('Adresse', address),
-              ('Téléphone', phone),
-              ('WhatsApp', whatsapp),
-              ('Logo URL', logo),
-              ('Bannière URL', banner),
-            ])
-              Padding(
-                padding: const EdgeInsets.only(bottom: AllGoTokens.space3),
-                child: TextField(
-                    controller: field.$2,
-                    decoration: InputDecoration(labelText: field.$1)),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.all(AllGoTokens.space4),
+                children: <Widget>[
+                  for (final field in <(String, TextEditingController)>[
+                    ('Nom', name),
+                    ('Description', description),
+                    ('Ville', city),
+                    ('Adresse', address),
+                    ('Téléphone', phone),
+                    ('WhatsApp', whatsapp),
+                    ('Logo URL', logo),
+                    ('Bannière URL', banner),
+                  ])
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AllGoTokens.space3),
+                      child: TextField(
+                          controller: field.$2,
+                          decoration: InputDecoration(labelText: field.$1)),
+                    ),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: TextField(
+                          controller: latitude,
+                          decoration: const InputDecoration(labelText: 'Latitude'),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                        ),
+                      ),
+                      const SizedBox(width: AllGoTokens.space3),
+                      Expanded(
+                        child: TextField(
+                          controller: longitude,
+                          decoration: const InputDecoration(labelText: 'Longitude'),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AllGoTokens.space4),
+                  SwitchListTile(
+                      title: const Text('Livraison'),
+                      value: delivery,
+                      onChanged: (v) => setState(() => delivery = v)),
+                  SwitchListTile(
+                      title: const Text('Retrait en boutique'),
+                      value: pickup,
+                      onChanged: (v) => setState(() => pickup = v)),
+                  const SizedBox(height: AllGoTokens.space4),
+                  Text('Horaires d’ouverture', style: Theme.of(context).textTheme.titleMedium),
+                  for (final day in _weekdays.keys)
+                    Padding(
+                      padding: const EdgeInsets.only(top: AllGoTokens.space2),
+                      child: Row(
+                        children: <Widget>[
+                          SizedBox(
+                            width: 96,
+                            child: CheckboxListTile(
+                              contentPadding: EdgeInsets.zero,
+                              controlAffinity: ListTileControlAffinity.leading,
+                              title: Text(_weekdays[day]!),
+                              value: _openDays[day],
+                              onChanged: (v) => setState(() => _openDays[day] = v ?? false),
+                            ),
+                          ),
+                          if (_openDays[day] == true) ...<Widget>[
+                            Expanded(
+                              child: TextField(
+                                controller: _openTime[day],
+                                decoration: const InputDecoration(labelText: 'Ouverture'),
+                              ),
+                            ),
+                            const SizedBox(width: AllGoTokens.space2),
+                            Expanded(
+                              child: TextField(
+                                controller: _closeTime[day],
+                                decoration: const InputDecoration(labelText: 'Fermeture'),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: AllGoTokens.space6),
+                  FilledButton(
+                    onPressed: _saving ? null : _save,
+                    child: Text(_saving ? 'Enregistrement...' : 'Enregistrer'),
+                  ),
+                ],
               ),
-            SwitchListTile(
-                title: const Text('Livraison'),
-                value: delivery,
-                onChanged: (v) => setState(() => delivery = v)),
-            SwitchListTile(
-                title: const Text('Retrait en boutique'),
-                value: pickup,
-                onChanged: (v) => setState(() => pickup = v)),
-            FilledButton(
-              onPressed: () async {
-                await ref.read(apiClientProvider).post<void>('/shops', data: {
-                  'name': name.text,
-                  'slug': slug.text,
-                  'description': description.text,
-                  'city': city.text,
-                  'address': address.text,
-                  'phone': phone.text,
-                  'whatsapp': whatsapp.text,
-                  'logo': logo.text,
-                  'banner': banner.text,
-                  'deliveryAvailable': delivery,
-                  'pickupAvailable': pickup,
-                });
-                if (mounted) Navigator.pop(context);
-              },
-              child: const Text('Créer la boutique'),
-            ),
-          ],
-        ),
       );
 }

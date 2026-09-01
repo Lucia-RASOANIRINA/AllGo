@@ -3,7 +3,9 @@ import 'package:allgo/core/network/json_parsing.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Avis client sur une boutique — `GET/POST /shops/:shopId/reviews`.
+/// Avis client sur une boutique — `GET/POST /reviews` avec
+/// `targetType=shop` (endpoint générique, partagé avec les avis produit et
+/// livreur — voir `backend/.../reviews.controller.ts`).
 class Review {
   const Review({
     required this.id,
@@ -71,26 +73,38 @@ class ReviewsController extends AutoDisposeFamilyAsyncNotifier<ReviewsState, Str
     }
   }
 
-  /// Dépose ou remplace mon avis, puis rafraîchit la première page — plus
-  /// simple et tout aussi correct qu'une fusion en mémoire vu le faible volume
-  /// d'avis par boutique.
-  Future<void> post(int rating, String? comment) async {
+  /// Dépose un avis, puis rafraîchit la première page — plus simple et tout
+  /// aussi correct qu'une fusion en mémoire vu le faible volume d'avis par
+  /// boutique. Un avis n'est possible qu'à partir d'une commande livrée dans
+  /// cette boutique (§ éligibilité côté API) : `orderId` est obligatoire.
+  Future<void> post(String orderId, int rating, String? comment) async {
     await ref.read(apiClientProvider).post<void>(
-      '/shops/$arg/reviews',
-      data: <String, dynamic>{'rating': rating, if (comment != null) 'comment': comment},
+      '/reviews',
+      data: <String, dynamic>{
+        'orderId': orderId,
+        'targetType': 'shop',
+        'targetId': arg,
+        'rating': rating,
+        if (comment != null) 'comment': comment,
+      },
     );
     state = AsyncData(await _fetch());
   }
 
-  Future<void> removeMine() async {
-    await ref.read(apiClientProvider).delete<void>('/shops/$arg/reviews/me');
+  Future<void> remove(String reviewId) async {
+    await ref.read(apiClientProvider).delete<void>('/reviews/$reviewId');
     state = AsyncData(await _fetch());
   }
 
   Future<ReviewsState> _fetch({String? cursor}) async {
     final response = await ref.read(apiClientProvider).get<Map<String, dynamic>>(
-      '/shops/$arg/reviews',
-      queryParameters: <String, dynamic>{'limit': 20, if (cursor != null) 'cursor': cursor},
+      '/reviews',
+      queryParameters: <String, dynamic>{
+        'targetType': 'shop',
+        'targetId': arg,
+        'limit': 20,
+        if (cursor != null) 'cursor': cursor,
+      },
     );
 
     final body = response.data!;

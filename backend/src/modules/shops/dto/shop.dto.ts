@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, IsUrl, MaxLength, Min } from 'class-validator';
 
 export class CreateShopDto {
@@ -13,6 +13,10 @@ export class CreateShopDto {
   @ApiPropertyOptional() @IsOptional() @IsString() address?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() phone?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() whatsapp?: string;
+  @ApiPropertyOptional({ example: -15.7167, description: 'Latitude de la boutique.' })
+  @IsOptional() @IsNumber() latitude?: number;
+  @ApiPropertyOptional({ example: 46.3167, description: 'Longitude de la boutique.' })
+  @IsOptional() @IsNumber() longitude?: number;
   @ApiPropertyOptional() @IsOptional() @IsNumber() @Min(0) deliveryRadiusKm?: number;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() deliveryAvailable?: boolean;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() pickupAvailable?: boolean;
@@ -21,4 +25,10 @@ export class CreateShopDto {
   @ApiPropertyOptional({ type: [Object] }) @IsOptional() @IsArray() openingHours?: Array<{ day: number; open: string; close: string }>;
 }
 
-export class UpdateShopDto extends CreateShopDto {}
+/**
+ * Partielle, contrairement à `CreateShopDto` : modifier une boutique
+ * n'exige pas de reposter `name`/`slug` à chaque appel (§17). Un slug
+ * n'est de toute façon jamais modifié après création — changer l'adresse
+ * publique d'une boutique casserait tous les liens déjà partagés.
+ */
+export class UpdateShopDto extends PartialType(CreateShopDto) {}

@@ -9,6 +9,13 @@
 -keep class io.flutter.plugin.** { *; }
 -keep class io.flutter.embedding.** { *; }
 
+# `io.flutter.embedding.android.FlutterPlayStoreSplitApplication` référence
+# l'API Play Core de téléchargement différé (Play Feature Delivery), que
+# cette application n'utilise pas et ne dépend donc pas — le moteur Flutter
+# protège ces appels par un `try/catch` à l'exécution. Sans cette règle, R8
+# refuse de compiler (« Missing classes ») au lieu de simplement avertir.
+-dontwarn com.google.android.play.core.**
+
 # mobile_scanner s'appuie sur ML Kit, dont les classes sont chargées par nom.
 -keep class com.google.mlkit.** { *; }
 -dontwarn com.google.mlkit.**

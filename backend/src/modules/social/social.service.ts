@@ -6,6 +6,8 @@ import { AppError } from '../../common/http/app-error';
 import type { Paginated } from '../../common/http/response.interceptor';
 import { cursorFilter, decodeCursor, encodeCursor } from '../../common/pagination/cursor';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
+import { Role } from '../../common/rbac/roles';
+import { Shop, type ShopDocument } from '../shops/schemas/shop.schema';
 import {
   Comment,
   type CommentDocument,
@@ -14,12 +16,16 @@ import {
 } from './schemas/interactions.schema';
 import { Post, type PostDocument } from './schemas/post.schema';
 
+/** Rôles autorisés à publier « en tant que » la boutique plutôt qu'en leur nom propre. */
+const SHOP_POST_ROLES: readonly string[] = [Role.ShopOwner, Role.ShopManager, Role.ShopMarketing];
+
 @Injectable()
 export class SocialService {
   constructor(
     @InjectModel(Post.name) private readonly posts: Model<PostDocument>,
     @InjectModel(Comment.name) private readonly comments: Model<CommentDocument>,
     @InjectModel(Reaction.name) private readonly reactions: Model<ReactionDocument>,
+    @InjectModel(Shop.name) private readonly shops: Model<ShopDocument>,
   ) {}
 
   async feed(limit: number, cursor?: string): Promise<Paginated<unknown>> {
@@ -51,9 +57,20 @@ export class SocialService {
     if (!input.content?.trim() && (!input.media || input.media.length === 0) && !input.productId) {
       throw new AppError('POST_EMPTY', 'Une publication doit contenir un texte, une image ou un produit.', 400);
     }
+
+    // `shopId` fait publier « en tant que » la boutique — sans lui, l'auteur
+    // reste la personne elle-même. C'était jusqu'ici la SEULE issue possible :
+    // `author.type` valait toujours `'user'`, même pour un commerçant, ce qui
+    // rendait `ShopsService.postsFor()` (l'onglet Publications d'une fiche
+    // boutique) structurellement vide — aucune publication réelle ne pouvait
+    // jamais porter `author.type: 'shop'` (§22).
+    const author = input.shopId
+      ? await this.resolveShopAuthor(user, input.shopId)
+      : { name: user.phone, type: 'user' as const };
+
     const post = await this.posts.create({
       authorId: new Types.ObjectId(user.id),
-      author: { name: user.phone, type: 'user' },
+      author,
       kind: 'post',
       content: input.content?.trim(),
       media: input.media ?? [],
@@ -65,6 +82,21 @@ export class SocialService {
       counters: { reactions: 0, comments: 0, shares: 0, views: 0 },
     });
     return post.toJSON();
+  }
+
+  private async resolveShopAuthor(
+    user: AuthenticatedUser,
+    shopId: string,
+  ): Promise<{ name: string; avatar?: string; type: 'shop'; shopId: Types.ObjectId }> {
+    const hasRole = user.roles.some(
+      (assignment) => SHOP_POST_ROLES.includes(assignment.role) && String(assignment.shopId) === shopId,
+    );
+    if (!hasRole) {
+      throw new AppError('FORBIDDEN_SHOP_POST', 'Vous ne gérez pas cette boutique.', 403);
+    }
+    const shop = await this.shops.findById(shopId).select('name logo').lean();
+    if (!shop) throw AppError.notFound('Boutique');
+    return { name: shop.name, avatar: shop.logo, type: 'shop', shopId: new Types.ObjectId(shopId) };
   }
 
   async update(userId: string, postId: string, input: {
@@ -117,5 +149,30 @@ export class SocialService {
 
   async commentsFor(postId: string, limit: number): Promise<unknown[]> {
     return this.comments.find({ postId }).sort({ createdAt: 1 }).limit(limit).lean();
+  }
+
+  /**
+   * Partage — compteur seul (§11). Un partage recopie un lien ou republie
+   * ailleurs ; l'application ne modélise pas de republication interne, donc
+   * il n'y a rien d'autre à persister qu'une trace de l'intention.
+   */
+  async share(postId: string): Promise<{ shares: number }> {
+    const post = await this.posts.findOneAndUpdate(
+      { _id: postId },
+      { $inc: { 'counters.shares': 1 } },
+      { new: true },
+    );
+    if (!post) throw AppError.notFound('Publication');
+    return { shares: post.counters.shares };
+  }
+
+  /** Signalement — même motif que `ReviewsService.report` : un drapeau, jamais une suppression. */
+  async report(postId: string, reason?: string): Promise<{ reported: true }> {
+    const result = await this.posts.updateOne(
+      { _id: postId },
+      { $set: { reported: true, reportReason: reason } },
+    );
+    if (!result.matchedCount) throw AppError.notFound('Publication');
+    return { reported: true };
   }
 }

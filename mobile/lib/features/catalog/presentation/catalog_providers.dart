@@ -72,3 +72,38 @@ final AutoDisposeFutureProviderFamily<Product, String> productDetailProvider =
     FutureProvider.autoDispose.family<Product, String>((ref, id) {
   return ref.watch(productRepositoryProvider).getProduct(id);
 });
+
+/// Produits similaires — `GET /products/:id/similar` (même catégorie, à
+/// défaut même boutique). Appel Dio direct, comme `popularShopsProvider` :
+/// section secondaire bornée, pas un flux hors ligne d'abord.
+final AutoDisposeFutureProviderFamily<List<Product>, String> similarProductsProvider =
+    FutureProvider.autoDispose.family<List<Product>, String>((ref, productId) async {
+  try {
+    final response = await ref
+        .watch(apiClientProvider)
+        .get<Map<String, dynamic>>('/products/$productId/similar');
+    final items = (response.data?['data'] as List<dynamic>?) ?? const <dynamic>[];
+    return items.map((json) => _similarProductFromJson(json as Map<String, dynamic>)).toList();
+  } on Exception {
+    return const <Product>[];
+  }
+});
+
+Product _similarProductFromJson(Map<String, dynamic> json) {
+  final media = (json['media'] as List<dynamic>?) ?? const <dynamic>[];
+  final main = media.isEmpty ? null : media.first as Map<String, dynamic>;
+  final shop = (json['shop'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+
+  return Product(
+    id: idFromJson(json),
+    shopId: json['shopId']?.toString() ?? '',
+    shopName: shop['name'] as String? ?? '',
+    shopSlug: shop['slug'] as String? ?? '',
+    name: json['name'] as String? ?? '',
+    price: moneyFromJson(json['price']),
+    promoPrice: json['promoPrice'] == null ? null : moneyFromJson(json['promoPrice']),
+    stock: json['stock'] as int? ?? 0,
+    thumbUrl: main?['thumbUrl'] as String?,
+    previewUrl: main?['previewUrl'] as String?,
+  );
+}

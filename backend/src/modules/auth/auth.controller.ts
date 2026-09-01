@@ -14,6 +14,7 @@ import {
   RegisterDto,
   ResetPasswordDto,
   SendOtpDto,
+  VerifyEmailDto,
   VerifyOtpDto,
 } from './dto/auth.dto';
 
@@ -99,5 +100,23 @@ export class AuthController {
   async resetPassword(@Body() dto: ResetPasswordDto) {
     await this.auth.resetPassword(dto.token, dto.password);
     return { message: 'Mot de passe modifié. Reconnectez-vous.' };
+  }
+
+  @Post('email/verify/send')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @RequirePermission(Permission.ProfileUpdate)
+  @ApiOperation({ summary: 'Envoyer un lien de vérification à mon adresse email.' })
+  async sendEmailVerification(@CurrentUser() user: AuthenticatedUser) {
+    await this.auth.sendEmailVerification(user.id);
+    return { message: 'Un lien de vérification a été envoyé à votre adresse email.' };
+  }
+
+  @Public()
+  @Post('email/verify')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Confirmer une adresse email à partir du lien reçu par mail.' })
+  async verifyEmail(@Body() dto: VerifyEmailDto) {
+    await this.auth.verifyEmail(dto.token);
+    return { message: 'Adresse email vérifiée.' };
   }
 }

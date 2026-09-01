@@ -44,8 +44,7 @@ export class NotificationsService {
     const payload = notification.toJSON();
     const user = await this.users.findById(input.userId).select('preferences').lean();
     const category = NotificationsService.categoryFor(input.type);
-    const categories = user?.preferences?.pushCategories as Map<string, boolean> | undefined;
-    const enabled = !categories || categories.get(category) !== false;
+    const enabled = NotificationsService.categoryEnabled(user?.preferences?.pushCategories, category);
     if (enabled &&
         user?.preferences?.pushEnabled !== false &&
         NotificationsService.isDeliverableNow(input.type, new Date().getHours())) {
@@ -106,5 +105,21 @@ export class NotificationsService {
     if (type.startsWith('message.')) return 'messages';
     if (type.startsWith('delivery.')) return 'delivery';
     return 'social';
+  }
+
+  /**
+   * `preferences.pushCategories` est un `Map` Mongoose côté schéma, mais
+   * `.lean()` (utilisé juste au-dessus) ne le reconstruit JAMAIS en `Map` —
+   * BSON n'a pas ce type, `Map` n'existe que côté document hydraté. Sans ce
+   * garde, un objet brut `{}` fait planter `create()` sur `.get is not a
+   * function` pour tout utilisateur n'ayant jamais personnalisé ses
+   * catégories — c'est-à-dire, par construction du schéma, un compte neuf.
+   */
+  private static categoryEnabled(pushCategories: unknown, category: string): boolean {
+    if (pushCategories instanceof Map) return pushCategories.get(category) !== false;
+    if (pushCategories && typeof pushCategories === 'object') {
+      return (pushCategories as Record<string, boolean>)[category] !== false;
+    }
+    return true;
   }
 }

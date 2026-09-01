@@ -3,9 +3,9 @@ import 'package:allgo/core/network/json_parsing.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Avis client sur un produit — `GET/POST /products/:id/reviews`. Copie
-/// structurelle de `shops/presentation/reviews_providers.dart` : même motif,
-/// cible différente (voir `backend/.../product-review.schema.ts`).
+/// Avis client sur un produit — `GET/POST /reviews` avec
+/// `targetType=product`. Copie structurelle de
+/// `shops/presentation/reviews_providers.dart` : même motif, cible différente.
 class ProductReview {
   const ProductReview({
     required this.id,
@@ -73,23 +73,36 @@ class ProductReviewsController extends AutoDisposeFamilyAsyncNotifier<ProductRev
     }
   }
 
-  Future<void> post(int rating, String? comment) async {
+  /// Un avis n'est possible qu'à partir d'une commande livrée contenant ce
+  /// produit (§ éligibilité côté API) : `orderId` est obligatoire.
+  Future<void> post(String orderId, int rating, String? comment) async {
     await ref.read(apiClientProvider).post<void>(
-      '/products/$arg/reviews',
-      data: <String, dynamic>{'rating': rating, if (comment != null) 'comment': comment},
+      '/reviews',
+      data: <String, dynamic>{
+        'orderId': orderId,
+        'targetType': 'product',
+        'targetId': arg,
+        'rating': rating,
+        if (comment != null) 'comment': comment,
+      },
     );
     state = AsyncData(await _fetch());
   }
 
-  Future<void> removeMine() async {
-    await ref.read(apiClientProvider).delete<void>('/products/$arg/reviews/me');
+  Future<void> remove(String reviewId) async {
+    await ref.read(apiClientProvider).delete<void>('/reviews/$reviewId');
     state = AsyncData(await _fetch());
   }
 
   Future<ProductReviewsState> _fetch({String? cursor}) async {
     final response = await ref.read(apiClientProvider).get<Map<String, dynamic>>(
-      '/products/$arg/reviews',
-      queryParameters: <String, dynamic>{'limit': 20, if (cursor != null) 'cursor': cursor},
+      '/reviews',
+      queryParameters: <String, dynamic>{
+        'targetType': 'product',
+        'targetId': arg,
+        'limit': 20,
+        if (cursor != null) 'cursor': cursor,
+      },
     );
 
     final body = response.data!;

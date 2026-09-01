@@ -2,7 +2,7 @@ import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@
 import { Reflector } from '@nestjs/core';
 import { PERMISSION_KEY, PUBLIC_KEY, SCOPE_PARAM_KEY } from '../decorators/auth.decorators';
 import { ROLE_SCOPE, Role } from '../rbac/roles';
-import { permissionsOf, type PermissionValue } from '../rbac/permissions';
+import { PERMISSIONS_WITHOUT_SHOP_SCOPE, permissionsOf, type PermissionValue } from '../rbac/permissions';
 import type { AuthenticatedUser } from '../types/authenticated-user';
 
 /**
@@ -60,6 +60,7 @@ export class PermissionsGuard implements CanActivate {
       if (!permissionsOf(role).has(permission)) return false;
 
       if (ROLE_SCOPE[role] === 'global') return true;
+      if (PERMISSIONS_WITHOUT_SHOP_SCOPE.has(permission)) return true;
 
       // Rôle de portée boutique : la route DOIT nommer la boutique visée.
       // Sans portée explicite, l'autorisation est refusée — jamais élargie.

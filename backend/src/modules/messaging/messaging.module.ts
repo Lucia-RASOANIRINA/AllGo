@@ -9,6 +9,7 @@ import {
 import { MessagingController } from './messaging.controller';
 import { MessagingService } from './messaging.service';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { Shop, ShopSchema } from '../shops/schemas/shop.schema';
 
 /** Messagerie temps réel — lot **L4**. Schémas et index déclarés dès L0. */
 @Module({
@@ -17,6 +18,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     MongooseModule.forFeature([
       { name: Conversation.name, schema: ConversationSchema },
       { name: Message.name, schema: MessageSchema },
+      { name: Shop.name, schema: ShopSchema },
     ]),
   ],
   controllers: [MessagingController],

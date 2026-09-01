@@ -98,6 +98,10 @@ class ProductPage {
   final bool isFromCache;
 }
 
+/// Tri d'un rail de vitrine (accueil) — sans effet sur `watchProducts`, qui
+/// trie toujours par nouveauté (§7.1).
+enum ProductSort { newest, popular }
+
 /// Contrat de dépôt — implémenté dans la couche `data`.
 ///
 /// La règle de dépendance est `presentation → domain → data` (§4.3) : le
@@ -114,4 +118,14 @@ abstract interface class ProductRepository {
 
   /// Identification par scan de code-barres (§2.2).
   Future<Product> getByBarcode(String barcode, {String? shopId});
+
+  /// Rail borné de l'accueil (populaires, nouveautés, promotions) — jamais
+  /// paginé, jamais mis en cache local : ces vitrines changent vite, et le
+  /// cache hors ligne sert le catalogue complet, pas elles.
+  Future<List<Product>> fetchRail({
+    ProductSort sort = ProductSort.newest,
+    bool onSale = false,
+    String? categoryId,
+    int limit = 10,
+  });
 }

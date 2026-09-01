@@ -13,6 +13,7 @@ import { Role } from '../../common/rbac/roles';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { User, type UserDocument } from '../users/schemas/user.schema';
 import { RefreshToken, type RefreshTokenDocument } from './schemas/refresh-token.schema';
+import { EmailService } from './email.service';
 import type { LoginDto, RegisterDto } from './dto/auth.dto';
 
 export interface TokenPair {
@@ -50,6 +51,7 @@ export class AuthService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly email: EmailService,
   ) {}
 
   // ─────────────────────────────────────────────────────────── Inscription ──
@@ -295,6 +297,48 @@ export class AuthService {
     // Réinitialiser un mot de passe déconnecte partout : si le compte était
     // compromis, l'attaquant perd son accès au même instant.
     await this.revokeAllSessions(userId);
+  }
+
+  // ───────────────────────────────────────────────── Vérification email ──
+
+  /**
+   * `EmailService.sendVerification` existait déjà mais n'était appelée par
+   * aucune route (code mort) : ces deux méthodes referment la boucle, sur le
+   * même schéma jeton-Redis à usage unique que `forgotPassword`.
+   */
+  async sendEmailVerification(userId: string): Promise<void> {
+    const user = await this.users.findById(userId);
+    if (!user) throw AppError.notFound('Utilisateur');
+    if (!user.email) {
+      throw new AppError(
+        'EMAIL_MISSING',
+        'Ajoutez une adresse email à votre profil avant de la vérifier.',
+        400,
+      );
+    }
+    if (user.emailVerifiedAt) return;
+
+    const token = randomBytes(32).toString('base64url');
+    await this.redis.set(`emailverify:${AuthService.hashToken(token)}`, String(user._id), 'EX', 30 * 60);
+
+    if (this.config.get('env') !== 'production') {
+      this.logger.debug(`Jeton de vérification email pour ${user.email} : ${token}`);
+    }
+    await this.email.sendVerification(user.email, token);
+  }
+
+  async verifyEmail(token: string): Promise<void> {
+    const key = `emailverify:${AuthService.hashToken(token)}`;
+    const userId = await this.redis.get(key);
+    if (!userId) {
+      throw new AppError(
+        'EMAIL_VERIFICATION_TOKEN_INVALID',
+        'Ce lien a expiré. Redemandez une vérification.',
+        410,
+      );
+    }
+    await this.redis.del(key);
+    await this.users.updateOne({ _id: userId }, { $set: { emailVerifiedAt: new Date() } });
   }
 
   // ──────────────────────────────────────────────────────────── Internes ──

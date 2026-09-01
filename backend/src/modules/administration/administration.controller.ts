@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
-import { RequirePermission } from '../../common/decorators/auth.decorators';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators';
 import { Permission } from '../../common/rbac/permissions';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { AdministrationService } from './administration.service';
@@ -19,4 +19,25 @@ export class AdministrationController {
   @Get('reported-products') @RequirePermission(Permission.PlatformModerate) reportedProducts() { return this.administration.reportedProducts(); }
   @Get('orders') @RequirePermission(Permission.PlatformModerate) orders(@Query('status') status?: string) { return this.administration.ordersList(status); }
   @Patch('orders/:id/refund') @RequirePermission(Permission.PlatformModerate) refund(@Param('id') id: string) { return this.administration.refundOrder(id); }
+
+  @Get('disputes') @RequirePermission(Permission.PlatformModerate) disputes(@Query('status') status?: string) { return this.administration.disputesList(status); }
+  @Patch('disputes/:id')
+  @RequirePermission(Permission.PlatformModerate)
+  resolveDispute(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() body: { status: 'resolved' | 'rejected'; resolution?: string },
+  ) {
+    return this.administration.resolveDispute(id, body.status, body.resolution, user.id);
+  }
+
+  @Post('couriers/:courierId/bonuses')
+  @RequirePermission(Permission.PlatformModerate)
+  grantBonus(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('courierId') courierId: string,
+    @Body() body: { amount: number; reason: string },
+  ) {
+    return this.administration.grantCourierBonus(courierId, body.amount, body.reason, user.id);
+  }
 }

@@ -27,6 +27,16 @@ export class UsersController {
     return this.users.updateProfile(user.id, dto);
   }
 
+  @Delete()
+  @RequirePermission(Permission.ProfileUpdate)
+  @ApiOperation({
+    summary: 'Supprimer mon compte.',
+    description: 'Anonymise le profil et révoque toutes les sessions. Irréversible.',
+  })
+  deleteAccount(@CurrentUser() user: AuthenticatedUser) {
+    return this.users.deleteAccount(user.id);
+  }
+
   @Get('addresses')
   @RequirePermission(Permission.ProfileRead)
   @ApiOperation({ summary: 'Lister mes adresses de livraison.' })

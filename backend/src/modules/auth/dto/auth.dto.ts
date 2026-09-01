@@ -120,6 +120,13 @@ export class ResetPasswordDto {
   password!: string;
 }
 
+export class VerifyEmailDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  token!: string;
+}
+
 export class RegisterDeviceDto {
   @ApiProperty()
   @IsString()

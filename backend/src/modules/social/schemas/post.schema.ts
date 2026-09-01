@@ -74,6 +74,10 @@ export class Post extends Document {
 
   @Prop({ type: [String], default: [] }) hashtags!: string[];
 
+  /** Modération — même motif que `Review.reported`/`reportReason`. */
+  @Prop({ default: false, index: true }) reported!: boolean;
+  @Prop() reportReason?: string;
+
   createdAt!: Date;
   updatedAt!: Date;
 }

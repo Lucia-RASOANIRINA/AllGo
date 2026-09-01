@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseInterceptors } from '@nestjs/common';
-import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiHeader, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators';
 import { Permission } from '../../common/rbac/permissions';
@@ -8,7 +9,33 @@ import { IdempotencyInterceptor } from '../../common/idempotency/idempotency.int
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto, UpdateOrderStatusDto } from './dto/create-order.dto';
-import type { OrderStatus } from './schemas/order.schema';
+import { ORDER_STATUSES, type OrderStatus } from './schemas/order.schema';
+
+export class RaiseDisputeDto {
+  @ApiProperty({ minLength: 10, maxLength: 2000 })
+  @IsString()
+  @MinLength(10)
+  @MaxLength(2000)
+  reason!: string;
+}
+
+/**
+ * `@Query() query: PaginationQueryDto` valide toute la requête brute contre
+ * cette classe (`whitelist`/`forbidNonWhitelisted` globaux) : `status` et `q`
+ * lus à côté via `@Query('x')` sans être déclarés ici seraient rejetés avec
+ * `VALIDATION_FAILED` — voir `ShopQueryDto` pour le même constat sur `/shops`.
+ */
+export class ShopOrdersQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: ORDER_STATUSES })
+  @IsOptional()
+  @IsIn(ORDER_STATUSES)
+  status?: OrderStatus;
+
+  @ApiPropertyOptional({ description: 'Numéro de commande ou téléphone du client.' })
+  @IsOptional()
+  @IsString()
+  q?: string;
+}
 
 @ApiTags('Commandes')
 @Controller()
@@ -59,18 +86,20 @@ export class OrdersController {
     return this.orders.cancelForUser(id, user.id);
   }
 
+  @Post('orders/:id/dispute')
+  @RequirePermission(Permission.OrderDispute)
+  @ApiOperation({ summary: 'Ouvrir un litige sur une commande, traité par la modération.' })
+  dispute(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: RaiseDisputeDto) {
+    return this.orders.raiseDispute(id, user.id, dto.reason);
+  }
+
   // --- Espace commerçant : la portée est nommée par `:shopId` (§3.2) ---
 
   @Get('shop/:shopId/orders')
   @RequirePermission(Permission.OrderReadShop, 'shopId')
   @ApiOperation({ summary: 'Commandes reçues par la boutique.' })
-  listForShop(
-    @Param('shopId') shopId: string,
-    @Query() query: PaginationQueryDto,
-    @Query('status') status?: OrderStatus,
-    @Query('q') q?: string,
-  ) {
-    return this.orders.listForShop(shopId, query.limit, status, query.cursor, q);
+  listForShop(@Param('shopId') shopId: string, @Query() query: ShopOrdersQueryDto) {
+    return this.orders.listForShop(shopId, query.limit, query.status, query.cursor, query.q);
   }
 
   @Patch('shop/:shopId/orders/:id/status')

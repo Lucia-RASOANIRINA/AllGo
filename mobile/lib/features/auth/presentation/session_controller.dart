@@ -146,12 +146,14 @@ class SessionController extends Notifier<SessionState> {
       // rafraîchissement expirera de lui-même côté serveur.
     }
 
-    Future<void> refresh() => _restore();
-
     // Purge complète du cache et des jetons (§12.2).
     await ref.read(tokenStoreProvider).clear();
     state = const SessionState(isRestoring: false);
   }
+
+  /// Relit `/me` pour rafraîchir le profil affiché (nom, rôles) après une
+  /// modification — par exemple depuis l'écran de profil.
+  Future<void> refresh() => _restore();
 
   void switchProfile(ActiveProfile profile) {
     state = SessionState(

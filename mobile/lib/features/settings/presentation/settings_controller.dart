@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:allgo/core/network/api_client.dart';
+import 'package:dio/dio.dart';
 
 /// Préférences d'affichage, synchronisées avec `users.preferences` côté API.
 @immutable
@@ -48,7 +51,36 @@ class SettingsState {
 
 class SettingsController extends Notifier<SettingsState> {
   @override
-  SettingsState build() => const SettingsState();
+  SettingsState build() {
+    unawaited(_load());
+    return const SettingsState();
+  }
+
+  /// Relit `/me` au démarrage : sans cela, l'écran réaffiche toujours les
+  /// valeurs par défaut après un redémarrage, même si le serveur a bien
+  /// enregistré les préférences d'une session précédente.
+  Future<void> _load() async {
+    try {
+      final response = await ref.read(apiClientProvider).get<Map<String, dynamic>>('/me');
+      final data = response.data?['data'];
+      if (data is! Map<String, dynamic>) return;
+      final preferences = data['preferences'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+      final pushCategories =
+          preferences['pushCategories'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+
+      state = state.copyWith(
+        pushEnabled: preferences['pushEnabled'] as bool? ?? state.pushEnabled,
+        notificationCategories: <String, bool>{
+          ...state.notificationCategories,
+          for (final entry in pushCategories.entries)
+            if (entry.value is bool) entry.key: entry.value as bool,
+        },
+      );
+    } on DioException {
+      // Hors ligne : les valeurs par défaut restent affichées, sans erreur
+      // bloquante — ce sont des préférences, pas une donnée critique.
+    }
+  }
 
   void setThemeMode(ThemeMode mode) => state = state.copyWith(themeMode: mode);
 

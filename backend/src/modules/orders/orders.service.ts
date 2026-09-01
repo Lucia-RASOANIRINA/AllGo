@@ -10,6 +10,9 @@ import { Product, type ProductDocument } from '../catalog/schemas/product.schema
 import { StockMovement, type StockMovementDocument } from '../stock/schemas/stock-movement.schema';
 import { Cart, type CartDocument } from './schemas/cart.schema';
 import { Counter, type CounterDocument } from './schemas/counter.schema';
+import { Coupon, type CouponDocument } from './schemas/coupon.schema';
+import { Dispute, type DisputeDocument } from './schemas/dispute.schema';
+import { Promotion, type PromotionDocument } from '../campaigns/schemas/promotion.schema';
 import {
   ORDER_TRANSITIONS,
   Order,
@@ -17,6 +20,8 @@ import {
   type OrderStatus,
 } from './schemas/order.schema';
 import type { CreateOrderDto } from './dto/create-order.dto';
+import { evaluateCoupon } from './utils/evaluate-coupon';
+import { markCouponRedeemed, resolveCouponByCode, type ResolvedCoupon } from './utils/resolve-coupon';
 
 /** Somme de montants `Decimal128` sans jamais passer par un flottant. */
 function toDecimal(value: number | string): Decimal128 {
@@ -35,6 +40,9 @@ export class OrdersService {
     @InjectModel(Counter.name) private readonly counters: Model<CounterDocument>,
     @InjectModel(StockMovement.name)
     private readonly stockMovements: Model<StockMovementDocument>,
+    @InjectModel(Coupon.name) private readonly coupons: Model<CouponDocument>,
+    @InjectModel(Promotion.name) private readonly promotions: Model<PromotionDocument>,
+    @InjectModel(Dispute.name) private readonly disputes: Model<DisputeDocument>,
   ) {}
 
   /**
@@ -67,16 +75,64 @@ export class OrdersService {
           throw new AppError('CART_EMPTY', 'Votre panier est vide.', 400);
         }
 
+        // Un code promo invalide, expiré ou épuisé refuse la commande entière —
+        // ces trois raisons ne dépendent d'aucune boutique en particulier
+        // (§ commentaire `evaluateCoupon`). `NOT_APPLICABLE` et `MIN_AMOUNT` en
+        // revanche ne concernent qu'UNE commande d'un panier qui peut en
+        // produire plusieurs : ils sont réévalués boutique par boutique plus bas.
+        let resolvedCoupon: ResolvedCoupon | null = null;
+        if (dto.couponCode) {
+          resolvedCoupon = await resolveCouponByCode(this.coupons, this.promotions, dto.couponCode, session);
+          if (!resolvedCoupon || !resolvedCoupon.active) {
+            throw new AppError('COUPON_INVALID', 'Ce code promo est introuvable.', 400);
+          }
+          if (resolvedCoupon.expiresAt && resolvedCoupon.expiresAt < new Date()) {
+            throw new AppError('COUPON_EXPIRED', 'Ce code promo a expiré.', 400);
+          }
+          if (resolvedCoupon.usageLimit != null && resolvedCoupon.usageCount >= resolvedCoupon.usageLimit) {
+            throw new AppError('COUPON_LIMIT_REACHED', 'Ce code promo a atteint sa limite d’utilisation.', 400);
+          }
+        }
+
         created = [];
+        let couponApplied = false;
+
+        // Un retrait en boutique n'a pas de livreur à remercier ; le pourboire
+        // ne s'applique qu'à une livraison. Un panier multi-boutiques applique
+        // le même montant à chaque commande générée — répartir un pourboire
+        // unique entre plusieurs livreurs distincts n'est pas modélisé.
+        const tip = dto.delivery.method === 'pickup' ? 0 : (dto.tip ?? 0);
 
         for (const [shopId, items] of OrdersService.groupByShop(cart.items)) {
           const { lines, subtotal } = await this.consumeStock(shopId, items, userId, session);
+
+          let discount = 0;
+          let appliedCoupon: { code: string; type: string; value: unknown } | undefined;
+          if (resolvedCoupon) {
+            const evaluation = evaluateCoupon(resolvedCoupon, shopId, subtotal);
+            if (evaluation.valid) {
+              discount = evaluation.discount;
+              appliedCoupon = {
+                code: dto.couponCode!.trim().toUpperCase(),
+                type: resolvedCoupon.discountType,
+                value: resolvedCoupon.discountValue,
+              };
+              couponApplied = true;
+            }
+          }
+
           created.push(
             await this.persistOrder(
-              { userId, customer, shopId, items, lines, subtotal, dto },
+              { userId, customer, shopId, items, lines, subtotal, discount, tip, appliedCoupon, dto },
               session,
             ),
           );
+        }
+
+        // L'utilisation n'est comptée qu'une fois, après coup : une transaction
+        // annulée plus loin n'aurait sinon consommé un usage pour rien.
+        if (resolvedCoupon && couponApplied) {
+          await markCouponRedeemed(this.coupons, this.promotions, resolvedCoupon, session);
         }
 
         // Le panier n'est vidé qu'une fois toutes les commandes créées.
@@ -200,15 +256,18 @@ export class OrdersService {
       items: CartDocument['items'];
       lines: OrderDocument['items'];
       subtotal: number;
+      discount: number;
+      tip: number;
+      appliedCoupon?: { code: string; type: string; value: unknown };
       dto: CreateOrderDto;
     },
     session: ClientSession,
   ): Promise<OrderDocument> {
-    const { userId, customer, shopId, items, lines, subtotal, dto } = input;
+    const { userId, customer, shopId, items, lines, subtotal, discount, tip, appliedCoupon, dto } = input;
 
     const shippingFee = dto.delivery.method === 'pickup' ? 0 : (dto.shippingFee ?? 0);
-    const discount = 0;
     const shopName = items[0].snapshot.shopName;
+    const total = Math.max(0, subtotal + shippingFee + tip - discount);
 
     const [order] = await this.orders.create(
       [
@@ -223,9 +282,11 @@ export class OrdersService {
             subtotal: toDecimal(subtotal),
             shippingFee: toDecimal(shippingFee),
             discount: toDecimal(discount),
-            total: toDecimal(subtotal + shippingFee - discount),
+            tip: toDecimal(tip),
+            total: toDecimal(total),
           },
-          delivery: dto.delivery,
+          coupon: appliedCoupon,
+          delivery: { ...dto.delivery, tip: tip > 0 ? toDecimal(tip) : undefined },
           payment: { method: dto.paymentMethod, status: 'unpaid' },
           status: 'pending',
           timeline: [{ status: 'pending', at: new Date(), byUserId: userId }],
@@ -367,6 +428,25 @@ export class OrdersService {
     });
     await order.save();
     return order.toJSON();
+  }
+
+  /**
+   * Ouverture d'un litige — le client seul peut en ouvrir un sur SA commande ;
+   * le traitement (résolution/rejet) est réservé à la modération plateforme
+   * (`AdministrationService`, `Permission.PlatformModerate`).
+   */
+  async raiseDispute(orderId: string, userId: string, reason: string): Promise<unknown> {
+    const order = await this.orders.findOne({
+      _id: new Types.ObjectId(orderId),
+      userId: new Types.ObjectId(userId),
+    });
+    if (!order) throw AppError.notFound('Commande');
+    const dispute = await this.disputes.create({
+      orderId: order._id,
+      raisedBy: new Types.ObjectId(userId),
+      reason,
+    });
+    return dispute.toJSON();
   }
 
   async cancelForShop(orderId: string, shopId: string, userId: string): Promise<unknown> {

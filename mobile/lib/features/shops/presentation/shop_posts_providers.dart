@@ -103,12 +103,10 @@ class ShopPostsController extends AutoDisposeFamilyAsyncNotifier<ShopPostsState,
     state = AsyncData(ShopPostsState(items: updated, hasMore: current.hasMore, nextCursor: current.nextCursor));
 
     try {
-      final api = ref.read(apiClientProvider);
-      if (wasReacted) {
-        await api.delete<void>('/posts/$postId/reactions');
-      } else {
-        await api.post<void>('/posts/$postId/reactions');
-      }
+      // Bascule sur un seul point d'entrée (`SocialService.toggleReaction`
+      // ajoute ou retire selon l'état déjà en base) : il n'existe pas de
+      // route `DELETE` séparée côté API.
+      await ref.read(apiClientProvider).post<void>('/social/posts/$postId/reactions');
     } on DioException {
       state = AsyncData(current);
       rethrow;
@@ -117,7 +115,7 @@ class ShopPostsController extends AutoDisposeFamilyAsyncNotifier<ShopPostsState,
 
   Future<ShopPostsState> _fetch({String? cursor}) async {
     final response = await ref.read(apiClientProvider).get<Map<String, dynamic>>(
-      '/shops/$arg/posts',
+      '/shop/$arg/posts',
       queryParameters: <String, dynamic>{'limit': 10, if (cursor != null) 'cursor': cursor},
     );
 
@@ -174,7 +172,7 @@ class PostCommentsController extends AutoDisposeFamilyAsyncNotifier<List<PostCom
   Future<List<PostComment>> build(String postId) async {
     final response = await ref
         .read(apiClientProvider)
-        .get<Map<String, dynamic>>('/posts/$postId/comments', queryParameters: <String, dynamic>{'limit': 50});
+        .get<Map<String, dynamic>>('/social/posts/$postId/comments', queryParameters: <String, dynamic>{'limit': 50});
 
     return (response.data!['data'] as List<dynamic>)
         .map((json) => PostComment.fromJson(json as Map<String, dynamic>))
@@ -183,7 +181,7 @@ class PostCommentsController extends AutoDisposeFamilyAsyncNotifier<List<PostCom
 
   Future<void> add(String content) async {
     final response = await ref.read(apiClientProvider).post<Map<String, dynamic>>(
-      '/posts/$arg/comments',
+      '/social/posts/$arg/comments',
       data: <String, String>{'content': content},
     );
 

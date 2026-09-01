@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { ApiProperty, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { IsArray, IsDateString, IsIn, IsMongoId, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -31,6 +31,14 @@ export class CreatePostDto {
 
 export class CommentDto {
   @ApiProperty() @IsString() @MaxLength(2000) content!: string;
+}
+
+export class ReportPostDto {
+  @ApiProperty({ required: false, maxLength: 300 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  reason?: string;
 }
 
 @ApiTags('Publications')
@@ -78,5 +86,19 @@ export class SocialController {
   @RequirePermission(Permission.CommentCreate)
   comment(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: CommentDto) {
     return this.social.comment(user, id, dto.content);
+  }
+
+  @Post('posts/:id/share')
+  @RequirePermission(Permission.PostShare)
+  @ApiOperation({ summary: 'Partager une publication (compteur).' })
+  share(@Param('id') id: string) {
+    return this.social.share(id);
+  }
+
+  @Post('posts/:id/report')
+  @RequirePermission(Permission.PostReport)
+  @ApiOperation({ summary: 'Signaler une publication à la modération.' })
+  report(@Param('id') id: string, @Body() dto: ReportPostDto) {
+    return this.social.report(id, dto.reason);
   }
 }

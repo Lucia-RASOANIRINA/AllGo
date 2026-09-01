@@ -55,12 +55,23 @@ export const FollowSchema = SchemaFactory.createForClass(Follow);
 FollowSchema.index({ followerId: 1, targetType: 1, targetId: 1 }, { unique: true });
 FollowSchema.index({ targetType: 1, targetId: 1 });
 
+/** Cibles favorisables — §10. Un produit reste le cas d'usage dominant. */
+export const FAVORITABLE_TYPES = ['product', 'shop', 'promotion', 'post'] as const;
+export type FavoriteTargetType = (typeof FAVORITABLE_TYPES)[number];
+
+/**
+ * Générique (`targetType`/`targetId`), sur le même motif que `Follow` et
+ * `Reaction` ci-dessus — plutôt qu'un champ dédié par type de cible, qui
+ * aurait fallu dupliquer à chaque nouveau type favorisable.
+ */
 @Schema({ collection: 'favorites', timestamps: { createdAt: true, updatedAt: false } })
 export class Favorite extends Document {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, ref: 'Product', required: true }) productId!: Types.ObjectId;
+  @Prop({ type: String, enum: FAVORITABLE_TYPES, required: true }) targetType!: FavoriteTargetType;
+  @Prop({ type: Types.ObjectId, required: true }) targetId!: Types.ObjectId;
   createdAt!: Date;
 }
 export type FavoriteDocument = HydratedDocument<Favorite>;
 export const FavoriteSchema = SchemaFactory.createForClass(Favorite);
-FavoriteSchema.index({ userId: 1, productId: 1 }, { unique: true });
+FavoriteSchema.index({ userId: 1, targetType: 1, targetId: 1 }, { unique: true });
+FavoriteSchema.index({ userId: 1, targetType: 1, createdAt: -1 });

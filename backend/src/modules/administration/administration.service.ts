@@ -6,6 +6,8 @@ import { User, type UserDocument } from '../users/schemas/user.schema';
 import { Shop, type ShopDocument } from '../shops/schemas/shop.schema';
 import { Product, type ProductDocument } from '../catalog/schemas/product.schema';
 import { Order, type OrderDocument } from '../orders/schemas/order.schema';
+import { Dispute, type DisputeDocument, type DisputeStatus } from '../orders/schemas/dispute.schema';
+import { CourierEarningsService } from '../courier-earnings/courier-earnings.service';
 
 @Injectable()
 export class AdministrationService {
@@ -14,6 +16,8 @@ export class AdministrationService {
     @InjectModel(Shop.name) private readonly shops: Model<ShopDocument>,
     @InjectModel(Product.name) private readonly products: Model<ProductDocument>,
     @InjectModel(Order.name) private readonly orders: Model<OrderDocument>,
+    @InjectModel(Dispute.name) private readonly disputes: Model<DisputeDocument>,
+    private readonly courierEarnings: CourierEarningsService,
   ) {}
 
   usersList(status?: string) {
@@ -61,5 +65,23 @@ export class AdministrationService {
     const order = await this.orders.findByIdAndUpdate(id, { $set: { 'payment.status': 'refunded', status: 'cancelled' } }, { new: true });
     if (!order) throw AppError.notFound('Commande');
     return order;
+  }
+
+  disputesList(status?: string) {
+    return this.disputes.find(status ? { status } : {}).sort({ createdAt: -1 }).limit(200).lean();
+  }
+
+  async resolveDispute(id: string, status: DisputeStatus, resolution: string | undefined, resolvedBy: string) {
+    const dispute = await this.disputes.findByIdAndUpdate(
+      id,
+      { $set: { status, resolution, resolvedBy: new Types.ObjectId(resolvedBy), resolvedAt: new Date() } },
+      { new: true },
+    );
+    if (!dispute) throw AppError.notFound('Litige');
+    return dispute;
+  }
+
+  grantCourierBonus(courierId: string, amount: number, reason: string, grantedBy: string) {
+    return this.courierEarnings.grantBonus(courierId, amount, reason, grantedBy);
   }
 }
