@@ -14,6 +14,8 @@ import 'package:allgo/features/merchant/presentation/merchant_promotions_screen.
 import 'package:allgo/features/merchant/presentation/merchant_team_screen.dart';
 import 'package:allgo/features/delivery/presentation/delivery_screen.dart';
 import 'package:allgo/features/delivery/presentation/courier_dashboard_screen.dart';
+import 'package:allgo/features/delivery/presentation/courier_earnings_screen.dart';
+import 'package:allgo/features/admin/presentation/admin_dashboard_screen.dart';
 import 'package:allgo/features/favorites/presentation/favorites_screen.dart';
 import 'package:allgo/features/geo/presentation/map_screen.dart';
 import 'package:allgo/features/home/presentation/home_screen.dart';
@@ -75,6 +77,8 @@ abstract final class Routes {
   // --- Onglets livreur (lot L6) ---
   static const String round = '/tournee';
   static const String courier = '/livreur';
+  static const String courierEarnings = '/livreur/revenus';
+  static const String admin = '/admin';
 
   static String productPath(String id) => '/produit/$id';
   static String orderPath(String id) => '/commandes/$id';
@@ -115,6 +119,8 @@ abstract final class Routes {
     shopTeam,
     round,
     courier,
+    courierEarnings,
+    admin,
   ];
 }
 
@@ -134,6 +140,9 @@ const _protectedPrefixes = <String>[
   Routes.notifications,
   Routes.dashboard,
   Routes.round,
+  Routes.courier,
+  Routes.courierEarnings,
+  Routes.admin,
 ];
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -290,6 +299,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.round,
             builder: (_, __) => const CourierDashboardScreen(),
+          ),
+          GoRoute(
+            path: Routes.admin,
+            builder: (context, state) => const AdminDashboardScreen(),
+          ),
+          GoRoute(
+            path: Routes.courierEarnings,
+            builder: (context, state) => const CourierEarningsScreen(),
           ),
           GoRoute(
             path: Routes.courier,

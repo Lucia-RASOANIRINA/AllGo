@@ -6,10 +6,15 @@ import {
   OnGatewayDisconnect,
   WebSocketGateway,
   WebSocketServer,
+  SubscribeMessage,
+  MessageBody,
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
 
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
+import { Order, type OrderDocument } from '../orders/schemas/order.schema';
 
 /** Catalogue des événements temps réel — §7.5. */
 export const RealtimeEvent = {
@@ -45,6 +50,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    @InjectModel(Order.name) private readonly orders: Model<OrderDocument>,
   ) {}
 
   /**
@@ -89,5 +95,57 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   emitToShop(shopId: string, event: string, payload: unknown): void {
     this.server.to(`shop:${shopId}`).emit(event, payload);
+  }
+
+  @SubscribeMessage('delivery:subscribe')
+  async subscribeDelivery(client: Socket, @MessageBody() body: { orderId: string }) {
+    const user = client.data.user as AuthenticatedUser & { sub: string };
+    if (!Types.ObjectId.isValid(body.orderId) || !Types.ObjectId.isValid(user.sub)) {
+      return { ok: false };
+    }
+    const order = await this.orders.findOne({
+      _id: new Types.ObjectId(body.orderId),
+      $or: [
+        { userId: new Types.ObjectId(user.sub) },
+        { 'delivery.courierId': new Types.ObjectId(user.sub) },
+      ],
+    }).select('delivery shopId');
+    if (!order) return { ok: false };
+    await client.join(`delivery:${body.orderId}`);
+    return { ok: true };
+  }
+
+  @SubscribeMessage('delivery:position')
+  async updateDeliveryPosition(
+    client: Socket,
+    @MessageBody() body: { orderId: string; latitude: number; longitude: number; remainingDistance?: number; etaMinutes?: number },
+  ) {
+    const user = client.data.user as AuthenticatedUser & { sub: string };
+    if (!Types.ObjectId.isValid(body.orderId) || !Types.ObjectId.isValid(user.sub) ||
+        !Number.isFinite(body.latitude) || !Number.isFinite(body.longitude) ||
+        body.latitude < -90 || body.latitude > 90 || body.longitude < -180 || body.longitude > 180) {
+      return { ok: false };
+    }
+    const order = await this.orders.findOne({
+      _id: new Types.ObjectId(body.orderId),
+      'delivery.courierId': new Types.ObjectId(user.sub),
+    }).select('userId');
+    if (!order) return { ok: false };
+    const payload = { ...body, updatedAt: new Date().toISOString() };
+    await this.orders.updateOne(
+      { _id: new Types.ObjectId(body.orderId), 'delivery.courierId': new Types.ObjectId(user.sub) },
+      {
+        $set: {
+          'delivery.courierLocation': {
+            type: 'Point',
+            coordinates: [body.longitude, body.latitude],
+          },
+          'delivery.courierLocationUpdatedAt': new Date(),
+        },
+      },
+    );
+    this.server.to(`delivery:${body.orderId}`).emit(RealtimeEvent.DeliveryPosition, payload);
+    this.emitToUser(String(order.userId), RealtimeEvent.DeliveryPosition, payload);
+    return { ok: true };
   }
 }

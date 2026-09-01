@@ -49,15 +49,15 @@ class MerchantDashboardScreen extends ConsumerWidget {
                   MaterialPageRoute<void>(
                     builder: (_) => const MerchantShopScreen(),
                   ),
-                  ListTile(
-                    leading: const Icon(Icons.groups_outlined),
-                    title: const Text('Gérer l’équipe'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const MerchantTeamScreen(),
-                      ),
-                    ),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.groups_outlined),
+                title: const Text('Gérer l’équipe'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const MerchantTeamScreen(),
                   ),
                 ),
               ),

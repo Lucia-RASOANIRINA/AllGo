@@ -30,6 +30,8 @@ import { RealtimeModule } from './modules/realtime/realtime.module';
 import { HealthModule } from './modules/health/health.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
+import { CourierEarningsModule } from './modules/courier-earnings/courier-earnings.module';
+import { AdministrationModule } from './modules/administration/administration.module';
 
 @Module({
   imports: [
@@ -96,6 +98,8 @@ import { CampaignsModule } from './modules/campaigns/campaigns.module';
     HealthModule,
     ReviewsModule,
     CampaignsModule,
+    CourierEarningsModule,
+    AdministrationModule,
   ],
   providers: [
     // Ordre significatif : authentification, puis permissions, puis débit.

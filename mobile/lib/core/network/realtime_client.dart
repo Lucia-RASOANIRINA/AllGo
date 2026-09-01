@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:allgo/core/env/environment.dart';
 import 'package:allgo/core/storage/token_store.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -30,13 +32,47 @@ class RealtimeClient {
               .build(),
         );
     _socket = socket;
-    socket.connect();
+    if (!socket.connected) {
+      final connected = Completer<void>();
+      socket.once('connect', (_) {
+        if (!connected.isCompleted) connected.complete();
+      });
+      socket.once('connect_error', (error) {
+        if (!connected.isCompleted) {
+          connected.completeError(StateError('Connexion temps réel impossible: $error'));
+        }
+      });
+      socket.connect();
+      await connected.future.timeout(const Duration(seconds: 10));
+    }
     return socket;
   }
 
   void dispose() {
     _socket?.dispose();
     _socket = null;
+  }
+
+  Future<void> subscribeDelivery(String orderId) async {
+    final socket = await connect();
+    socket.emit('delivery:subscribe', <String, dynamic>{'orderId': orderId});
+  }
+
+  Future<void> publishDeliveryPosition({
+    required String orderId,
+    required double latitude,
+    required double longitude,
+    double? remainingDistance,
+    int? etaMinutes,
+  }) async {
+    final socket = await connect();
+    socket.emit('delivery:position', <String, dynamic>{
+      'orderId': orderId,
+      'latitude': latitude,
+      'longitude': longitude,
+      if (remainingDistance != null) 'remainingDistance': remainingDistance,
+      if (etaMinutes != null) 'etaMinutes': etaMinutes,
+    });
   }
 }
 

@@ -66,6 +66,8 @@ export class Product extends Document {
   @Prop({ default: true }) isAvailable!: boolean;
   @Prop({ default: false }) isFeatured!: boolean;
   @Prop({ default: false }) isHidden!: boolean;
+  @Prop({ default: false, index: true }) isReported!: boolean;
+  @Prop() reportReason?: string;
 
   @Prop({ type: [MediaSchema], default: [] }) media!: Media[];
   @Prop({ type: [VariantSchema], default: [] }) variants!: Variant[];

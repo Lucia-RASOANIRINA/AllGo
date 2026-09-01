@@ -4,6 +4,7 @@ import 'package:allgo/app/router.dart';
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/features/geo/presentation/geo_providers.dart';
 import 'package:allgo/features/orders/presentation/orders_screen.dart';
+import 'package:allgo/core/network/realtime_client.dart';
 import 'package:allgo/shared/widgets/async_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -29,6 +30,10 @@ class _DeliveryScreenState extends ConsumerState<DeliveryScreen> {
   ];
   Timer? _timer;
   int _routeIndex = 0;
+  LatLng? _liveCourierPoint;
+  double? _remainingDistance;
+  int? _liveEta;
+  bool _trackingBound = false;
 
   @override
   void initState() {
@@ -52,7 +57,7 @@ class _DeliveryScreenState extends ConsumerState<DeliveryScreen> {
   Widget build(BuildContext context) {
     final ordersAsync = ref.watch(myOrdersProvider);
     final position = ref.watch(currentPositionProvider);
-    final courierPoint = _courierRoute[_routeIndex];
+    final courierPoint = _liveCourierPoint ?? _courierRoute[_routeIndex];
     final center = position.valueOrNull ?? const (latitude: -15.7167, longitude: 46.3167);
 
     final deliveries = ordersAsync.valueOrNull
@@ -61,6 +66,27 @@ class _DeliveryScreenState extends ConsumerState<DeliveryScreen> {
                 order.status != OrderStatus.delivered)
             .toList() ??
         const <OrderSummary>[];
+    if (!_trackingBound && deliveries.isNotEmpty) {
+      _trackingBound = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final realtime = ref.read(realtimeClientProvider);
+        final socket = await realtime.connect();
+        for (final order in deliveries) {
+          await realtime.subscribeDelivery(order.id);
+        }
+        socket.on('delivery:position', (raw) {
+          if (!mounted || raw is! Map) return;
+          final latitude = (raw['latitude'] as num?)?.toDouble();
+          final longitude = (raw['longitude'] as num?)?.toDouble();
+          if (latitude == null || longitude == null) return;
+          setState(() {
+            _liveCourierPoint = LatLng(latitude, longitude);
+            _remainingDistance = (raw['remainingDistance'] as num?)?.toDouble();
+            _liveEta = (raw['etaMinutes'] as num?)?.toInt();
+          });
+        });
+      });
+    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -153,7 +179,9 @@ class _DeliveryScreenState extends ConsumerState<DeliveryScreen> {
                       ),
                       const SizedBox(height: AllGoTokens.space2),
                       Text(
-                        'Tovo • ${_etaText(_routeIndex)} • ${deliveries.length} livraison${deliveries.length > 1 ? 's' : ''}',
+                        'Tovo • ${_liveEta != null ? '$_liveEta min' : _etaText(_routeIndex)}'
+                        '${_remainingDistance != null ? ' • ${_remainingDistance!.toStringAsFixed(1)} km restants' : ''}'
+                        ' • ${deliveries.length} livraison${deliveries.length > 1 ? 's' : ''}',
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                       const SizedBox(height: AllGoTokens.space3),

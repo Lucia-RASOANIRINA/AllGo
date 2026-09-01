@@ -53,6 +53,8 @@ export class DeliveryProof {
   @Prop() signatureUrl?: string;
   @Prop({ type: Date, required: true }) capturedAt!: Date;
   @Prop({ type: GeoPointSchema }) location?: GeoPoint;
+  @Prop({ type: GeoPointSchema }) courierLocation?: GeoPoint;
+  @Prop({ type: Date }) courierLocationUpdatedAt?: Date;
 }
 export const DeliveryProofSchema = SchemaFactory.createForClass(DeliveryProof);
 

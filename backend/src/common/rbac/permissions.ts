@@ -91,6 +91,7 @@ export const Permission = {
   DeliveryReadOwn: 'delivery:read_own',
   DeliveryUpdate: 'delivery:update',
   DeliveryProof: 'delivery:proof',
+  CourierEarningsRead: 'courier:earnings_read',
 
   // --- Médias ---
   MediaUpload: 'media:upload',
@@ -232,6 +233,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly PermissionValue[]> = {
     Permission.DeliveryUpdate,
     Permission.DeliveryProof,
     Permission.PaymentCollect,
+    Permission.CourierEarningsRead,
   ],
 
   [Role.ShopMarketing]: [...SHOP_BASE, Permission.CampaignRead, Permission.PostCreate],
