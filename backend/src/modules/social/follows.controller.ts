@@ -1,7 +1,8 @@
-import { Controller, Delete, Get, Param, Post } from '@nestjs/common';
+import { Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators';
+import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 import { Permission } from '../../common/rbac/permissions';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { FollowsService } from './follows.service';
@@ -10,6 +11,13 @@ import { FollowsService } from './follows.service';
 @Controller('me/follows/shops')
 export class FollowsController {
   constructor(private readonly follows: FollowsService) {}
+
+  @Get()
+  @RequirePermission(Permission.ProfileRead)
+  @ApiOperation({ summary: 'Boutiques suivies, enrichies (pour l’écran Favoris).' })
+  list(@CurrentUser() user: AuthenticatedUser, @Query() query: PaginationQueryDto) {
+    return this.follows.listFollowedShops(user.id, query.limit, query.cursor);
+  }
 
   @Get('ids')
   @RequirePermission(Permission.ProfileRead)

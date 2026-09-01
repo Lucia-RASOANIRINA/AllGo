@@ -11,6 +11,7 @@ import 'package:allgo/features/cart/presentation/cart_screen.dart';
 import 'package:allgo/features/cart/presentation/checkout_screen.dart';
 import 'package:allgo/features/catalog/presentation/explore_screen.dart';
 import 'package:allgo/features/catalog/presentation/product_detail_screen.dart';
+import 'package:allgo/features/favorites/presentation/favorites_screen.dart';
 import 'package:allgo/features/geo/presentation/map_screen.dart';
 import 'package:allgo/features/home/presentation/home_screen.dart';
 import 'package:allgo/features/home/presentation/shell_scaffold.dart';
@@ -55,6 +56,7 @@ abstract final class Routes {
   static const String messages = '/messages';
   static const String messageDetail = '/messages/:conversationId';
   static const String privacy = '/confidentialite';
+  static const String favorites = '/compte/favoris';
 
   // --- Onglets commerçant (lot L5) ---
   static const String dashboard = '/bord';
@@ -95,6 +97,7 @@ abstract final class Routes {
     messages,
     messageDetail,
     privacy,
+    favorites,
     dashboard,
     shopOrders,
     shopProducts,
@@ -250,6 +253,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/compte/adresses',
             builder: (_, __) => const AddressesScreen(),
+          ),
+          GoRoute(
+            path: Routes.favorites,
+            builder: (_, __) => const FavoritesScreen(),
           ),
 
           // Onglets commerçant — lot L5.

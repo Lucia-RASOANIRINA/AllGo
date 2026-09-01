@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 
+import type { Paginated } from '../../common/http/response.interceptor';
+import { cursorFilter, decodeCursor, encodeCursor } from '../../common/pagination/cursor';
 import { Shop, type ShopDocument } from '../shops/schemas/shop.schema';
 import { Follow, type FollowDocument } from './schemas/interactions.schema';
 
@@ -61,5 +63,50 @@ export class FollowsService {
       .lean();
 
     return rows.map((row) => String(row.targetId));
+  }
+
+  /**
+   * Liste enrichie des boutiques suivies — même motif que
+   * `FavoritesService.list` : les abonnements sont lus d'abord, puis les
+   * boutiques en une seule requête `$in`.
+   */
+  async listFollowedShops(
+    userId: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<Paginated<unknown>> {
+    const filter: Record<string, unknown> = {
+      followerId: new Types.ObjectId(userId),
+      targetType: 'shop',
+    };
+    if (cursor) Object.assign(filter, cursorFilter('createdAt', decodeCursor(cursor)));
+
+    const rows = await this.follows
+      .find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(limit + 1)
+      .lean();
+
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+
+    const shops = await this.shops
+      .find({ _id: { $in: page.map((row) => row.targetId) } })
+      .select('slug name logo address stats')
+      .lean();
+
+    const byId = new Map(shops.map((s) => [String(s._id), s]));
+    const items = page.map((row) => byId.get(String(row.targetId))).filter(Boolean);
+
+    const last = page[page.length - 1];
+
+    return {
+      items,
+      hasMore,
+      nextCursor:
+        hasMore && last
+          ? encodeCursor({ value: last.createdAt.toISOString(), id: String(last._id) })
+          : null,
+    };
   }
 }

@@ -319,17 +319,54 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       ref.invalidate(cartControllerProvider);
       if (!mounted) return;
       final responseBody = response.data?['data'];
-      final orders = responseBody is Map<String, dynamic> ? responseBody['orders'] : null;
-      final count = orders is List<dynamic> ? orders.length : 1;
+      final ordersJson = responseBody is Map<String, dynamic> ? responseBody['orders'] : null;
+      final orders = ordersJson is List<dynamic> ? ordersJson : const <dynamic>[];
+      final count = orders.isEmpty ? 1 : orders.length;
+
+      // Le paiement mobile money n'a rien de dérivable de la création de la
+      // commande : c'est un second appel, distinct, qui peut échouer sans que
+      // la commande elle-même soit remise en cause (§ décisions de portée —
+      // aucun fournisseur réel n'est branché, le message reste honnête plutôt
+      // que de prétendre un succès).
+      String? paymentNotice;
+      if (_paymentMethod != 'cod' && orders.isNotEmpty) {
+        final firstOrder = orders.first as Map<String, dynamic>;
+        try {
+          await ref.read(apiClientProvider).post<void>(
+            '/payments/initiate',
+            data: <String, String>{
+              'orderId': idFromJson(firstOrder),
+              'provider': _paymentMethod,
+              'phone': _phoneController.text.trim(),
+            },
+            options: Options(
+              headers: <String, String>{
+                'Idempotency-Key': 'mobile-pay-${DateTime.now().microsecondsSinceEpoch}',
+              },
+            ),
+          );
+        } on DioException catch (error) {
+          final failure = error.error;
+          paymentNotice = failure is Failure
+              ? failure.displayMessage
+              : 'Paiement mobile indisponible pour le moment.';
+        }
+      }
+
+      if (!mounted) return;
       await showDialog<void>(
         context: context,
         barrierDismissible: false,
         builder: (context) => AlertDialog(
           title: const Text('Commande confirmée'),
           content: Text(
-            count > 1
-                ? '$count commandes ont été créées, une par boutique.'
-                : 'Votre commande a été enregistrée. Vous pouvez suivre son état dans Commandes.',
+            <String>[
+              if (count > 1)
+                '$count commandes ont été créées, une par boutique.'
+              else
+                'Votre commande a été enregistrée. Vous pouvez suivre son état dans Commandes.',
+              if (paymentNotice != null) '$paymentNotice Réglez à la livraison, ou réessayez depuis le détail de la commande.',
+            ].join('\n\n'),
           ),
           actions: <Widget>[
             FilledButton(

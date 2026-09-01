@@ -1,6 +1,7 @@
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/core/network/json_parsing.dart';
+import 'package:allgo/core/network/realtime_client.dart';
 import 'package:allgo/core/utils/currency.dart';
 import 'package:allgo/features/orders/presentation/orders_screen.dart';
 import 'package:allgo/shared/widgets/async_view.dart';
@@ -56,6 +57,20 @@ final AutoDisposeFutureProviderFamily<OrderDetail, String> orderDetailProvider =
   final response = await ref.watch(apiClientProvider).get<Map<String, dynamic>>('/orders/$id');
   final raw = response.data?['data'];
   if (raw is! Map<String, dynamic>) throw const FormatException('Commande invalide.');
+
+  // Statut et paiement poussés en direct (§7.5) : une commande suivie n'a plus
+  // besoin d'un tirer-pour-actualiser pour refléter un changement du commerçant
+  // ou un rappel de paiement.
+  final socket = await ref.read(realtimeClientProvider).connect();
+  void handler(dynamic data) {
+    final event = Map<String, dynamic>.from(data as Map);
+    if ((event['orderId'] as String?) != id) return;
+    ref.invalidateSelf();
+  }
+
+  socket.on('order:status', handler);
+  ref.onDispose(() => socket.off('order:status', handler));
+
   return _orderFromJson(raw);
 });
 
@@ -240,6 +255,8 @@ class _PaymentChip extends StatelessWidget {
       'paid' => ('Payée', scheme.primaryContainer, scheme.onPrimaryContainer),
       'refunded' => ('Remboursée', scheme.secondaryContainer, scheme.onSecondaryContainer),
       'pending' => ('Paiement en cours', scheme.tertiaryContainer, scheme.onTertiaryContainer),
+      'failed' => ('Échec du paiement', scheme.errorContainer, scheme.onErrorContainer),
+      'cancelled' => ('Paiement annulé', scheme.errorContainer, scheme.onErrorContainer),
       _ => ('Non payée', scheme.surfaceContainerHighest, scheme.onSurfaceVariant),
     };
 

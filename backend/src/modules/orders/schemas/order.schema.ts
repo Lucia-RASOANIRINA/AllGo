@@ -96,8 +96,12 @@ export class Payment {
   })
   method!: string;
 
-  @Prop({ type: String, enum: ['unpaid', 'pending', 'paid', 'refunded'], default: 'unpaid' })
-  status!: 'unpaid' | 'pending' | 'paid' | 'refunded';
+  @Prop({
+    type: String,
+    enum: ['unpaid', 'pending', 'paid', 'failed', 'refunded', 'cancelled'],
+    default: 'unpaid',
+  })
+  status!: 'unpaid' | 'pending' | 'paid' | 'failed' | 'refunded' | 'cancelled';
 
   @Prop() reference?: string;
   @Prop({ type: Date }) paidAt?: Date;

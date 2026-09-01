@@ -32,15 +32,23 @@ class ErrorInterceptor extends Interceptor {
       return;
     }
 
-    final failure = switch (err.type) {
-      DioExceptionType.connectionError ||
-      DioExceptionType.connectionTimeout ||
-      DioExceptionType.receiveTimeout ||
-      DioExceptionType.sendTimeout =>
-        const Failure.network(),
-      DioExceptionType.cancel => const Failure.cancelled(),
-      _ => const Failure.unexpected(),
-    };
+    // `validateStatus` (§ `api_client.dart`) n'accepte que les statuts < 500 :
+    // un 5xx (ex. `PROVIDER_UNAVAILABLE`, 503) n'atteint donc jamais
+    // `onResponse` et arrive ici sous forme de `badResponse` — sans ce
+    // rattachement, son corps JSON (déjà un message affichable, §7.2) était
+    // ignoré au profit du texte générique « erreur inattendue ».
+    final response = err.response;
+    final failure = response != null
+        ? _failureFrom(response)
+        : switch (err.type) {
+            DioExceptionType.connectionError ||
+            DioExceptionType.connectionTimeout ||
+            DioExceptionType.receiveTimeout ||
+            DioExceptionType.sendTimeout =>
+              const Failure.network(),
+            DioExceptionType.cancel => const Failure.cancelled(),
+            _ => const Failure.unexpected(),
+          };
 
     handler.next(
       DioException(

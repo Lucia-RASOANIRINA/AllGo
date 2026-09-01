@@ -6,6 +6,7 @@ import { Decimal128 } from 'mongodb';
 import { AppError } from '../../common/http/app-error';
 import { encodeCursor, decodeCursor, cursorFilter } from '../../common/pagination/cursor';
 import type { Paginated } from '../../common/http/response.interceptor';
+import { EventsGateway, RealtimeEvent } from '../realtime/events.gateway';
 import { GeoService } from '../geo/geo.service';
 import { Product, type ProductDocument } from '../catalog/schemas/product.schema';
 import { Shop, type ShopDocument } from '../shops/schemas/shop.schema';
@@ -43,6 +44,7 @@ export class OrdersService {
     @InjectModel(StockMovement.name)
     private readonly stockMovements: Model<StockMovementDocument>,
     private readonly geo: GeoService,
+    private readonly gateway: EventsGateway,
   ) {}
 
   /**
@@ -422,6 +424,13 @@ export class OrdersService {
       note,
     });
     await order.save();
+
+    // Remplace le pull-to-refresh par une mise à jour instantanée côté client
+    // (§7.5) — l'événement était déclaré depuis le départ, jamais émis.
+    this.gateway.emitToUser(String(order.userId), RealtimeEvent.OrderStatus, {
+      orderId: String(order._id),
+      status: next,
+    });
 
     return order.toJSON();
   }
