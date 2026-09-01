@@ -1,12 +1,13 @@
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/core/network/json_parsing.dart';
-import 'package:allgo/core/network/realtime_client.dart';
 import 'package:allgo/core/utils/currency.dart';
+import 'package:allgo/app/router.dart';
 import 'package:allgo/features/orders/presentation/orders_screen.dart';
 import 'package:allgo/shared/widgets/async_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 class OrderDetail {
   const OrderDetail({
@@ -17,10 +18,11 @@ class OrderDetail {
     required this.status,
     required this.items,
     required this.timeline,
+    required this.shopId,
     this.deliveryAddress,
     this.deliveryMethod,
     this.paymentMethod,
-    this.paymentStatus,
+    this.courierId,
   });
 
   final String id;
@@ -30,15 +32,21 @@ class OrderDetail {
   final OrderStatus status;
   final List<OrderItemDetail> items;
   final List<OrderTimeline> timeline;
+  final String shopId;
+  final String? courierId;
   final String? deliveryAddress;
   final String? deliveryMethod;
   final String? paymentMethod;
-  final String? paymentStatus;
 }
 
 class OrderItemDetail {
-  const OrderItemDetail({required this.name, required this.quantity, required this.subtotal});
+  const OrderItemDetail(
+      {required this.productId,
+      required this.name,
+      required this.quantity,
+      required this.subtotal});
 
+  final String productId;
   final String name;
   final int quantity;
   final int subtotal;
@@ -54,23 +62,12 @@ class OrderTimeline {
 
 final AutoDisposeFutureProviderFamily<OrderDetail, String> orderDetailProvider =
     FutureProvider.autoDispose.family<OrderDetail, String>((ref, id) async {
-  final response = await ref.watch(apiClientProvider).get<Map<String, dynamic>>('/orders/$id');
+  final response = await ref
+      .watch(apiClientProvider)
+      .get<Map<String, dynamic>>('/orders/$id');
   final raw = response.data?['data'];
-  if (raw is! Map<String, dynamic>) throw const FormatException('Commande invalide.');
-
-  // Statut et paiement poussés en direct (§7.5) : une commande suivie n'a plus
-  // besoin d'un tirer-pour-actualiser pour refléter un changement du commerçant
-  // ou un rappel de paiement.
-  final socket = await ref.read(realtimeClientProvider).connect();
-  void handler(dynamic data) {
-    final event = Map<String, dynamic>.from(data as Map);
-    if ((event['orderId'] as String?) != id) return;
-    ref.invalidateSelf();
-  }
-
-  socket.on('order:status', handler);
-  ref.onDispose(() => socket.off('order:status', handler));
-
+  if (raw is! Map<String, dynamic>)
+    throw const FormatException('Commande invalide.');
   return _orderFromJson(raw);
 });
 
@@ -87,9 +84,12 @@ OrderDetail _orderFromJson(Map<String, dynamic> json) {
   final payment = json['payment'] is Map<String, dynamic>
       ? json['payment'] as Map<String, dynamic>
       : const <String, dynamic>{};
-  final itemValues = json['items'] is List<dynamic> ? json['items'] as List<dynamic> : const <dynamic>[];
-  final timelineValues =
-      json['timeline'] is List<dynamic> ? json['timeline'] as List<dynamic> : const <dynamic>[];
+  final itemValues = json['items'] is List<dynamic>
+      ? json['items'] as List<dynamic>
+      : const <dynamic>[];
+  final timelineValues = json['timeline'] is List<dynamic>
+      ? json['timeline'] as List<dynamic>
+      : const <dynamic>[];
 
   return OrderDetail(
     id: idFromJson(json),
@@ -100,9 +100,11 @@ OrderDetail _orderFromJson(Map<String, dynamic> json) {
     deliveryAddress: delivery['address'] as String?,
     deliveryMethod: delivery['method'] as String?,
     paymentMethod: payment['method'] as String?,
-    paymentStatus: payment['status'] as String?,
+    shopId: json['shopId']?.toString() ?? idFromJson(shop),
+    courierId: delivery['courierId'] as String?,
     items: itemValues.whereType<Map<String, dynamic>>().map((item) {
       return OrderItemDetail(
+        productId: idFromJson(item),
         name: item['name'] as String? ?? '',
         quantity: item['quantity'] as int? ?? 1,
         subtotal: moneyFromJson(item['subtotal']),
@@ -158,30 +160,32 @@ class _OrderDetailContent extends StatelessWidget {
         const SizedBox(height: AllGoTokens.space1),
         Text(order.shopName, style: theme.textTheme.titleMedium),
         const SizedBox(height: AllGoTokens.space4),
-        Row(
-          children: <Widget>[
-            Expanded(
-              child: _StatusHeader(status: order.status, isPickup: order.deliveryMethod == 'pickup'),
-            ),
-            if (order.paymentStatus != null) _PaymentChip(status: order.paymentStatus!),
-          ],
-        ),
+        _StatusHeader(status: order.status),
+        if (order.status == OrderStatus.delivered) ...<Widget>[
+          const SizedBox(height: AllGoTokens.space4),
+          FilledButton.icon(
+            onPressed: () => _showReviewDialog(context, order),
+            icon: const Icon(Icons.star_outline),
+            label: const Text('Évaluer cette commande'),
+          ),
+        ],
         const SizedBox(height: AllGoTokens.space6),
         Text('Articles', style: theme.textTheme.titleMedium),
         const SizedBox(height: AllGoTokens.space2),
-            ...order.items.map(
-              (item) => ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(item.name),
-                subtitle: Text('Quantité : ${item.quantity}'),
-                trailing: Text(Ariary.format(item.subtotal)),
-              ),
-            ),
+        ...order.items.map(
+          (item) => ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(item.name),
+            subtitle: Text('Quantité : ${item.quantity}'),
+            trailing: Text(Ariary.format(item.subtotal)),
+          ),
+        ),
         const Divider(),
         ListTile(
           contentPadding: EdgeInsets.zero,
           title: const Text('Total'),
-          trailing: Text(Ariary.format(order.total), style: theme.textTheme.titleMedium),
+          trailing: Text(Ariary.format(order.total),
+              style: theme.textTheme.titleMedium),
         ),
         if (order.deliveryAddress != null) ...<Widget>[
           const SizedBox(height: AllGoTokens.space4),
@@ -190,7 +194,18 @@ class _OrderDetailContent extends StatelessWidget {
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.location_on_outlined),
             title: Text(order.deliveryAddress!),
-            subtitle: Text(order.deliveryMethod == 'pickup' ? 'Retrait en boutique' : 'Livraison à domicile'),
+            subtitle: Text(order.deliveryMethod == 'pickup'
+                ? 'Retrait en boutique'
+                : 'Livraison à domicile'),
+          ),
+        ],
+        if (order.status != OrderStatus.delivered &&
+            order.status != OrderStatus.cancelled) ...<Widget>[
+          const SizedBox(height: AllGoTokens.space3),
+          FilledButton.icon(
+            onPressed: () => context.push('/tournee'),
+            icon: const Icon(Icons.local_shipping_outlined),
+            label: const Text('Suivre le livreur'),
           ),
         ],
         const SizedBox(height: AllGoTokens.space4),
@@ -200,7 +215,7 @@ class _OrderDetailContent extends StatelessWidget {
           (entry) => ListTile(
             contentPadding: EdgeInsets.zero,
             leading: Icon(entry.status.icon, color: theme.colorScheme.primary),
-            title: Text(_statusLabel(entry.status, order.deliveryMethod)),
+            title: Text(entry.status.label),
             subtitle: Text(entry.note ?? _formatDate(entry.at)),
           ),
         ),
@@ -209,21 +224,103 @@ class _OrderDetailContent extends StatelessWidget {
   }
 
   String _formatDate(DateTime date) => '${date.day}/${date.month}/${date.year}';
-}
 
-/// « Livrée » n'a pas de sens pour un retrait en boutique — un seul statut
-/// backend (`delivered`) couvre les deux modes (§ décisions de portée), la
-/// nuance reste donc purement un libellé côté mobile.
-String _statusLabel(OrderStatus status, String? deliveryMethod) {
-  if (status == OrderStatus.delivered && deliveryMethod == 'pickup') return 'Retirée';
-  return status.label;
+  Future<void> _showReviewDialog(
+      BuildContext context, OrderDetail order) async {
+    final comment = TextEditingController();
+    final photo = TextEditingController();
+    var rating = 5;
+    var targetType = 'shop';
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Votre avis'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                DropdownButtonFormField<String>(
+                  value: targetType,
+                  items: <String>[
+                    'shop',
+                    'product',
+                    if (order.courierId != null) 'courier'
+                  ]
+                      .map((value) => DropdownMenuItem(
+                          value: value,
+                          child: Text(value == 'shop'
+                              ? 'Boutique'
+                              : value == 'product'
+                                  ? 'Produit'
+                                  : 'Livreur')))
+                      .toList(),
+                  onChanged: (value) =>
+                      setState(() => targetType = value ?? 'shop'),
+                  decoration: const InputDecoration(labelText: 'Évaluer'),
+                ),
+                DropdownButtonFormField<int>(
+                  value: rating,
+                  items: List.generate(
+                      5,
+                      (i) => DropdownMenuItem(
+                          value: i + 1, child: Text('${i + 1} étoile(s)'))),
+                  onChanged: (value) => setState(() => rating = value ?? 5),
+                  decoration: const InputDecoration(labelText: 'Note'),
+                ),
+                TextField(
+                    controller: comment,
+                    maxLines: 3,
+                    decoration:
+                        const InputDecoration(labelText: 'Commentaire')),
+                TextField(
+                    controller: photo,
+                    decoration: const InputDecoration(
+                        labelText: 'URL photo (optionnel)')),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Annuler')),
+            FilledButton(
+              onPressed: () async {
+                final api =
+                    ProviderScope.containerOf(context).read(apiClientProvider);
+                final photos = photo.text.trim().isEmpty
+                    ? <String>[]
+                    : <String>[photo.text.trim()];
+                final targetId = targetType == 'shop'
+                    ? order.shopId
+                    : targetType == 'courier'
+                        ? order.courierId!
+                        : order.items.first.productId;
+                await api.post<void>('/reviews', data: {
+                  'orderId': order.id,
+                  'targetType': targetType,
+                  'targetId': targetId,
+                  'rating': rating,
+                  'comment': comment.text.trim(),
+                  'photos': photos,
+                });
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              },
+              child: const Text('Envoyer'),
+            ),
+          ],
+        ),
+      ),
+    );
+    comment.dispose();
+    photo.dispose();
+  }
 }
 
 class _StatusHeader extends StatelessWidget {
-  const _StatusHeader({required this.status, required this.isPickup});
+  const _StatusHeader({required this.status});
 
   final OrderStatus status;
-  final bool isPickup;
 
   @override
   Widget build(BuildContext context) {
@@ -231,42 +328,8 @@ class _StatusHeader extends StatelessWidget {
       children: <Widget>[
         Icon(status.icon, color: Theme.of(context).colorScheme.primary),
         const SizedBox(width: AllGoTokens.space2),
-        Text(
-          _statusLabel(status, isPickup ? 'pickup' : 'delivery'),
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
+        Text(status.label, style: Theme.of(context).textTheme.titleMedium),
       ],
-    );
-  }
-}
-
-/// Paiement — dimension séparée du statut de la commande (§ décisions de
-/// portée) : une commande payée à la livraison reste légitimement `unpaid`
-/// jusqu'à `delivered`, ce n'est jamais une anomalie à signaler comme telle.
-class _PaymentChip extends StatelessWidget {
-  const _PaymentChip({required this.status});
-
-  final String status;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final (label, background, foreground) = switch (status) {
-      'paid' => ('Payée', scheme.primaryContainer, scheme.onPrimaryContainer),
-      'refunded' => ('Remboursée', scheme.secondaryContainer, scheme.onSecondaryContainer),
-      'pending' => ('Paiement en cours', scheme.tertiaryContainer, scheme.onTertiaryContainer),
-      'failed' => ('Échec du paiement', scheme.errorContainer, scheme.onErrorContainer),
-      'cancelled' => ('Paiement annulé', scheme.errorContainer, scheme.onErrorContainer),
-      _ => ('Non payée', scheme.surfaceContainerHighest, scheme.onSurfaceVariant),
-    };
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space2, vertical: 4),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(AllGoTokens.radiusField),
-      ),
-      child: Text(label, style: TextStyle(color: foreground, fontSize: 12)),
     );
   }
 }

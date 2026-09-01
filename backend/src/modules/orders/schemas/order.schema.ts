@@ -11,15 +11,6 @@ export const ORDER_STATUSES = [
    * client imprécis (§6.2).
    */
   'preparing',
-  /** Prête — pour livraison (en attente d'un livreur) ou pour retrait en boutique. */
-  'ready',
-  /**
-   * Livreur affecté. N'existe que sur la branche livraison — la branche
-   * retrait passe directement de `ready` à `delivered` (§ décisions de portée :
-   * pas de statut « retrait en boutique » distinct, la nuance est purement
-   * un libellé côté client selon `delivery.method`).
-   */
-  'courier_assigned',
   'shipped',
   'delivered',
   'cancelled',
@@ -30,10 +21,7 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number];
 export const ORDER_TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
   pending: ['confirmed', 'cancelled'],
   confirmed: ['preparing', 'cancelled'],
-  preparing: ['ready', 'cancelled'],
-  // `courier_assigned` = livraison ; `delivered` directement = retrait en boutique.
-  ready: ['courier_assigned', 'delivered', 'cancelled'],
-  courier_assigned: ['shipped', 'cancelled'],
+  preparing: ['shipped', 'cancelled'],
   shipped: ['delivered', 'cancelled'],
   delivered: [],
   cancelled: [],
@@ -77,13 +65,12 @@ export class Delivery {
   @Prop() phone?: string;
   @Prop() note?: string;
   @Prop({ type: GeoPointSchema }) location?: GeoPoint;
-  /**
-   * Créneau souhaité — préférence transmise, sans moteur de capacité derrière
-   * (§ décisions de portée). Purement informatif pour le commerçant.
-   */
-  @Prop({ type: Object }) slot?: { date: string; window: 'morning' | 'afternoon' | 'evening' };
   @Prop({ type: Types.ObjectId, ref: 'User' }) courierId?: Types.ObjectId;
   @Prop({ type: DeliveryProofSchema }) proof?: DeliveryProof;
+  @Prop({ type: String, enum: ['received', 'accepted', 'to_shop', 'picked_up', 'to_client', 'client_found', 'delivered'], default: 'received' })
+  workflowStatus!: string;
+  @Prop() otpCode?: string;
+  @Prop({ type: Date }) acceptedAt?: Date;
 }
 export const DeliverySchema = SchemaFactory.createForClass(Delivery);
 
@@ -98,10 +85,10 @@ export class Payment {
 
   @Prop({
     type: String,
-    enum: ['unpaid', 'pending', 'paid', 'failed', 'refunded', 'cancelled'],
+    enum: ['unpaid', 'pending', 'paid', 'failed', 'cancelled', 'refunded'],
     default: 'unpaid',
   })
-  status!: 'unpaid' | 'pending' | 'paid' | 'failed' | 'refunded' | 'cancelled';
+  status!: 'unpaid' | 'pending' | 'paid' | 'failed' | 'cancelled' | 'refunded';
 
   @Prop() reference?: string;
   @Prop({ type: Date }) paidAt?: Date;

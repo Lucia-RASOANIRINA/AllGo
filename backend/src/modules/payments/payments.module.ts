@@ -2,10 +2,10 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 
 import { Order, OrderSchema } from '../orders/schemas/order.schema';
-import { Counter, CounterSchema } from '../orders/schemas/counter.schema';
-import { Invoice, InvoiceSchema } from '../orders/schemas/invoice.schema';
-import { PAYMENT_PROVIDERS } from './payment-provider.interface';
+import { PAYMENT_PROVIDERS, type PaymentProvider } from './payment-provider.interface';
+import { AirtelMoneyProvider } from './providers/airtel-money.provider';
 import { MvolaProvider } from './providers/mvola.provider';
+import { OrangeMoneyProvider } from './providers/orange-money.provider';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 
@@ -15,21 +15,26 @@ import { PaymentsService } from './payments.service';
  * endroit à modifier pour en brancher une nouvelle.
  */
 @Module({
-  imports: [
-    MongooseModule.forFeature([
-      { name: Order.name, schema: OrderSchema },
-      { name: Invoice.name, schema: InvoiceSchema },
-      { name: Counter.name, schema: CounterSchema },
-    ]),
-  ],
+  imports: [MongooseModule.forFeature([{ name: Order.name, schema: OrderSchema }])],
   controllers: [PaymentsController],
   providers: [
     PaymentsService,
     MvolaProvider,
+    OrangeMoneyProvider,
+    AirtelMoneyProvider,
     {
       provide: PAYMENT_PROVIDERS,
-      inject: [MvolaProvider],
-      useFactory: (mvola: MvolaProvider) => new Map([[mvola.name, mvola]]),
+      inject: [MvolaProvider, OrangeMoneyProvider, AirtelMoneyProvider],
+      useFactory: (
+        mvola: MvolaProvider,
+        orangeMoney: OrangeMoneyProvider,
+        airtelMoney: AirtelMoneyProvider,
+      ): Map<string, PaymentProvider> =>
+        new Map<string, PaymentProvider>([
+          [mvola.name, mvola],
+          [orangeMoney.name, orangeMoney],
+          [airtelMoney.name, airtelMoney],
+        ]),
     },
   ],
   exports: [PaymentsService],

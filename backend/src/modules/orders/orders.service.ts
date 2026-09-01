@@ -6,22 +6,16 @@ import { Decimal128 } from 'mongodb';
 import { AppError } from '../../common/http/app-error';
 import { encodeCursor, decodeCursor, cursorFilter } from '../../common/pagination/cursor';
 import type { Paginated } from '../../common/http/response.interceptor';
-import { EventsGateway, RealtimeEvent } from '../realtime/events.gateway';
-import { GeoService } from '../geo/geo.service';
 import { Product, type ProductDocument } from '../catalog/schemas/product.schema';
-import { Shop, type ShopDocument } from '../shops/schemas/shop.schema';
 import { StockMovement, type StockMovementDocument } from '../stock/schemas/stock-movement.schema';
 import { Cart, type CartDocument } from './schemas/cart.schema';
 import { Counter, type CounterDocument } from './schemas/counter.schema';
-import { Coupon, type CouponDocument } from './schemas/coupon.schema';
 import {
   ORDER_TRANSITIONS,
   Order,
   type OrderDocument,
   type OrderStatus,
 } from './schemas/order.schema';
-import { evaluateCoupon } from './utils/evaluate-coupon';
-import { groupByShop } from './utils/group-by-shop';
 import type { CreateOrderDto } from './dto/create-order.dto';
 
 /** Somme de montants `Decimal128` sans jamais passer par un flottant. */
@@ -37,14 +31,10 @@ export class OrdersService {
     @InjectConnection() private readonly connection: Connection,
     @InjectModel(Order.name) private readonly orders: Model<OrderDocument>,
     @InjectModel(Product.name) private readonly products: Model<ProductDocument>,
-    @InjectModel(Shop.name) private readonly shops: Model<ShopDocument>,
     @InjectModel(Cart.name) private readonly carts: Model<CartDocument>,
     @InjectModel(Counter.name) private readonly counters: Model<CounterDocument>,
-    @InjectModel(Coupon.name) private readonly coupons: Model<CouponDocument>,
     @InjectModel(StockMovement.name)
     private readonly stockMovements: Model<StockMovementDocument>,
-    private readonly geo: GeoService,
-    private readonly gateway: EventsGateway,
   ) {}
 
   /**
@@ -79,7 +69,7 @@ export class OrdersService {
 
         created = [];
 
-        for (const [shopId, items] of groupByShop(cart.items)) {
+        for (const [shopId, items] of OrdersService.groupByShop(cart.items)) {
           const { lines, subtotal } = await this.consumeStock(shopId, items, userId, session);
           created.push(
             await this.persistOrder(
@@ -100,6 +90,21 @@ export class OrdersService {
     } finally {
       await session.endSession();
     }
+  }
+
+  /**
+   * Un panier peut contenir des articles de plusieurs boutiques : une commande
+   * est créée par boutique, chacune ayant son propre suivi et sa propre livraison.
+   */
+  private static groupByShop<T extends { snapshot: { shopId: unknown } }>(
+    items: T[],
+  ): Map<string, T[]> {
+    const byShop = new Map<string, T[]>();
+    for (const item of items) {
+      const key = String(item.snapshot.shopId);
+      byShop.set(key, [...(byShop.get(key) ?? []), item]);
+    }
+    return byShop;
   }
 
   /**
@@ -201,8 +206,8 @@ export class OrdersService {
   ): Promise<OrderDocument> {
     const { userId, customer, shopId, items, lines, subtotal, dto } = input;
 
-    const shippingFee = await this.computeShippingFee(shopId, dto, session);
-    const { discount, coupon } = await this.applyCoupon(shopId, subtotal, dto.couponCode, session);
+    const shippingFee = dto.delivery.method === 'pickup' ? 0 : (dto.shippingFee ?? 0);
+    const discount = 0;
     const shopName = items[0].snapshot.shopName;
 
     const [order] = await this.orders.create(
@@ -220,7 +225,6 @@ export class OrdersService {
             discount: toDecimal(discount),
             total: toDecimal(subtotal + shippingFee - discount),
           },
-          coupon,
           delivery: dto.delivery,
           payment: { method: dto.paymentMethod, status: 'unpaid' },
           status: 'pending',
@@ -231,95 +235,6 @@ export class OrdersService {
     );
 
     return order;
-  }
-
-  /**
-   * Frais de livraison — calculés côté serveur, jamais repris tels quels du
-   * client (§ correction : le mobile envoyait auparavant toujours `0`, sans
-   * validation). Le retrait ne coûte rien ; la livraison exige une position
-   * connue pour la boutique ET pour la destination.
-   */
-  private async computeShippingFee(
-    shopId: string,
-    dto: CreateOrderDto,
-    session: ClientSession,
-  ): Promise<number> {
-    if (dto.delivery.method === 'pickup') return 0;
-
-    const shop = await this.shops.findById(shopId).select('location').session(session);
-    if (!shop?.location || !dto.delivery.location) {
-      throw new AppError(
-        'DELIVERY_LOCATION_REQUIRED',
-        'Position introuvable : impossible de calculer les frais de livraison.',
-        400,
-      );
-    }
-
-    return this.geo.computeDeliveryFee(shop.location, dto.delivery.location).fee;
-  }
-
-  /**
-   * Valide et applique un coupon, DANS la transaction (§6.3). `NOT_FOUND`,
-   * `EXPIRED` et `LIMIT_REACHED` sont des états globaux du code : ils annulent
-   * toute la commande plutôt que d'être ignorés en silence —
-   * `CartService.preview` a déjà montré la réduction au client avant qu'il ne
-   * confirme, la lui retirer sans explication ressemblerait à un bug.
-   * `NOT_APPLICABLE`/`MIN_AMOUNT` sont propres à CETTE commande et ne font PAS
-   * échouer les autres commandes d'un même panier multi-boutiques.
-   */
-  private async applyCoupon(
-    shopId: string,
-    subtotal: number,
-    code: string | undefined,
-    session: ClientSession,
-  ): Promise<{ discount: number; coupon?: { code: string; type: string; value: unknown } }> {
-    if (!code) return { discount: 0 };
-
-    const coupon = await this.coupons.findOne({ code: code.toUpperCase() }).session(session);
-    const evaluation = evaluateCoupon(coupon, shopId, subtotal);
-
-    if (!evaluation.valid) {
-      if (evaluation.reason === 'NOT_APPLICABLE' || evaluation.reason === 'MIN_AMOUNT') {
-        return { discount: 0 };
-      }
-      const messages: Record<string, string> = {
-        NOT_FOUND: 'Ce code promotionnel est introuvable.',
-        EXPIRED: 'Ce code promotionnel a expiré.',
-        LIMIT_REACHED: "Ce code promotionnel n'est plus disponible.",
-      };
-      throw new AppError(
-        `COUPON_${evaluation.reason}`,
-        messages[evaluation.reason!],
-        evaluation.reason === 'NOT_FOUND' ? 404 : 409,
-      );
-    }
-
-    /**
-     * Incrément conditionnel, même motif que le décrément de stock
-     * (`consumeStock`) : `matchedCount === 0` signifie qu'un autre checkout a
-     * consommé le dernier usage entre l'évaluation et ici, annulant la
-     * transaction plutôt que de dépasser silencieusement le quota.
-     */
-    const increment = await this.coupons.updateOne(
-      {
-        _id: coupon!._id,
-        ...(coupon!.usageLimit != null ? { usageCount: { $lt: coupon!.usageLimit } } : {}),
-      },
-      { $inc: { usageCount: 1 } },
-      { session },
-    );
-    if (increment.matchedCount === 0) {
-      throw new AppError(
-        'COUPON_LIMIT_REACHED',
-        "Ce code promotionnel n'est plus disponible.",
-        409,
-      );
-    }
-
-    return {
-      discount: evaluation.discount,
-      coupon: { code: coupon!.code, type: coupon!.discountType, value: coupon!.discountValue },
-    };
   }
 
   /**
@@ -335,16 +250,6 @@ export class OrdersService {
       { upsert: true, new: true, session },
     );
     return `ALG-${year}-${String(counter.seq).padStart(4, '0')}`;
-  }
-
-  /** Une commande précise de l'utilisateur — jamais celle d'un autre. */
-  async findByIdForUser(userId: string, orderId: string): Promise<unknown> {
-    if (!Types.ObjectId.isValid(orderId)) throw AppError.notFound('Commande');
-    const order = await this.orders
-      .findOne({ _id: new Types.ObjectId(orderId), userId: new Types.ObjectId(userId) })
-      .lean();
-    if (!order) throw AppError.notFound('Commande');
-    return order;
   }
 
   /** Commandes de l'utilisateur, paginées par curseur. */
@@ -363,15 +268,25 @@ export class OrdersService {
     return this.paginate(docs, limit);
   }
 
+  async findForUser(userId: string, orderId: string): Promise<unknown> {
+    const order = await this.orders
+      .findOne({ _id: new Types.ObjectId(orderId), userId: new Types.ObjectId(userId) })
+      .lean();
+    if (!order) throw AppError.notFound('Commande');
+    return order;
+  }
+
   /** Commandes d'une boutique, filtrables par statut. */
   async listForShop(
     shopId: string,
     limit: number,
     status?: OrderStatus,
     cursor?: string,
+    q?: string,
   ): Promise<Paginated<unknown>> {
     const filter: Record<string, unknown> = { shopId: new Types.ObjectId(shopId) };
     if (status) filter.status = status;
+    if (q) filter.$or = [{ orderNumber: { $regex: q, $options: 'i' } }, { 'customer.phone': { $regex: q, $options: 'i' } }];
     if (cursor) Object.assign(filter, cursorFilter('createdAt', decodeCursor(cursor)));
 
     const docs = await this.orders
@@ -389,11 +304,15 @@ export class OrdersService {
    */
   async updateStatus(
     orderId: string,
+    shopId: string,
     next: OrderStatus,
     byUserId: string,
     note?: string,
   ): Promise<unknown> {
-    const order = await this.orders.findById(orderId);
+    const order = await this.orders.findOne({
+      _id: new Types.ObjectId(orderId),
+      shopId: new Types.ObjectId(shopId),
+    });
     if (!order) throw AppError.notFound('Commande');
 
     if (!ORDER_TRANSITIONS[order.status].includes(next)) {
@@ -402,17 +321,6 @@ export class OrdersService {
         `Une commande « ${order.status} » ne peut pas passer à « ${next} ».`,
         409,
         { from: order.status, to: next, allowed: ORDER_TRANSITIONS[order.status] },
-      );
-    }
-
-    // `courier_assigned` n'a de sens que sur la branche livraison : la table
-    // `ORDER_TRANSITIONS` ne connaît pas `delivery.method`, cette garde
-    // complète donc la machine à états plutôt que de la dupliquer.
-    if (next === 'courier_assigned' && order.delivery.method === 'pickup') {
-      throw new AppError(
-        'INVALID_STATUS_TRANSITION',
-        'Une commande à retirer en boutique ne passe pas par « livreur affecté ».',
-        409,
       );
     }
 
@@ -425,13 +333,95 @@ export class OrdersService {
     });
     await order.save();
 
-    // Remplace le pull-to-refresh par une mise à jour instantanée côté client
-    // (§7.5) — l'événement était déclaré depuis le départ, jamais émis.
-    this.gateway.emitToUser(String(order.userId), RealtimeEvent.OrderStatus, {
-      orderId: String(order._id),
-      status: next,
-    });
+    return order.toJSON();
+  }
 
+  async cancelForUser(orderId: string, userId: string): Promise<unknown> {
+    const order = await this.orders.findOne({
+      _id: orderId,
+      userId: new Types.ObjectId(userId),
+    });
+    if (!order) throw AppError.notFound('Commande');
+    if (order.payment.status === 'paid') {
+      throw new AppError(
+        'REFUND_REQUIRED',
+        'Cette commande est déjà payée et doit être remboursée par la boutique.',
+        409,
+      );
+    }
+
+    if (!ORDER_TRANSITIONS[order.status].includes('cancelled')) {
+      throw new AppError(
+        'INVALID_STATUS_TRANSITION',
+        'Cette commande ne peut plus être annulée.',
+        409,
+      );
+    }
+    order.status = 'cancelled';
+    order.payment.status = 'cancelled';
+    order.timeline.push({
+      status: 'cancelled',
+      at: new Date(),
+      byUserId: new Types.ObjectId(userId),
+      note: 'Annulée par le client.',
+    });
+    await order.save();
+    return order.toJSON();
+  }
+
+  async cancelForShop(orderId: string, shopId: string, userId: string): Promise<unknown> {
+    const order = await this.orders.findOne({
+      _id: new Types.ObjectId(orderId),
+      shopId: new Types.ObjectId(shopId),
+    });
+    if (!order) throw AppError.notFound('Commande');
+    if (!ORDER_TRANSITIONS[order.status].includes('cancelled')) {
+      throw new AppError('INVALID_STATUS_TRANSITION', 'Cette commande ne peut plus être refusée.', 409);
+    }
+
+    order.status = 'cancelled';
+    order.timeline.push({
+      status: 'cancelled',
+      at: new Date(),
+      byUserId: new Types.ObjectId(userId),
+      note: 'Refusée par la boutique.',
+    });
+    await order.save();
+    return order.toJSON();
+  }
+
+  async courierMissions(userId: string): Promise<unknown[]> {
+    return this.orders.find({ $or: [{ 'delivery.courierId': new Types.ObjectId(userId) }, { 'delivery.courierId': { $exists: false }, status: { $in: ['confirmed', 'preparing'] } }] }).sort({ createdAt: -1 }).limit(50).lean();
+  }
+
+  async acceptMission(orderId: string, userId: string): Promise<unknown> {
+    const order = await this.orders.findOneAndUpdate({ _id: orderId, 'delivery.courierId': { $exists: false }, status: { $in: ['confirmed', 'preparing'] } }, { $set: { 'delivery.courierId': new Types.ObjectId(userId), 'delivery.workflowStatus': 'accepted', 'delivery.acceptedAt': new Date(), 'delivery.otpCode': String(Math.floor(1000 + Math.random() * 9000)) } }, { new: true });
+    if (!order) throw AppError.notFound('Mission');
+    return order.toJSON();
+  }
+
+  async refuseMission(orderId: string, userId: string): Promise<{ refused: true }> {
+    const result = await this.orders.updateOne({ _id: orderId, 'delivery.courierId': new Types.ObjectId(userId) }, { $unset: { 'delivery.courierId': 1 }, $set: { 'delivery.workflowStatus': 'received' } });
+    if (!result.modifiedCount) throw AppError.notFound('Mission');
+    return { refused: true };
+  }
+
+  async updateCourierWorkflow(orderId: string, userId: string, status: string): Promise<unknown> {
+    const allowed = ['to_shop', 'picked_up', 'to_client', 'client_found'];
+    if (!allowed.includes(status)) throw new AppError('INVALID_WORKFLOW', 'Étape de livraison invalide.', 400);
+    const order = await this.orders.findOneAndUpdate({ _id: orderId, 'delivery.courierId': new Types.ObjectId(userId) }, { $set: { 'delivery.workflowStatus': status } }, { new: true });
+    if (!order) throw AppError.notFound('Mission');
+    return order.toJSON();
+  }
+
+  async completeDelivery(orderId: string, userId: string, otp: string, photoUrl?: string): Promise<unknown> {
+    const order = await this.orders.findOne({ _id: orderId, 'delivery.courierId': new Types.ObjectId(userId) });
+    if (!order) throw AppError.notFound('Mission');
+    if (order.delivery.otpCode && order.delivery.otpCode !== otp) throw new AppError('OTP_INVALID', 'Code OTP invalide.', 400);
+    order.status = 'delivered';
+    order.delivery.workflowStatus = 'delivered';
+    order.delivery.proof = photoUrl ? { photoUrl, capturedAt: new Date() } : undefined;
+    await order.save();
     return order.toJSON();
   }
 

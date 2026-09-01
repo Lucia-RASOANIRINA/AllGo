@@ -85,25 +85,6 @@ Sur l'émulateur Android, l'application doit viser `10.0.2.2` et non `localhost`
 Sous Windows PowerShell, utiliser `npm.cmd run ...` si la politique d'exécution bloque
 `npm.ps1`.
 
-#### Préparer la vérification email avec Resend
-
-La clé Resend ne doit jamais être écrite dans le code, commitée ou envoyée au mobile.
-Copier les variables suivantes dans `backend/.env` (ou les définir dans les secrets de
-la CI) lorsque le domaine expéditeur est validé dans Resend :
-
-```dotenv
-RESEND_API_KEY=re_xxxxxxxxx
-RESEND_FROM_EMAIL=AllGo <no-reply@votre-domaine.mg>
-```
-
-La configuration Resend reste disponible dans `src/config/configuration.ts`, mais le
-chemin recommandé ici est SMTP, déjà branché par Nodemailer. Renseigner `SMTP_HOST`,
-`SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` et `SMTP_FROM_EMAIL` dans `backend/.env`.
-À l'inscription avec un email, l'API crée un token valable 30 minutes et l'envoie via
-SMTP. La validation se fait sur `POST /v1/auth/email/verify` avec `{ "token": "..." }`.
-Sans SMTP en développement, le lien est écrit dans les logs; en production, une
-configuration SMTP complète est obligatoire.
-
 **Tests**
 
 ```bash
@@ -147,7 +128,7 @@ Le cahier des charges est prévisionnel. L'état réel du dépôt est le suivant
 | Lot | État dans ce dépôt | Reste à livrer |
 |---|---|---|
 | L0 — Socle | Partiellement livré | CI/CD complète, SQLCipher, durcissement final et publication |
-| L1 — Découverte | Partiellement livré | Synchronisation avancée et tests d'intégration |
+| L1 — Découverte | Partiellement livré | Panier local complet, synchronisation avancée et tests d'intégration |
 | L2 — Achat | Partiellement livré | Fournisseurs mobile money et suivi GPS avancé du livreur |
 | L3 — Social | Non livré | Fil, publications, stories, réactions, commentaires et abonnements |
 | L4 — Communication | Non livré | Messagerie temps réel, notifications push et demandes clients |
@@ -159,19 +140,6 @@ Les routes non livrées affichent volontairement `ComingSoonScreen`; elles ne do
 être présentées comme fonctionnelles dans une démonstration. Les critères d'acceptation
 correspondants sont définis dans [le cahier des charges mobile](docs/CAHIER_DES_CHARGES_MOBILE_FLUTTER.md),
 notamment aux sections 8 à 10, 14 et 16 à 19.
-
-#### Compte client : état vérifié
-
-L'inscription par email seul ou par téléphone seul est disponible. La connexion accepte
-également l'email ou le numéro de téléphone avec le mot de passe. La déconnexion, l'OTP
-SMS, le mot de passe oublié et la session persistante sont disponibles. Le profil et les
-adresses multiples sont disponibles dans Flutter; l'API accepte aussi les appareils de
-notification.
-
-La suppression du compte est disponible via `DELETE /v1/me` et depuis l'écran Compte.
-Elle applique une suppression logique : le compte est désactivé, ses coordonnées sont
-anonymisées et ses sessions invalidées. Les commandes, factures et historiques métiers
-ne sont pas supprimés, afin de préserver la traçabilité et les obligations de gestion.
 
 **Icônes de lanceur** — régénérées depuis le SVG, jamais éditées à la main :
 

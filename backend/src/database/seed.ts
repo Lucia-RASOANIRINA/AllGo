@@ -223,6 +223,57 @@ async function seedProducts(db: Db, shopId: ObjectId, categories: CategoryIds): 
     updatedAt: now,
   };
 
+  const productMedia = {
+  riz: [
+    {
+      isMain: true,
+      thumbUrl:
+        'https://images.unsplash.com/photo-1586201375761-83865001e31d?auto=format&fit=crop&w=1200&q=80',
+      previewUrl:
+        'https://images.unsplash.com/photo-1586201375761-83865001e31d?auto=format&fit=crop&w=1200&q=80',
+    },
+    {
+      isMain: false,
+      thumbUrl:
+        'https://images.unsplash.com/photo-1604908556856-ff686c9fe616?auto=format&fit=crop&w=1200&q=80',
+      previewUrl:
+        'https://images.unsplash.com/photo-1604908556856-ff686c9fe616?auto=format&fit=crop&w=1200&q=80',
+    },
+  ],
+  huile: [
+    {
+      isMain: true,
+      thumbUrl:
+        'https://images.unsplash.com/photo-1577311364431-2358a7f306d9?auto=format&fit=crop&w=1200&q=80',
+      previewUrl:
+        'https://images.unsplash.com/photo-1577311364431-2358a7f306d9?auto=format&fit=crop&w=1200&q=80',
+    },
+    {
+      isMain: false,
+      thumbUrl:
+        'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=1200&q=80',
+      previewUrl:
+        'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=1200&q=80',
+    },
+  ],
+  sucre: [
+    {
+      isMain: true,
+      thumbUrl:
+        'https://images.unsplash.com/photo-1596040033229-a9821ebd058d?auto=format&fit=crop&w=1200&q=80',
+      previewUrl:
+        'https://images.unsplash.com/photo-1596040033229-a9821ebd058d?auto=format&fit=crop&w=1200&q=80',
+    },
+    {
+      isMain: false,
+      thumbUrl:
+        'https://images.unsplash.com/photo-1502741338009-cac2772e18bc?auto=format&fit=crop&w=1200&q=80',
+      previewUrl:
+        'https://images.unsplash.com/photo-1502741338009-cac2772e18bc?auto=format&fit=crop&w=1200&q=80',
+    },
+  ],
+  } as const;
+
   await db.collection('products').deleteMany({});
   const result = await db.collection('products').insertMany([
     {
@@ -231,6 +282,7 @@ async function seedProducts(db: Db, shopId: ObjectId, categories: CategoryIds): 
       slug: 'riz-makalioka-5kg',
       description: 'Riz local de qualité, sac de 5 kilogrammes.',
       barcode: '6001234567890',
+      media: productMedia.riz,
       // Decimal128, jamais Double : un arrondi sur un montant est inacceptable.
       price: Decimal128.fromString('22000'),
       promoPrice: Decimal128.fromString('19500'),
@@ -243,6 +295,7 @@ async function seedProducts(db: Db, shopId: ObjectId, categories: CategoryIds): 
       name: 'Huile végétale 1 L',
       slug: 'huile-vegetale-1l',
       barcode: '6001234567891',
+      media: productMedia.huile,
       price: Decimal128.fromString('9500'),
       stock: 120,
       minStock: 20,
@@ -253,6 +306,7 @@ async function seedProducts(db: Db, shopId: ObjectId, categories: CategoryIds): 
       name: 'Sucre roux 1 kg',
       slug: 'sucre-roux-1kg',
       barcode: '6001234567892',
+      media: productMedia.sucre,
       price: Decimal128.fromString('5200'),
       // Sous le seuil : alimente l'écran d'alertes de stock (§8.1, module 7).
       stock: 4,

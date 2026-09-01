@@ -7,18 +7,6 @@ export interface AppConfig {
   minSupportedAppVersion: string;
   mongoUri: string;
   redisUrl: string;
-  resend: {
-    apiKey?: string;
-    from: string;
-  };
-  smtp: {
-    host?: string;
-    port: number;
-    user?: string;
-    password?: string;
-    from: string;
-    verificationUrl: string;
-  };
   jwt: {
     accessSecret: string;
     accessTtl: string;
@@ -56,18 +44,6 @@ export default (): AppConfig => ({
   minSupportedAppVersion: process.env.MIN_SUPPORTED_APP_VERSION ?? '1.0.0',
   mongoUri: required('MONGODB_URI'),
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
-  resend: {
-    apiKey: process.env.RESEND_API_KEY,
-    from: process.env.RESEND_FROM_EMAIL ?? 'AllGo <noreply@example.com>',
-  },
-  smtp: {
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT ?? 587),
-    user: process.env.SMTP_USER,
-    password: process.env.SMTP_PASSWORD,
-    from: process.env.SMTP_FROM_EMAIL ?? 'AllGo <noreply@example.com>',
-    verificationUrl: process.env.EMAIL_VERIFICATION_URL ?? 'allgo://verification-email',
-  },
   jwt: {
     accessSecret: required('JWT_ACCESS_SECRET'),
     accessTtl: process.env.JWT_ACCESS_TTL ?? '15m',

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   Headers,
   HttpCode,
   HttpStatus,
@@ -13,9 +14,14 @@ import { ApiHeader, ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsMongoId, IsString } from 'class-validator';
 import type { Request } from 'express';
 
-import { Public, RequirePermission } from '../../common/decorators/auth.decorators';
+import {
+  CurrentUser,
+  Public,
+  RequirePermission,
+} from '../../common/decorators/auth.decorators';
 import { Permission } from '../../common/rbac/permissions';
 import { IdempotencyInterceptor } from '../../common/idempotency/idempotency.interceptor';
+import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { PaymentsService } from './payments.service';
 
 export class InitiatePaymentDto {
@@ -35,13 +41,27 @@ export class InitiatePaymentDto {
 export class PaymentsController {
   constructor(private readonly payments: PaymentsService) {}
 
+  @Get('methods')
+  @RequirePermission(Permission.PaymentInitiate)
+  @ApiOperation({ summary: 'Lister les moyens de paiement disponibles.' })
+  methods() {
+    return {
+      data: [
+        { key: 'cod', label: 'Paiement à la livraison', available: true },
+        { key: 'mvola', label: 'MVola', available: true },
+        { key: 'orange_money', label: 'Orange Money', available: true },
+        { key: 'airtel_money', label: 'Airtel Money', available: true },
+      ],
+    };
+  }
+
   @Post('initiate')
   @RequirePermission(Permission.PaymentInitiate)
   @UseInterceptors(IdempotencyInterceptor)
   @ApiHeader({ name: 'Idempotency-Key', required: true })
   @ApiOperation({ summary: 'Déclencher un paiement mobile money.' })
-  initiate(@Body() dto: InitiatePaymentDto) {
-    return this.payments.initiate(dto.orderId, dto.provider, dto.phone);
+  initiate(@CurrentUser() user: AuthenticatedUser, @Body() dto: InitiatePaymentDto) {
+    return this.payments.initiate(dto.orderId, user.id, dto.provider, dto.phone);
   }
 
   /**

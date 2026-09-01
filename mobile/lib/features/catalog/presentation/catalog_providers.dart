@@ -72,17 +72,3 @@ final AutoDisposeFutureProviderFamily<Product, String> productDetailProvider =
     FutureProvider.autoDispose.family<Product, String>((ref, id) {
   return ref.watch(productRepositoryProvider).getProduct(id);
 });
-
-/// Produits similaires — rail borné, pas besoin du motif pagination.
-final AutoDisposeFutureProviderFamily<List<Product>, String> similarProductsProvider =
-    FutureProvider.autoDispose.family<List<Product>, String>((ref, id) {
-  return ref.watch(productRepositoryProvider).similarProducts(id);
-});
-
-/// Produits recommandés pour une fiche produit — distinct du
-/// `recommendedProductsProvider` de l'accueil (celui-ci est borné à un
-/// produit via `family`, l'autre couvre tout le catalogue).
-final AutoDisposeFutureProviderFamily<List<Product>, String> relatedRecommendedProductsProvider =
-    FutureProvider.autoDispose.family<List<Product>, String>((ref, id) {
-  return ref.watch(productRepositoryProvider).recommendedProducts(id);
-});

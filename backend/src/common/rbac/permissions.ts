@@ -37,6 +37,7 @@ export const Permission = {
 
   // --- Boutique ---
   ShopRead: 'shop:read',
+  ShopCreate: 'shop:create',
   ShopUpdate: 'shop:update',
   ShopDashboard: 'shop:dashboard',
   TeamManage: 'team:manage',
@@ -65,6 +66,7 @@ export const Permission = {
   PostRead: 'post:read',
   PostCreate: 'post:create',
   PostDelete: 'post:delete',
+  PostUpdate: 'post:update',
   CommentCreate: 'comment:create',
   ReactionToggle: 'reaction:toggle',
   StoryCreate: 'story:create',
@@ -79,6 +81,11 @@ export const Permission = {
   MessageRead: 'message:read',
   MessageSend: 'message:send',
   NotificationRead: 'notification:read',
+  ReviewRead: 'review:read',
+  ReviewCreate: 'review:create',
+  ReviewUpdate: 'review:update',
+  ReviewDelete: 'review:delete',
+  ReviewReport: 'review:report',
 
   // --- Livraison ---
   DeliveryReadOwn: 'delivery:read_own',
@@ -90,6 +97,9 @@ export const Permission = {
 
   // --- Marketing ---
   CampaignRead: 'campaign:read',
+  CampaignCreate: 'campaign:create',
+  CampaignUpdate: 'campaign:update',
+  CampaignDelete: 'campaign:delete',
 
   // --- Plateforme ---
   PlatformModerate: 'platform:moderate',
@@ -106,6 +116,7 @@ const CLIENT_PERMISSIONS: PermissionValue[] = [
   Permission.ProfileUpdate,
   Permission.ProductRead,
   Permission.ShopRead,
+  Permission.ShopCreate,
   Permission.CartManage,
   Permission.OrderCreate,
   Permission.OrderReadOwn,
@@ -114,7 +125,7 @@ const CLIENT_PERMISSIONS: PermissionValue[] = [
   Permission.InvoiceRead,
   Permission.PostRead,
   Permission.PostCreate,
-  Permission.PostDelete,
+  Permission.PostDelete, Permission.PostUpdate,
   Permission.CommentCreate,
   Permission.ReactionToggle,
   Permission.StoryCreate,
@@ -124,6 +135,11 @@ const CLIENT_PERMISSIONS: PermissionValue[] = [
   Permission.MessageRead,
   Permission.MessageSend,
   Permission.NotificationRead,
+  Permission.ReviewRead,
+  Permission.ReviewCreate,
+  Permission.ReviewUpdate,
+  Permission.ReviewDelete,
+  Permission.ReviewReport,
   Permission.MediaUpload,
 ];
 
@@ -166,10 +182,10 @@ export const ROLE_PERMISSIONS: Record<Role, readonly PermissionValue[]> = {
     Permission.StockMove,
     Permission.StockAlertRead,
     Permission.PostCreate,
-    Permission.PostDelete,
+    Permission.PostDelete, Permission.PostUpdate,
     Permission.RequestRead,
     Permission.RequestRespond,
-    Permission.CampaignRead,
+    Permission.CampaignRead, Permission.CampaignCreate, Permission.CampaignUpdate, Permission.CampaignDelete,
   ],
 
   [Role.ShopManager]: [

@@ -80,15 +80,13 @@ class SessionController extends Notifier<SessionState> {
   /// Création de compte — `POST /auth/register`.
   /// La réponse contient déjà la paire de jetons : aucune connexion séparée.
   Future<void> register({
+    required String phone,
     required String password,
     required String firstName,
     required String lastName,
-    String? phone,
-    String? email,
   }) async {
     await _authenticate('/auth/register', <String, String>{
-      if (phone != null && phone.trim().isNotEmpty) 'phone': phone.trim(),
-      if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
+      'phone': phone,
       'password': password,
       'firstName': firstName,
       'lastName': lastName,
@@ -152,14 +150,6 @@ class SessionController extends Notifier<SessionState> {
     await ref.read(tokenStoreProvider).clear();
     state = const SessionState(isRestoring: false);
   }
-
-  Future<void> deleteAccount() async {
-    await ref.read(apiClientProvider).delete<void>('/me');
-    await ref.read(tokenStoreProvider).clear();
-    state = const SessionState(isRestoring: false);
-  }
-
-  Future<void> refresh() => _restore();
 
   void switchProfile(ActiveProfile profile) {
     state = SessionState(

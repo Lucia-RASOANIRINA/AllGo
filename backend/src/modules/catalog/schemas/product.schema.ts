@@ -18,6 +18,8 @@ export const MediaSchema = SchemaFactory.createForClass(Media);
 export class Variant {
   @Prop({ required: true }) name!: string;
   @Prop() sku?: string;
+  @Prop() size?: string;
+  @Prop() color?: string;
   /** Écart de prix par rapport au prix de base, en Ariary. */
   @Prop({ type: MongooseSchema.Types.Decimal128, default: 0 }) priceDelta!: unknown;
   @Prop({ default: 0, min: 0 }) stock!: number;
@@ -59,12 +61,11 @@ export class Product extends Document {
   @Prop({ type: MongooseSchema.Types.Decimal128 }) costPrice?: unknown;
   @Prop({ default: 'MGA' }) currency!: string;
 
-  /** Fenêtre de la promotion flash — absente pour une simple remise permanente. */
-  @Prop({ type: Date }) promoStartAt?: Date;
-  @Prop({ type: Date }) promoEndAt?: Date;
-
   @Prop({ default: 0, min: 0 }) stock!: number;
   @Prop({ default: 0, min: 0 }) minStock!: number;
+  @Prop({ default: true }) isAvailable!: boolean;
+  @Prop({ default: false }) isFeatured!: boolean;
+  @Prop({ default: false }) isHidden!: boolean;
 
   @Prop({ type: [MediaSchema], default: [] }) media!: Media[];
   @Prop({ type: [VariantSchema], default: [] }) variants!: Variant[];
@@ -97,5 +98,3 @@ ProductSchema.index(
 // Tri du catalogue par date : sans cet index, `sort` s'exécute en mémoire,
 // plafonné à 32 Mo, et échoue en production (§6.5).
 ProductSchema.index({ status: 1, createdAt: -1 });
-// Promotions flash : filtrer les fenêtres actives sans scan complet.
-ProductSchema.index({ status: 1, promoEndAt: 1 });

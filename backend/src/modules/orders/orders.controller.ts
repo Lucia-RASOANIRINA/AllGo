@@ -48,8 +48,15 @@ export class OrdersController {
   @Get('orders/:id')
   @RequirePermission(Permission.OrderReadOwn)
   @ApiOperation({ summary: 'Consulter une commande.' })
-  findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.orders.findByIdForUser(user.id, id);
+  async findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.orders.findForUser(user.id, id);
+  }
+
+  @Patch('orders/:id/cancel')
+  @RequirePermission(Permission.OrderCancel)
+  @ApiOperation({ summary: 'Annuler une commande non payée.' })
+  cancel(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.orders.cancelForUser(id, user.id);
   }
 
   // --- Espace commerçant : la portée est nommée par `:shopId` (§3.2) ---
@@ -61,8 +68,9 @@ export class OrdersController {
     @Param('shopId') shopId: string,
     @Query() query: PaginationQueryDto,
     @Query('status') status?: OrderStatus,
+    @Query('q') q?: string,
   ) {
-    return this.orders.listForShop(shopId, query.limit, status, query.cursor);
+    return this.orders.listForShop(shopId, query.limit, status, query.cursor, q);
   }
 
   @Patch('shop/:shopId/orders/:id/status')
@@ -71,14 +79,40 @@ export class OrdersController {
     summary: 'Faire avancer une commande.',
     description:
       'Les transitions sont contraintes : pending → confirmed → preparing → ' +
-      'ready → (courier_assigned → shipped | delivered directement pour un ' +
-      'retrait) → delivered. Toute autre transition est refusée.',
+      'shipped → delivered. Toute autre transition est refusée.',
   })
   updateStatus(
     @Param('id') id: string,
+    @Param('shopId') shopId: string,
     @Body() dto: UpdateOrderStatusDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.orders.updateStatus(id, dto.status, user.id, dto.note);
+    return this.orders.updateStatus(id, shopId, dto.status, user.id, dto.note);
   }
+
+  @Patch('shop/:shopId/orders/:id/cancel')
+  @RequirePermission(Permission.OrderCancel, 'shopId')
+  cancelForShop(@Param('shopId') shopId: string, @Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.orders.cancelForShop(id, shopId, user.id);
+  }
+
+  @Get('courier/missions')
+  @RequirePermission(Permission.DeliveryReadOwn)
+  missions(@CurrentUser() user: AuthenticatedUser) { return this.orders.courierMissions(user.id); }
+
+  @Patch('courier/missions/:id/accept')
+  @RequirePermission(Permission.DeliveryUpdate)
+  acceptMission(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.orders.acceptMission(id, user.id); }
+
+  @Patch('courier/missions/:id/refuse')
+  @RequirePermission(Permission.DeliveryUpdate)
+  refuseMission(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.orders.refuseMission(id, user.id); }
+
+  @Patch('courier/missions/:id/workflow')
+  @RequirePermission(Permission.DeliveryUpdate)
+  workflow(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body('status') status: string) { return this.orders.updateCourierWorkflow(id, user.id, status); }
+
+  @Post('courier/missions/:id/complete')
+  @RequirePermission(Permission.DeliveryProof)
+  complete(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: { otp: string; photoUrl?: string }) { return this.orders.completeDelivery(id, user.id, body.otp, body.photoUrl); }
 }

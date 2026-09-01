@@ -33,38 +33,25 @@ export class UsersService {
     for (const field of ['locale', 'theme', 'pushEnabled'] as const) {
       if (dto[field] !== undefined) update[`preferences.${field}`] = dto[field];
     }
+    if (dto.notificationCategories !== undefined) {
+      for (const [category, enabled] of Object.entries(dto.notificationCategories)) {
+        if (['orders', 'promotions', 'social', 'messages', 'delivery'].includes(category)) {
+          update[`preferences.pushCategories.${category}`] = enabled;
+        }
+        for (const [field, value] of Object.entries({
+          available: dto.courierAvailable,
+          identityVerified: dto.identityVerified,
+          vehicle: dto.vehicle,
+          documents: dto.documents,
+        })) {
+          if (value !== undefined) update[`courierProfile.${field}`] = value;
+        }
+      }
+    }
 
     const user = await this.users.findByIdAndUpdate(id, { $set: update }, { new: true });
     if (!user) throw AppError.notFound('Utilisateur');
     return user.toJSON();
-  }
-
-  /**
-   * Désactive le compte sans supprimer les historiques métier.
-   * Les commandes gardent leurs instantanés client, prix et articles ; seules
-   * les données personnelles du compte sont anonymisées.
-   */
-  async deleteAccount(id: string): Promise<void> {
-    const user = await this.users.findById(id);
-    if (!user) throw AppError.notFound('Utilisateur');
-    if (user.status !== 'active') return;
-
-    const anonymisedPhone = `deleted-${user._id.toString()}`;
-    await this.users.updateOne(
-      { _id: user._id },
-      {
-        $set: {
-          phone: anonymisedPhone,
-          firstName: 'Compte',
-          lastName: 'supprimé',
-          status: 'suspended',
-          devices: [],
-          addresses: [],
-          sessionsInvalidBefore: new Date(),
-        },
-        $unset: { email: '', avatar: '', cover: '', bio: '' },
-      },
-    );
   }
 
   async listAddresses(id: string): Promise<unknown[]> {

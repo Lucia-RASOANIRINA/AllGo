@@ -25,7 +25,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _firstName = TextEditingController();
   final _lastName = TextEditingController();
   final _phone = TextEditingController();
-  final _email = TextEditingController();
   final _password = TextEditingController();
 
   bool _submitting = false;
@@ -37,16 +36,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     _firstName.dispose();
     _lastName.dispose();
     _phone.dispose();
-    _email.dispose();
     _password.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
-    if (_phone.text.trim().isEmpty && _email.text.trim().isEmpty) {
-      setState(() => _error = 'Renseignez un email ou un numéro de téléphone.');
-      return;
-    }
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     setState(() {
@@ -57,7 +51,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     try {
       await ref.read(sessionControllerProvider.notifier).register(
             phone: _phone.text.trim(),
-            email: _email.text.trim(),
             password: _password.text,
             firstName: _firstName.text.trim(),
             lastName: _lastName.text.trim(),
@@ -122,44 +115,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                           (value ?? '').trim().isEmpty ? 'Entrez votre nom.' : null,
                     ),
                     const SizedBox(height: AllGoTokens.space4),
-                    TextFormField(
-                      controller: _phone,
-                      keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(
-                        labelText: 'Numéro de téléphone (facultatif)',
-                        prefixIcon: Icon(Icons.phone_outlined),
-                      ),
-                      validator: (value) {
-                        final phone = (value ?? '').replaceAll(RegExp(r'\s'), '');
-                        if (phone.isEmpty) return null;
-                        return malagasyPhone.hasMatch(phone)
-                            ? null
-                            : 'Entrez un numéro malgache valide.';
-                      },
-                    ),
-                    const SizedBox(height: AllGoTokens.space4),
-                    TextFormField(
-                      controller: _email,
-                      keyboardType: TextInputType.emailAddress,
-                      autofillHints: const <String>[AutofillHints.email],
-                      decoration: const InputDecoration(
-                        labelText: 'Email (facultatif)',
-                        prefixIcon: Icon(Icons.email_outlined),
-                      ),
-                      validator: (value) {
-                        final email = (value ?? '').trim();
-                        if (email.isEmpty) return null;
-                        return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)
-                            ? null
-                            : 'Entrez une adresse email valide.';
-                      },
-                    ),
-                    Text(
-                      'Renseignez un email ou un numéro de téléphone.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
+                    PhoneField(controller: _phone),
                     const SizedBox(height: AllGoTokens.space4),
                     TextFormField(
                       controller: _password,

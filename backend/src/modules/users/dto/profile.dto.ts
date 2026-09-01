@@ -36,6 +36,18 @@ export class UpdateProfileDto {
   theme?: 'light' | 'dark' | 'system';
 
   @ApiPropertyOptional() @IsOptional() @IsBoolean() pushEnabled?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Préférences par catégorie de notifications.',
+    example: { orders: true, promotions: false, social: true, messages: true, delivery: true },
+  })
+  @IsOptional()
+  @ValidateNested()
+  notificationCategories?: Record<string, boolean>;
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() courierAvailable?: boolean;
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() identityVerified?: boolean;
+  @ApiPropertyOptional() @IsOptional() @IsString() vehicle?: string;
+  @ApiPropertyOptional({ type: [String] }) @IsOptional() documents?: string[];
 }
 
 export class CreateAddressDto {

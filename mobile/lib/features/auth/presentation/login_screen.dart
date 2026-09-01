@@ -5,6 +5,8 @@ import 'package:allgo/features/auth/presentation/session_controller.dart';
 import 'package:allgo/shared/widgets/allgo_logo.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -52,7 +54,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       // réinvente pas « Numéro ou mot de passe incorrect ».
       final failure = error.error;
       setState(() {
-        _error = failure is Failure ? failure.displayMessage : 'Connexion impossible. Réessayez.';
+        _error = failure is Failure
+            ? failure.displayMessage
+            : 'Connexion impossible. Réessayez.';
       });
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -64,13 +68,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          onPressed: () => context.canPop() ? context.pop() : context.go(Routes.home),
-          icon: const Icon(Icons.arrow_back),
-          tooltip: 'Retour',
-        ),
-      ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -95,21 +92,36 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                     TextFormField(
                       controller: _phone,
-                      keyboardType: TextInputType.emailAddress,
-                      autofillHints: const <String>[AutofillHints.username],
-                      decoration: const InputDecoration(
-                        labelText: 'Téléphone ou email',
-                        hintText: '034 12 345 67 ou vous@exemple.com',
-                        prefixIcon: Icon(Icons.person_outline),
+                      keyboardType: TextInputType.phone,
+                      autofillHints: const <String>[
+                        AutofillHints.telephoneNumber
+                      ],
+                      inputFormatters: <TextInputFormatter>[
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9+\s]')),
+                      ],
+                      decoration: InputDecoration(
+                        labelText: 'Numéro de téléphone',
+                        hintText: '034 12 345 67',
+                        prefixIcon: Icon(Icons.phone_outlined),
+                        suffixIcon: _phone.text.isEmpty
+                            ? null
+                            : IconButton(
+                                onPressed: () {
+                                  _phone.clear();
+                                  setState(() {});
+                                },
+                                icon: const Icon(Icons.clear),
+                                tooltip: 'Effacer',
+                              ),
                       ),
                       validator: (value) {
-                        final identifier = (value ?? '').trim();
-                        final phone = identifier.replaceAll(RegExp(r'\s'), '');
-                        final valid = RegExp(r'^(\+261|0)[23]\d{8}$').hasMatch(phone) ||
-                            RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(identifier);
-                        return valid
+                        final digits =
+                            (value ?? '').replaceAll(RegExp(r'\s'), '');
+                        // Le numéro est l'identifiant principal : plus fiable
+                        // qu'une adresse email dans ce contexte (§12.2).
+                        return RegExp(r'^(\+261|0)[23]\d{8}$').hasMatch(digits)
                             ? null
-                            : 'Entrez un téléphone ou un email valide.';
+                            : 'Entrez un numéro malgache valide.';
                       },
                     ),
                     const SizedBox(height: AllGoTokens.space4),
@@ -123,12 +135,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         prefixIcon: const Icon(Icons.lock_outline),
                         suffixIcon: IconButton(
                           onPressed: () => setState(() => _obscure = !_obscure),
-                          icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                          icon: Icon(_obscure
+                              ? Icons.visibility_off
+                              : Icons.visibility),
                           tooltip: _obscure ? 'Afficher' : 'Masquer',
                         ),
                       ),
-                      validator: (value) =>
-                          (value ?? '').isEmpty ? 'Entrez votre mot de passe.' : null,
+                      validator: (value) => (value ?? '').isEmpty
+                          ? 'Entrez votre mot de passe.'
+                          : null,
                       onFieldSubmitted: (_) => _submit(),
                     ),
 
@@ -138,7 +153,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         padding: const EdgeInsets.all(AllGoTokens.space3),
                         decoration: BoxDecoration(
                           color: theme.colorScheme.errorContainer,
-                          borderRadius: BorderRadius.circular(AllGoTokens.radiusField),
+                          borderRadius:
+                              BorderRadius.circular(AllGoTokens.radiusField),
                         ),
                         child: Row(
                           children: <Widget>[
@@ -151,7 +167,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             Expanded(
                               child: Text(
                                 _error!,
-                                style: TextStyle(color: theme.colorScheme.onErrorContainer),
+                                style: TextStyle(
+                                    color: theme.colorScheme.onErrorContainer),
                               ),
                             ),
                           ],
@@ -170,6 +187,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             )
                           : const Text('Se connecter'),
                     ),
+                    if (kDebugMode)
+                      TextButton(
+                        onPressed: _submitting
+                            ? null
+                            : () => setState(() {
+                                  _phone.text = '+261340000001';
+                                  _password.text = 'MotDePasse2026';
+                                }),
+                        child: const Text(
+                            'Préremplir le compte commerçant de test'),
+                      ),
 
                     const SizedBox(height: AllGoTokens.space3),
                     // Connexion par SMS : adaptée à une population où le numéro
@@ -192,11 +220,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: <Widget>[
                         TextButton(
-                          onPressed: _submitting ? null : () => context.push(Routes.forgotPassword),
+                          onPressed: _submitting
+                              ? null
+                              : () => context.push(Routes.forgotPassword),
                           child: const Text('Mot de passe oublié ?'),
                         ),
                         TextButton(
-                          onPressed: _submitting ? null : () => context.push(Routes.register),
+                          onPressed: _submitting
+                              ? null
+                              : () => context.push(Routes.register),
                           child: const Text('Créer un compte'),
                         ),
                       ],

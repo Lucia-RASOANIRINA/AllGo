@@ -1,25 +1,31 @@
 import 'package:allgo/features/account/presentation/account_screen.dart';
-import 'package:allgo/features/account/presentation/addresses_screen.dart';
-import 'package:allgo/features/account/presentation/profile_screen.dart';
 import 'package:allgo/features/auth/presentation/forgot_password_screen.dart';
 import 'package:allgo/features/auth/presentation/login_screen.dart';
 import 'package:allgo/features/auth/presentation/otp_screen.dart';
 import 'package:allgo/features/auth/presentation/register_screen.dart';
 import 'package:allgo/features/auth/presentation/session_controller.dart';
-import 'package:allgo/features/auth/presentation/token_action_screen.dart';
 import 'package:allgo/features/cart/presentation/cart_screen.dart';
 import 'package:allgo/features/cart/presentation/checkout_screen.dart';
 import 'package:allgo/features/catalog/presentation/explore_screen.dart';
 import 'package:allgo/features/catalog/presentation/product_detail_screen.dart';
+import 'package:allgo/features/merchant/presentation/merchant_products_screen.dart';
+import 'package:allgo/features/merchant/presentation/merchant_orders_screen.dart';
+import 'package:allgo/features/merchant/presentation/merchant_promotions_screen.dart';
+import 'package:allgo/features/merchant/presentation/merchant_team_screen.dart';
+import 'package:allgo/features/delivery/presentation/delivery_screen.dart';
+import 'package:allgo/features/delivery/presentation/courier_dashboard_screen.dart';
 import 'package:allgo/features/favorites/presentation/favorites_screen.dart';
 import 'package:allgo/features/geo/presentation/map_screen.dart';
 import 'package:allgo/features/home/presentation/home_screen.dart';
 import 'package:allgo/features/home/presentation/shell_scaffold.dart';
-import 'package:allgo/features/messaging/presentation/chat_screen.dart';
-import 'package:allgo/features/messaging/presentation/messages_list_screen.dart';
+import 'package:allgo/features/messaging/presentation/messages_screen.dart';
+import 'package:allgo/features/merchant/presentation/merchant_dashboard_screen.dart';
+import 'package:allgo/features/notifications/presentation/notifications_screen.dart';
 import 'package:allgo/features/orders/presentation/order_detail_screen.dart';
 import 'package:allgo/features/orders/presentation/orders_screen.dart';
 import 'package:allgo/features/shops/presentation/shop_screen.dart';
+import 'package:allgo/features/social/presentation/social_feed_screen.dart';
+import 'package:allgo/features/stories/presentation/stories_screen.dart';
 import 'package:allgo/shared/widgets/coming_soon_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -52,24 +58,27 @@ abstract final class Routes {
   static const String orderDetail = '/commandes/:id';
   static const String map = '/carte';
   static const String checkout = '/panier/livraison';
-  static const String publish = '/publier';
-  static const String messages = '/messages';
-  static const String messageDetail = '/messages/:conversationId';
-  static const String privacy = '/confidentialite';
   static const String favorites = '/compte/favoris';
+  static const String publish = '/publier';
+  static const String stories = '/stories';
+  static const String messages = '/messages';
+  static const String notifications = '/notifications';
+  static const String privacy = '/confidentialite';
 
   // --- Onglets commerçant (lot L5) ---
   static const String dashboard = '/bord';
   static const String shopOrders = '/bord/commandes';
   static const String shopProducts = '/bord/produits';
+  static const String shopPromotions = '/bord/promotions';
+  static const String shopTeam = '/bord/equipe';
 
   // --- Onglets livreur (lot L6) ---
   static const String round = '/tournee';
+  static const String courier = '/livreur';
 
   static String productPath(String id) => '/produit/$id';
   static String orderPath(String id) => '/commandes/$id';
   static String shopPath(String slug) => '/boutique/$slug';
-  static String messagePath(String conversationId) => '/messages/$conversationId';
 
   /// Tous les chemins déclarés — vérifiés un à un par `router_test.dart`.
   ///
@@ -93,15 +102,19 @@ abstract final class Routes {
     orderDetail,
     map,
     checkout,
-    publish,
-    messages,
-    messageDetail,
-    privacy,
     favorites,
+    publish,
+    stories,
+    messages,
+    notifications,
+    privacy,
     dashboard,
     shopOrders,
     shopProducts,
+    shopPromotions,
+    shopTeam,
     round,
+    courier,
   ];
 }
 
@@ -114,7 +127,11 @@ const _protectedPrefixes = <String>[
   Routes.cart,
   Routes.orders,
   Routes.account,
+  Routes.favorites,
+  Routes.publish,
+  Routes.stories,
   Routes.messages,
+  Routes.notifications,
   Routes.dashboard,
   Routes.round,
 ];
@@ -133,7 +150,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       // défaut le plus visible d'une garde mal ordonnée.
       if (session.isRestoring) return null;
 
-      final needsAuth = _protectedPrefixes.any(state.matchedLocation.startsWith);
+      final needsAuth =
+          _protectedPrefixes.any(state.matchedLocation.startsWith);
       if (needsAuth && !session.isAuthenticated) {
         return '${Routes.login}?redirect=${Uri.encodeComponent(state.matchedLocation)}';
       }
@@ -145,28 +163,20 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: <RouteBase>[
       GoRoute(
         path: Routes.login,
-        builder: (context, state) => LoginScreen(redirectTo: state.uri.queryParameters['redirect']),
+        builder: (context, state) =>
+            LoginScreen(redirectTo: state.uri.queryParameters['redirect']),
       ),
-      GoRoute(path: Routes.register, builder: (context, state) => const RegisterScreen()),
+      GoRoute(
+          path: Routes.register,
+          builder: (context, state) => const RegisterScreen()),
       GoRoute(
         path: Routes.otp,
-        builder: (context, state) => OtpScreen(redirectTo: state.uri.queryParameters['redirect']),
+        builder: (context, state) =>
+            OtpScreen(redirectTo: state.uri.queryParameters['redirect']),
       ),
       GoRoute(
         path: Routes.forgotPassword,
         builder: (context, state) => const ForgotPasswordScreen(),
-      ),
-      GoRoute(
-        path: '/verification-email',
-        builder: (context, state) => EmailVerificationScreen(
-          token: state.uri.queryParameters['token'] ?? '',
-        ),
-      ),
-      GoRoute(
-        path: '/reinitialisation-mot-de-passe',
-        builder: (context, state) => ResetPasswordScreen(
-          token: state.uri.queryParameters['token'] ?? '',
-        ),
       ),
 
       // --- Écrans empilés, hors coquille : ils occupent tout l'écran et
@@ -174,13 +184,13 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: Routes.product,
         parentNavigatorKey: rootKey,
-        builder: (context, state) => ProductDetailScreen(productId: state.pathParameters['id']!),
+        builder: (context, state) =>
+            ProductDetailScreen(productId: state.pathParameters['id']!),
       ),
       GoRoute(
         path: Routes.map,
         parentNavigatorKey: rootKey,
-        builder: (context, state) =>
-            MapScreen(focus: state.extra as ({double latitude, double longitude})?),
+        builder: (context, state) => const MapScreen(),
       ),
       GoRoute(
         path: Routes.checkout,
@@ -188,31 +198,35 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const CheckoutScreen(),
       ),
       GoRoute(
+        path: Routes.favorites,
+        parentNavigatorKey: rootKey,
+        builder: (context, state) => const FavoritesScreen(),
+      ),
+      GoRoute(
         path: Routes.shop,
         parentNavigatorKey: rootKey,
-        builder: (context, state) => ShopScreen(slug: state.pathParameters['slug']!),
+        builder: (context, state) =>
+            ShopScreen(slug: state.pathParameters['slug']!),
       ),
       GoRoute(
         path: Routes.publish,
         parentNavigatorKey: rootKey,
-        builder: (context, state) => const ComingSoonScreen(
-          title: 'Publier',
-          lot: 'L3 — Social',
-          detail: 'Publication depuis l’appareil photo, avec compression avant envoi.',
-        ),
+        builder: (context, state) => const SocialFeedScreen(),
+      ),
+      GoRoute(
+        path: Routes.stories,
+        parentNavigatorKey: rootKey,
+        builder: (context, state) => const StoriesScreen(),
       ),
       GoRoute(
         path: Routes.messages,
         parentNavigatorKey: rootKey,
-        builder: (context, state) => const MessagesListScreen(),
+        builder: (context, state) => const MessagesScreen(),
       ),
       GoRoute(
-        path: Routes.messageDetail,
+        path: Routes.notifications,
         parentNavigatorKey: rootKey,
-        builder: (context, state) => ChatScreen(
-          conversationId: state.pathParameters['conversationId']!,
-          title: state.extra as String?,
-        ),
+        builder: (context, state) => const NotificationsScreen(),
       ),
       GoRoute(
         path: Routes.privacy,
@@ -231,7 +245,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state, child) => ShellScaffold(child: child),
         routes: <RouteBase>[
           GoRoute(path: Routes.home, builder: (_, __) => const HomeScreen()),
-          GoRoute(path: Routes.explore, builder: (_, __) => const ExploreScreen()),
+          GoRoute(
+              path: Routes.explore, builder: (_, __) => const ExploreScreen()),
           GoRoute(path: Routes.cart, builder: (_, __) => const CartScreen()),
           GoRoute(
             path: Routes.orders,
@@ -239,58 +254,46 @@ final routerProvider = Provider<GoRouter>((ref) {
             routes: <RouteBase>[
               GoRoute(
                 path: ':id',
+                parentNavigatorKey: rootKey,
                 builder: (context, state) => OrderDetailScreen(
                   orderId: state.pathParameters['id']!,
                 ),
               ),
             ],
           ),
-          GoRoute(path: Routes.account, builder: (_, __) => const AccountScreen()),
           GoRoute(
-            path: '/compte/profil',
-            builder: (_, __) => const ProfileScreen(),
-          ),
-          GoRoute(
-            path: '/compte/adresses',
-            builder: (_, __) => const AddressesScreen(),
-          ),
-          GoRoute(
-            path: Routes.favorites,
-            builder: (_, __) => const FavoritesScreen(),
-          ),
+              path: Routes.account, builder: (_, __) => const AccountScreen()),
 
           // Onglets commerçant — lot L5.
           GoRoute(
             path: Routes.dashboard,
-            builder: (_, __) => const ComingSoonScreen(
-              title: 'Tableau de bord',
-              lot: 'L5 — Commerçant',
-            ),
+            builder: (_, __) => const MerchantDashboardScreen(),
           ),
           GoRoute(
             path: Routes.shopOrders,
-            builder: (_, __) => const ComingSoonScreen(
-              title: 'Commandes à traiter',
-              lot: 'L5 — Commerçant',
-            ),
+            builder: (_, __) => const MerchantOrdersScreen(),
           ),
           GoRoute(
             path: Routes.shopProducts,
-            builder: (_, __) => const ComingSoonScreen(
-              title: 'Produits et stock',
-              lot: 'L5 — Commerçant',
-              detail: 'Mouvements de stock avec scan de code-barres, alertes de seuil.',
-            ),
+            builder: (_, __) => const MerchantProductsScreen(),
+          ),
+          GoRoute(
+            path: Routes.shopPromotions,
+            builder: (_, __) => const MerchantPromotionsScreen(),
+          ),
+          GoRoute(
+            path: Routes.shopTeam,
+            builder: (_, __) => const MerchantTeamScreen(),
           ),
 
           // Onglet livreur — lot L6.
           GoRoute(
             path: Routes.round,
-            builder: (_, __) => const ComingSoonScreen(
-              title: 'Tournée du jour',
-              lot: 'L6 — Livreur',
-              detail: 'Navigation GPS, suivi en direct, preuve de livraison photo.',
-            ),
+            builder: (_, __) => const CourierDashboardScreen(),
+          ),
+          GoRoute(
+            path: Routes.courier,
+            builder: (_, __) => const CourierDashboardScreen(),
           ),
         ],
       ),
@@ -305,7 +308,8 @@ final routerProvider = Provider<GoRouter>((ref) {
             children: <Widget>[
               const Icon(Icons.explore_off_outlined, size: 56),
               const SizedBox(height: 16),
-              Text('Page introuvable : ${state.uri}', textAlign: TextAlign.center),
+              Text('Page introuvable : ${state.uri}',
+                  textAlign: TextAlign.center),
               const SizedBox(height: 24),
               FilledButton(
                 onPressed: () => context.go(Routes.home),

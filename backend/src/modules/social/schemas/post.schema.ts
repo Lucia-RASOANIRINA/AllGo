@@ -52,6 +52,9 @@ export class Post extends Document {
   @Prop({ type: [MediaSchema], default: [] }) media!: Media[];
 
   @Prop({ type: Types.ObjectId, ref: 'Product' }) productId?: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'Promotion' }) promotionId?: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'Shop' }) shopId?: Types.ObjectId;
+  @Prop({ type: Date }) scheduledAt?: Date;
   @Prop({ type: Object }) product?: { name: string; price: unknown; image?: string };
 
   @Prop({ type: RequestDetailSchema }) request?: RequestDetail;

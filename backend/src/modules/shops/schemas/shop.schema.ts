@@ -59,15 +59,10 @@ export class Shop extends Document {
   @Prop({ type: GeoPointSchema }) location?: GeoPoint;
 
   @Prop({ default: 5 }) deliveryRadiusKm!: number;
-
-  /**
-   * Modes de remise proposés. `delivery: true` par défaut : c'était déjà le
-   * seul mode possible avant l'ajout de ce champ (`deliveryRadiusKm` existait
-   * sans alternative) — les boutiques déjà en base restent donc correctement
-   * classées « livraison » sans migration.
-   */
-  @Prop({ type: Object, default: { delivery: true, pickup: false } })
-  fulfillment!: { delivery: boolean; pickup: boolean };
+  @Prop({ default: true }) deliveryAvailable!: boolean;
+  @Prop({ default: true }) pickupAvailable!: boolean;
+  @Prop({ default: 0 }) deliveryFee!: number;
+  @Prop({ type: [Number], default: [] }) closedDays!: number[];
 
   @Prop({ type: [OpeningHoursSchema], default: [] }) openingHours!: OpeningHours[];
   @Prop({ type: [TeamMemberSchema], default: [] }) team!: TeamMember[];

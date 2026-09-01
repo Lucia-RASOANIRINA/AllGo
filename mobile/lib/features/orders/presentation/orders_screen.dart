@@ -14,31 +14,20 @@ import 'package:intl/intl.dart';
 
 /// Statuts de commande — §6.2. `preparing` n'existe pas dans le web.
 enum OrderStatus {
-  pending('pending', 'En attente', Icons.schedule),
-  confirmed('confirmed', 'Confirmée', Icons.check_circle_outline),
-  preparing('preparing', 'En préparation', Icons.inventory_2_outlined),
+  pending('En attente', Icons.schedule),
+  confirmed('Confirmée', Icons.check_circle_outline),
+  preparing('En préparation', Icons.inventory_2_outlined),
+  shipped('En cours de livraison', Icons.local_shipping_outlined),
+  delivered('Livrée', Icons.done_all),
+  cancelled('Annulée', Icons.cancel_outlined);
 
-  /// Prête — pour livraison (en attente d'un livreur) ou pour retrait en boutique.
-  ready('ready', 'Prête', Icons.inventory_outlined),
+  const OrderStatus(this.label, this.icon);
 
-  /// N'existe que sur la branche livraison ; la branche retrait passe
-  /// directement de `ready` à `delivered` (§ décisions de portée).
-  courierAssigned('courier_assigned', 'Livreur affecté', Icons.delivery_dining_outlined),
-  shipped('shipped', 'En cours de livraison', Icons.local_shipping_outlined),
-  delivered('delivered', 'Livrée', Icons.done_all),
-  cancelled('cancelled', 'Annulée', Icons.cancel_outlined);
-
-  const OrderStatus(this.wireValue, this.label, this.icon);
-
-  /// Valeur transmise par l'API — distincte de `.name` pour `courierAssigned`,
-  /// dont l'identifiant Dart (lowerCamelCase) diffère du `courier_assigned`
-  /// (snake_case) renvoyé par le serveur.
-  final String wireValue;
   final String label;
   final IconData icon;
 
   static OrderStatus parse(String? raw) =>
-      OrderStatus.values.firstWhere((s) => s.wireValue == raw, orElse: () => OrderStatus.pending);
+      OrderStatus.values.firstWhere((s) => s.name == raw, orElse: () => OrderStatus.pending);
 }
 
 class OrderSummary {
@@ -105,7 +94,7 @@ CachedOrdersCompanion _toCachedOrder(OrderSummary order) => CachedOrdersCompanio
       orderNumber: order.orderNumber,
       shopName: order.shopName,
       total: order.total,
-      status: order.status.wireValue,
+      status: order.status.name,
       createdAt: order.createdAt,
       itemCount: order.itemCount,
       cachedAt: DateTime.now(),

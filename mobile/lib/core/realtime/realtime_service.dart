@@ -1,0 +1,44 @@
+import 'package:allgo/core/env/environment.dart';
+import 'package:allgo/core/storage/token_store.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:socket_io_client/socket_io_client.dart' as io;
+
+final realtimeServiceProvider = Provider<RealtimeService>((ref) {
+  final service = RealtimeService(ref.read(tokenStoreProvider));
+  ref.onDispose(service.dispose);
+  return service;
+});
+
+class RealtimeService {
+  RealtimeService(this._tokens);
+
+  final TokenStore _tokens;
+  io.Socket? _socket;
+
+  Future<void> connect({
+    required void Function(String event, dynamic payload) onEvent,
+  }) async {
+    final token = await _tokens.readAccessToken();
+    if (token == null || token.isEmpty) return;
+
+    final socket = io.io(
+      Environment.socketUrl,
+      <String, dynamic>{
+        'transports': <String>['websocket', 'polling'],
+        'autoConnect': false,
+        'auth': <String, dynamic>{'token': token},
+        'reconnection': true,
+        'reconnectionAttempts': 5,
+      },
+    );
+    _socket?.dispose();
+    _socket = socket;
+    socket.onAny(onEvent);
+    socket.connect();
+  }
+
+  void dispose() {
+    _socket?.dispose();
+    _socket = null;
+  }
+}

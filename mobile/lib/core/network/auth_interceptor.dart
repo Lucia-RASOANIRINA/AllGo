@@ -14,20 +14,6 @@ class AuthInterceptor extends QueuedInterceptor {
   final TokenStore _tokens;
   final Dio _dio;
 
-  /// Client nu, sans intercepteur, pour le rafraîchissement et la reprise.
-  ///
-  /// `QueuedInterceptor` ne traite qu'**une** tâche `onResponse` à la fois
-  /// (§ Dio) : émettre l'appel de rafraîchissement ou la reprise via `_dio`
-  /// — qui porte cet intercepteur — ferait passer leur propre réponse par
-  /// cette même file, encore occupée par la tâche en cours puisqu'elle
-  /// attend justement leur résultat. Verrou mort garanti, silencieux — toute
-  /// requête suivante de l'application resterait bloquée indéfiniment dès le
-  /// premier jeton expiré (§12.2, jeton d'accès de 15 minutes). Un client nu
-  /// évite la ré-entrance ; la perte de la reprise automatique par
-  /// `RetryInterceptor` sur ces deux appels précis est un compromis mineur
-  /// face à un blocage total de l'application.
-  late final Dio _bare = Dio(_dio.options);
-
   /// Une seule tentative de rafraîchissement à la fois. Sans ce verrou, cinq
   /// requêtes recevant 401 simultanément déclencheraient cinq rotations
   /// concurrentes — et la rotation invaliderait les quatre autres, provoquant
@@ -72,7 +58,7 @@ class AuthInterceptor extends QueuedInterceptor {
       ..extra['retried'] = true;
 
     try {
-      handler.resolve(await _bare.fetch<dynamic>(options));
+      handler.resolve(await _dio.fetch<dynamic>(options));
     } on DioException catch (error) {
       handler.reject(error);
     }
@@ -83,9 +69,10 @@ class AuthInterceptor extends QueuedInterceptor {
     if (refreshToken == null) return null;
 
     try {
-      final response = await _bare.post<Map<String, dynamic>>(
+      final response = await _dio.post<Map<String, dynamic>>(
         '/auth/refresh',
         data: <String, String>{'refreshToken': refreshToken},
+        options: Options(extra: <String, bool>{'skipAuth': true}),
       );
 
       final data = response.data?['data'] as Map<String, dynamic>?;

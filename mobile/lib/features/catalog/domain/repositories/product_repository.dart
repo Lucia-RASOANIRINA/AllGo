@@ -1,8 +1,5 @@
 import 'package:allgo/features/catalog/domain/entities/product.dart';
 
-/// Tri du catalogue — reflète `sort=new|popular` côté API.
-enum ProductSort { newest, popular }
-
 /// Filtres de catalogue.
 class ProductFilter {
   const ProductFilter({
@@ -12,9 +9,6 @@ class ProductFilter {
     this.minPrice,
     this.maxPrice,
     this.inStockOnly = false,
-    this.sort = ProductSort.newest,
-    this.onSale = false,
-    this.minRating,
   });
 
   final String? query;
@@ -23,9 +17,6 @@ class ProductFilter {
   final int? minPrice;
   final int? maxPrice;
   final bool inStockOnly;
-  final ProductSort sort;
-  final bool onSale;
-  final double? minRating;
 
   /// Copie partielle. Les champs omis sont conservés ; pour **retirer** un
   /// filtre, utiliser `clearPrice` ou `clearCategory` — un `copyWith(x: null)`
@@ -37,9 +28,6 @@ class ProductFilter {
     int? minPrice,
     int? maxPrice,
     bool? inStockOnly,
-    ProductSort? sort,
-    bool? onSale,
-    double? minRating,
   }) {
     return ProductFilter(
       query: query ?? this.query,
@@ -48,9 +36,6 @@ class ProductFilter {
       minPrice: minPrice ?? this.minPrice,
       maxPrice: maxPrice ?? this.maxPrice,
       inStockOnly: inStockOnly ?? this.inStockOnly,
-      sort: sort ?? this.sort,
-      onSale: onSale ?? this.onSale,
-      minRating: minRating ?? this.minRating,
     );
   }
 
@@ -59,9 +44,6 @@ class ProductFilter {
         categoryId: categoryId,
         shopId: shopId,
         inStockOnly: inStockOnly,
-        sort: sort,
-        onSale: onSale,
-        minRating: minRating,
       );
 
   ProductFilter clearCategory() => ProductFilter(
@@ -70,9 +52,6 @@ class ProductFilter {
         minPrice: minPrice,
         maxPrice: maxPrice,
         inStockOnly: inStockOnly,
-        sort: sort,
-        onSale: onSale,
-        minRating: minRating,
       );
 
   ProductFilter clearQuery() => ProductFilter(
@@ -81,20 +60,6 @@ class ProductFilter {
         minPrice: minPrice,
         maxPrice: maxPrice,
         inStockOnly: inStockOnly,
-        sort: sort,
-        onSale: onSale,
-        minRating: minRating,
-      );
-
-  ProductFilter clearRating() => ProductFilter(
-        query: query,
-        categoryId: categoryId,
-        shopId: shopId,
-        minPrice: minPrice,
-        maxPrice: maxPrice,
-        inStockOnly: inStockOnly,
-        sort: sort,
-        onSale: onSale,
       );
 }
 
@@ -149,25 +114,4 @@ abstract interface class ProductRepository {
 
   /// Identification par scan de code-barres (§2.2).
   Future<Product> getByBarcode(String barcode, {String? shopId});
-
-  /// Liste bornée pour un carrousel d'accueil (populaire, nouveautés,
-  /// promotions, recommandations…). Réseau seul, sans cache Drift : ce sont
-  /// des sections secondaires, pas le flux hors-ligne principal. Renvoie une
-  /// liste vide plutôt qu'une erreur si le réseau est indisponible — le
-  /// carrousel se masque silencieusement.
-  Future<List<Product>> fetchRail({
-    String? categoryId,
-    ProductSort sort = ProductSort.newest,
-    bool onSale = false,
-    bool flashOnly = false,
-    double? minRating,
-    int limit = 10,
-  });
-
-  /// Produits similaires : même catégorie, plus récents (§ décisions de
-  /// portée — définition honnête, non personnalisée).
-  Future<List<Product>> similarProducts(String productId);
-
-  /// Produits recommandés : même catégorie, triés par popularité.
-  Future<List<Product>> recommendedProducts(String productId);
 }

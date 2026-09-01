@@ -1,107 +1,36 @@
-import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
-import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import {
-  IsBoolean,
-  IsIn,
-  IsInt,
-  IsMongoId,
-  IsNumber,
-  IsOptional,
-  IsString,
-  Max,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser, Public, RequirePermission } from '../../common/decorators/auth.decorators';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 import { Permission } from '../../common/rbac/permissions';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
-import { UsersService } from '../users/users.service';
 import { ShopsService } from './shops.service';
-
-export class UpsertReviewDto {
-  @ApiProperty({ minimum: 1, maximum: 5 })
-  @IsInt()
-  @Min(1)
-  @Max(5)
-  rating!: number;
-
-  @ApiPropertyOptional({ maxLength: 1000 })
-  @IsOptional()
-  @IsString()
-  @MaxLength(1000)
-  comment?: string;
-}
-
-export class ShopQueryDto extends PaginationQueryDto {
-  @ApiPropertyOptional() @IsOptional() @IsString() q?: string;
-
-  @ApiPropertyOptional({
-    enum: ['new', 'popular'],
-    default: 'new',
-    description: 'Tri : plus récentes ou plus suivies (`stats.followerCount`).',
-  })
-  @IsOptional()
-  @IsIn(['new', 'popular'])
-  sort?: 'new' | 'popular';
-
-  @ApiPropertyOptional({ description: 'Catégorie de la boutique (« type de commerce »).' })
-  @IsOptional()
-  @IsMongoId()
-  category?: string;
-
-  @ApiPropertyOptional({ description: 'Ne renvoyer que les boutiques livrant.' })
-  @IsOptional()
-  @Type(() => Boolean)
-  @IsBoolean()
-  delivery?: boolean;
-
-  @ApiPropertyOptional({ description: 'Ne renvoyer que les boutiques proposant le retrait.' })
-  @IsOptional()
-  @Type(() => Boolean)
-  @IsBoolean()
-  pickup?: boolean;
-
-  @ApiPropertyOptional({ description: 'Ne renvoyer que les boutiques ouvertes maintenant.' })
-  @IsOptional()
-  @Type(() => Boolean)
-  @IsBoolean()
-  openNow?: boolean;
-
-  @ApiPropertyOptional({ description: 'Note minimale (`stats.rating`), de 0 à 5.' })
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  @Max(5)
-  minRating?: number;
-}
+import { CreateShopDto, UpdateShopDto } from './dto/shop.dto';
+import { AddTeamMemberDto, UpdateTeamMemberDto } from './dto/team.dto';
 
 @ApiTags('Boutiques')
 @Controller()
 export class ShopsController {
-  constructor(
-    private readonly shops: ShopsService,
-    private readonly users: UsersService,
-  ) {}
+  constructor(private readonly shops: ShopsService) {}
+
+  @Post('shops')
+  @RequirePermission(Permission.ShopCreate)
+  create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateShopDto) {
+    return this.shops.create(user.id, dto);
+  }
+
+  @Patch('shop/:shopId')
+  @RequirePermission(Permission.ShopUpdate, 'shopId')
+  update(@CurrentUser() user: AuthenticatedUser, @Param('shopId') shopId: string, @Body() dto: UpdateShopDto) {
+    return this.shops.update(user.id, shopId, dto);
+  }
 
   @Public()
   @Get('shops')
   @ApiOperation({ summary: 'Lister les boutiques validées.' })
-  list(@Query() query: ShopQueryDto) {
-    return this.shops.list({
-      limit: query.limit,
-      cursor: query.cursor,
-      q: query.q,
-      sort: query.sort,
-      categoryId: query.category,
-      delivery: query.delivery,
-      pickup: query.pickup,
-      openNow: query.openNow,
-      minRating: query.minRating,
-    });
+  list(@Query() query: PaginationQueryDto, @Query('q') q?: string) {
+    return this.shops.list(query.limit, query.cursor, q);
   }
 
   @Get('me/shops')
@@ -132,42 +61,21 @@ export class ShopsController {
     return this.shops.team(shopId);
   }
 
-  @Public()
-  @Get('shops/:shopId/reviews')
-  @ApiOperation({ summary: 'Avis d’une boutique.' })
-  reviews(@Param('shopId') shopId: string, @Query() query: PaginationQueryDto) {
-    return this.shops.listReviews(shopId, query.limit, query.cursor);
+  @Post('shop/:shopId/team')
+  @RequirePermission(Permission.TeamManage, 'shopId')
+  addTeamMember(@Param('shopId') shopId: string, @Body() dto: AddTeamMemberDto) {
+    return this.shops.addTeamMember(shopId, dto);
   }
 
-  @Post('shops/:shopId/reviews')
-  @RequirePermission(Permission.ProfileUpdate)
-  @ApiOperation({
-    summary: 'Déposer ou remplacer mon avis.',
-    description: 'Un seul avis par client et par boutique : le redéposer le met à jour.',
-  })
-  async upsertReview(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('shopId') shopId: string,
-    @Body() dto: UpsertReviewDto,
-  ) {
-    const profile = (await this.users.findById(user.id)) as {
-      firstName: string;
-      lastName: string;
-      avatar?: string;
-    };
-    return this.shops.upsertReview(
-      shopId,
-      user.id,
-      { name: `${profile.firstName} ${profile.lastName}`.trim(), avatar: profile.avatar },
-      dto.rating,
-      dto.comment,
-    );
+  @Patch('shop/:shopId/team/:userId')
+  @RequirePermission(Permission.TeamManage, 'shopId')
+  updateTeamMember(@Param('shopId') shopId: string, @Param('userId') userId: string, @Body() dto: UpdateTeamMemberDto) {
+    return this.shops.updateTeamMember(shopId, userId, dto);
   }
 
-  @Delete('shops/:shopId/reviews/me')
-  @RequirePermission(Permission.ProfileUpdate)
-  @ApiOperation({ summary: 'Retirer mon avis.' })
-  removeReview(@CurrentUser() user: AuthenticatedUser, @Param('shopId') shopId: string) {
-    return this.shops.removeOwnReview(shopId, user.id);
+  @Delete('shop/:shopId/team/:userId')
+  @RequirePermission(Permission.TeamManage, 'shopId')
+  removeTeamMember(@Param('shopId') shopId: string, @Param('userId') userId: string) {
+    return this.shops.removeTeamMember(shopId, userId);
   }
 }

@@ -54,7 +54,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     // rôle prend effet à la requête suivante, et non à l'expiration du jeton.
     return {
       id: String(user._id),
-      phone: user.phone ?? '',
+      phone: user.phone,
       roles: user.roles.map((r) => ({
         role: r.role,
         ...(r.shopId ? { shopId: String(r.shopId) } : {}),

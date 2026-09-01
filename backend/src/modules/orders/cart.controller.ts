@@ -1,23 +1,11 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import {
-  IsIn,
-  IsInt,
-  IsMongoId,
-  IsOptional,
-  IsString,
-  Max,
-  MaxLength,
-  Min,
-  ValidateNested,
-} from 'class-validator';
+import { IsInt, IsMongoId, IsOptional, Max, Min } from 'class-validator';
 
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators';
 import { Permission } from '../../common/rbac/permissions';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { CartService } from './cart.service';
-import { GeoPointDto } from './dto/create-order.dto';
 
 export class AddCartItemDto {
   @ApiProperty()
@@ -42,31 +30,6 @@ export class UpdateCartItemDto {
   @Min(0)
   @Max(999)
   quantity!: number;
-}
-
-class PreviewDeliveryDto {
-  @ApiProperty({ enum: ['delivery', 'pickup'] })
-  @IsIn(['delivery', 'pickup'])
-  method!: 'delivery' | 'pickup';
-
-  @ApiPropertyOptional({ type: GeoPointDto })
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => GeoPointDto)
-  location?: GeoPointDto;
-}
-
-export class PreviewCartDto {
-  @ApiProperty({ type: PreviewDeliveryDto })
-  @ValidateNested()
-  @Type(() => PreviewDeliveryDto)
-  delivery!: PreviewDeliveryDto;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  @MaxLength(40)
-  couponCode?: string;
 }
 
 @ApiTags('Panier')
@@ -104,25 +67,5 @@ export class CartController {
   @ApiOperation({ summary: 'Retirer une ligne du panier.' })
   remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.cart.removeItem(user.id, id);
-  }
-
-  @Delete()
-  @RequirePermission(Permission.CartManage)
-  @ApiOperation({ summary: 'Vider le panier.' })
-  clear(@CurrentUser() user: AuthenticatedUser) {
-    return this.cart.clear(user.id);
-  }
-
-  @Post('preview')
-  @RequirePermission(Permission.CartManage)
-  @ApiOperation({
-    summary: 'Prévisualiser la commande : produits, frais de livraison, coupon, total.',
-    description:
-      'Lecture seule — ne crée aucune commande, ne touche aucun stock. Relit ' +
-      'prix et disponibilité actuels de chaque produit, jamais l’instantané du ' +
-      'panier. `POST /orders` reste la seule source de vérité transactionnelle.',
-  })
-  preview(@CurrentUser() user: AuthenticatedUser, @Body() dto: PreviewCartDto) {
-    return this.cart.preview(user.id, dto.delivery, dto.couponCode);
   }
 }

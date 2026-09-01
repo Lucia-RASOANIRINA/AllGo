@@ -3,10 +3,9 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 
 import { AppError } from '../../common/http/app-error';
-import type { Paginated } from '../../common/http/response.interceptor';
-import { cursorFilter, decodeCursor, encodeCursor } from '../../common/pagination/cursor';
+import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { EventsGateway, RealtimeEvent } from '../realtime/events.gateway';
-import { Shop, type ShopDocument } from '../shops/schemas/shop.schema';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   Conversation,
   type ConversationDocument,
@@ -19,122 +18,91 @@ export class MessagingService {
   constructor(
     @InjectModel(Conversation.name) private readonly conversations: Model<ConversationDocument>,
     @InjectModel(Message.name) private readonly messages: Model<MessageDocument>,
-    @InjectModel(Shop.name) private readonly shops: Model<ShopDocument>,
-    private readonly gateway: EventsGateway,
+    private readonly realtime: EventsGateway,
+    private readonly notifications: NotificationsService,
   ) {}
 
-  /**
-   * Trouve ou crée la conversation entre un client et une boutique.
-   *
-   * Une conversation par paire (client, boutique) : rouvrir la messagerie
-   * depuis la fiche boutique doit reprendre le fil existant, pas en ouvrir un
-   * nouveau à chaque fois.
-   */
-  async getOrCreateWithShop(
-    clientId: string,
-    clientName: string,
-    shopId: string,
-  ): Promise<unknown> {
-    // `participants` est `type: [Object]` (portée volontairement libre) :
-    // Mongoose ne connaît pas le sous-schéma et NE convertit PAS les valeurs
-    // de la requête en `ObjectId` sur ce chemin — comparer à des chaînes
-    // échouerait silencieusement (aucune erreur, juste aucun résultat).
-    const existing = await this.conversations
-      .findOne({
-        'participants.userId': new Types.ObjectId(clientId),
-        'participants.shopId': new Types.ObjectId(shopId),
-      })
+  list(userId: string): Promise<unknown[]> {
+    return this.conversations
+      .find({ 'participants.userId': new Types.ObjectId(userId) })
+      .sort({ updatedAt: -1 })
+      .limit(50)
       .lean();
-    if (existing) return existing;
+  }
 
-    const shop = await this.shops.findById(shopId).select('name logo ownerId').lean();
-    if (!shop) throw AppError.notFound('Boutique');
-
+  async create(user: AuthenticatedUser, participantId: string): Promise<unknown> {
+    if (participantId === user.id) throw new AppError('INVALID_PARTICIPANT', 'Une conversation nécessite un autre participant.', 400);
+    const ids = [new Types.ObjectId(user.id), new Types.ObjectId(participantId)];
+    const existing = await this.conversations.findOne({
+      'participants.userId': { $all: ids },
+      'participants': { $size: 2 },
+    });
+    if (existing) return existing.toJSON();
     const conversation = await this.conversations.create({
       participants: [
-        { userId: new Types.ObjectId(clientId), name: clientName },
-        { userId: shop.ownerId, name: shop.name, avatar: shop.logo, shopId: shop._id },
+        { userId: ids[0], name: user.phone },
+        { userId: ids[1], name: participantId },
       ],
-      unread: {},
+      unread: { [user.id]: 0, [participantId]: 0 },
     });
     return conversation.toJSON();
   }
 
-  /** Mes conversations, les plus récemment actives en premier. */
-  async listMine(userId: string): Promise<unknown[]> {
-    return this.conversations
-      .find({ 'participants.userId': new Types.ObjectId(userId) })
-      .sort({ updatedAt: -1 })
-      .lean();
-  }
-
-  async listMessages(
-    conversationId: string,
-    userId: string,
-    limit: number,
-    cursor?: string,
-  ): Promise<Paginated<unknown>> {
-    await this.assertParticipant(conversationId, userId);
-
-    const filter: Record<string, unknown> = { conversationId: new Types.ObjectId(conversationId) };
-    if (cursor) Object.assign(filter, cursorFilter('createdAt', decodeCursor(cursor)));
-
-    const docs = await this.messages
-      .find(filter)
-      .sort({ createdAt: -1, _id: -1 })
-      .limit(limit + 1)
-      .lean();
-
-    const hasMore = docs.length > limit;
-    const items = hasMore ? docs.slice(0, limit) : docs;
-    const last = items[items.length - 1];
-
-    return {
-      items,
-      hasMore,
-      nextCursor:
-        hasMore && last
-          ? encodeCursor({ value: last.createdAt.toISOString(), id: String(last._id) })
-          : null,
-    };
-  }
-
-  async sendMessage(conversationId: string, senderId: string, content: string): Promise<unknown> {
-    const conversation = await this.assertParticipant(conversationId, senderId);
-
-    const message = await this.messages.create({
-      conversationId: new Types.ObjectId(conversationId),
-      senderId: new Types.ObjectId(senderId),
-      content,
-    });
-
-    await this.conversations.updateOne(
-      { _id: conversationId },
-      { $set: { lastMessage: { content, senderId, sentAt: message.createdAt } } },
-    );
-
-    const payload = message.toJSON();
-    for (const participant of conversation.participants as Array<{
-      userId: Types.ObjectId;
-      shopId?: Types.ObjectId;
-    }>) {
-      if (String(participant.userId) === senderId) continue;
-      this.gateway.emitToUser(String(participant.userId), RealtimeEvent.MessageNew, payload);
-      if (participant.shopId) {
-        this.gateway.emitToShop(String(participant.shopId), RealtimeEvent.MessageNew, payload);
-      }
-    }
-
-    return payload;
-  }
-
-  /** Portes closes : un participant ne peut lire/écrire que ses propres conversations. */
-  private async assertParticipant(conversationId: string, userId: string) {
+  private async member(conversationId: string, userId: string): Promise<ConversationDocument> {
     const conversation = await this.conversations.findOne({
       _id: conversationId,
       'participants.userId': new Types.ObjectId(userId),
     });
     if (!conversation) throw AppError.notFound('Conversation');
     return conversation;
+  }
+
+  async listMessages(conversationId: string, userId: string, limit: number): Promise<unknown[]> {
+    await this.member(conversationId, userId);
+    return this.messages.find({ conversationId }).sort({ createdAt: 1 }).limit(limit).lean();
+  }
+
+  async send(
+    conversationId: string,
+    user: AuthenticatedUser,
+    content: string,
+    attachments: Array<{ url: string; type: string; name?: string }> = [],
+  ): Promise<unknown> {
+    const conversation = await this.member(conversationId, user.id);
+    if (!content.trim()) throw new AppError('MESSAGE_EMPTY', 'Le message ne peut pas être vide.', 400);
+    const message = await this.messages.create({
+      conversationId: new Types.ObjectId(conversationId),
+      senderId: new Types.ObjectId(user.id),
+      content: content.trim(),
+      attachments,
+      readBy: [new Types.ObjectId(user.id)],
+    });
+    conversation.lastMessage = {
+      content: content.trim(),
+      senderId: new Types.ObjectId(user.id),
+      sentAt: new Date(),
+    };
+    for (const participant of conversation.participants) {
+      const key = String(participant.userId);
+      if (key !== user.id) conversation.unread.set(key, (conversation.unread.get(key) ?? 0) + 1);
+    }
+    await conversation.save();
+    for (const participant of conversation.participants) {
+      const participantId = String(participant.userId);
+      if (participantId !== user.id) {
+        this.realtime.emitToUser(participantId, RealtimeEvent.MessageNew, {
+          conversationId,
+          message: message.toJSON(),
+        });
+        await this.notifications.create({
+          userId: participantId,
+          type: 'message.received',
+          title: `Nouveau message de ${user.phone}`,
+          body: content.trim(),
+          data: { screen: 'conversation', conversationId },
+        });
+      }
+    }
+    return message.toJSON();
   }
 }

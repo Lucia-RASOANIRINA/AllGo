@@ -15,7 +15,6 @@ import {
   ResetPasswordDto,
   SendOtpDto,
   VerifyOtpDto,
-  VerifyEmailDto,
 } from './dto/auth.dto';
 
 /** Limitation renforcée sur l'authentification : 10 req/min (§7.1). */
@@ -91,15 +90,6 @@ export class AuthController {
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     await this.auth.forgotPassword(dto.phone);
     return { message: 'Si un compte existe, un SMS de réinitialisation a été envoyé.' };
-  }
-
-  @Public()
-  @Post('email/verify')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Vérifier une adresse email avec le lien reçu.' })
-  async verifyEmail(@Body() dto: VerifyEmailDto) {
-    await this.auth.verifyEmail(dto.token);
-    return { message: 'Adresse email vérifiée.' };
   }
 
   @Public()

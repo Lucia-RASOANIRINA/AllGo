@@ -28,6 +28,8 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { HealthModule } from './modules/health/health.module';
+import { ReviewsModule } from './modules/reviews/reviews.module';
+import { CampaignsModule } from './modules/campaigns/campaigns.module';
 
 @Module({
   imports: [
@@ -92,6 +94,8 @@ import { HealthModule } from './modules/health/health.module';
     SyncModule,
     RealtimeModule,
     HealthModule,
+    ReviewsModule,
+    CampaignsModule,
   ],
   providers: [
     // Ordre significatif : authentification, puis permissions, puis débit.

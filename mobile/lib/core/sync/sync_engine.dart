@@ -112,12 +112,9 @@ class SyncEngine {
     }
 
     try {
-      final payload = jsonDecode(row.payload) as Map<String, dynamic>;
-      final path = route.path.replaceFirst(':id', payload['lineId']?.toString() ?? '');
-      final requestData = Map<String, dynamic>.from(payload)..remove('lineId');
       await _dio.request<dynamic>(
-        path,
-        data: requestData,
+        route.path,
+        data: jsonDecode(row.payload),
         options: Options(
           method: route.method,
           // La clé stable est ce qui rend la reprise sûre : le serveur
@@ -173,8 +170,6 @@ class SyncEngine {
     return switch (PendingActionType.values.where((t) => t.name == type).firstOrNull) {
       // --- Servi depuis le lot L0 ---
       PendingActionType.addToCart => (method: 'POST', path: '/cart/items'),
-      PendingActionType.updateCartItem => (method: 'PATCH', path: '/cart/items/:id'),
-      PendingActionType.removeCartItem => (method: 'DELETE', path: '/cart/items/:id'),
       PendingActionType.createOrder => (method: 'POST', path: '/orders'),
       PendingActionType.updateProfile => (method: 'PATCH', path: '/me'),
 

@@ -2,7 +2,6 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiPropertyOptional, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  IsBoolean,
   IsLatitude,
   IsLongitude,
   IsMongoId,
@@ -49,24 +48,7 @@ export class NearbyShopsQueryDto {
   @Min(1)
   @Max(100)
   limit = 50;
-
-  @ApiPropertyOptional({ description: 'Ne renvoyer que les boutiques ouvertes maintenant.' })
-  @IsOptional()
-  @Type(() => Boolean)
-  @IsBoolean()
-  openNow?: boolean;
-
-  @ApiPropertyOptional({
-    description:
-      'Ne renvoyer que les boutiques fermées maintenant. Ignoré si `openNow` est aussi vrai.',
-  })
-  @IsOptional()
-  @Type(() => Boolean)
-  @IsBoolean()
-  closedNow?: boolean;
 }
-
-export class NearbyProductsQueryDto extends NearbyShopsQueryDto {}
 
 @ApiTags('Géolocalisation')
 @Controller('geo')
@@ -83,26 +65,6 @@ export class GeoController {
   })
   nearby(@Query() query: NearbyShopsQueryDto) {
     return this.geo.nearbyShops({
-      lat: query.lat,
-      lng: query.lng,
-      radiusKm: query.radius,
-      categoryId: query.category,
-      openNow: query.openNow,
-      closedNow: query.closedNow,
-      limit: query.limit,
-    });
-  }
-
-  @Public()
-  @Get('products')
-  @ApiOperation({
-    summary: 'Produits à proximité, triés par distance croissante.',
-    description:
-      'Même principe que `/geo/shops`, sur la position dénormalisée de chaque ' +
-      'produit : pas de jointure sur la boutique.',
-  })
-  nearbyProducts(@Query() query: NearbyProductsQueryDto) {
-    return this.geo.nearbyProducts({
       lat: query.lat,
       lng: query.lng,
       radiusKm: query.radius,

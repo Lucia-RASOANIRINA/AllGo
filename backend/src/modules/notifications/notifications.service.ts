@@ -9,6 +9,8 @@ import {
   type NotificationDocument,
   type NotificationType,
 } from './schemas/notification.schema';
+import { User, type UserDocument } from '../users/schemas/user.schema';
+import { EventsGateway, RealtimeEvent } from '../realtime/events.gateway';
 
 /** Types dont la livraison prime sur le respect des heures calmes (§10.2). */
 const CRITICAL_TYPES: ReadonlySet<NotificationType> = new Set([
@@ -21,7 +23,36 @@ const CRITICAL_TYPES: ReadonlySet<NotificationType> = new Set([
 export class NotificationsService {
   constructor(
     @InjectModel(Notification.name) private readonly notifications: Model<NotificationDocument>,
+    @InjectModel(User.name) private readonly users: Model<UserDocument>,
+    private readonly realtime: EventsGateway,
   ) {}
+
+  async create(input: {
+    userId: string;
+    type: NotificationType;
+    title: string;
+    body: string;
+    data?: Record<string, unknown>;
+  }): Promise<unknown> {
+    const notification = await this.notifications.create({
+      userId: new Types.ObjectId(input.userId),
+      type: input.type,
+      title: input.title,
+      body: input.body,
+      data: input.data ?? {},
+    });
+    const payload = notification.toJSON();
+    const user = await this.users.findById(input.userId).select('preferences').lean();
+    const category = NotificationsService.categoryFor(input.type);
+    const categories = user?.preferences?.pushCategories as Map<string, boolean> | undefined;
+    const enabled = !categories || categories.get(category) !== false;
+    if (enabled &&
+        user?.preferences?.pushEnabled !== false &&
+        NotificationsService.isDeliverableNow(input.type, new Date().getHours())) {
+      this.realtime.emitToUser(input.userId, RealtimeEvent.NotificationNew, payload);
+    }
+    return payload;
+  }
 
   async list(userId: string, limit: number, cursor?: string): Promise<Paginated<unknown>> {
     const filter: Record<string, unknown> = { userId: new Types.ObjectId(userId) };
@@ -65,5 +96,15 @@ export class NotificationsService {
   static isDeliverableNow(type: NotificationType, localHour: number): boolean {
     if (CRITICAL_TYPES.has(type)) return true;
     return localHour >= 7 && localHour < 21;
+  }
+
+  static categoryFor(
+    type: NotificationType,
+  ): 'orders' | 'promotions' | 'social' | 'messages' | 'delivery' {
+    if (type.startsWith('order.')) return 'orders';
+    if (type.startsWith('promo.')) return 'promotions';
+    if (type.startsWith('message.')) return 'messages';
+    if (type.startsWith('delivery.')) return 'delivery';
+    return 'social';
   }
 }

@@ -16,17 +16,7 @@ class CartScreen extends ConsumerWidget {
     final cart = ref.watch(cartControllerProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Panier'),
-        actions: <Widget>[
-          if (!(cart.valueOrNull?.isEmpty ?? true))
-            IconButton(
-              onPressed: () => _confirmClear(context, ref),
-              icon: const Icon(Icons.delete_sweep_outlined),
-              tooltip: 'Vider le panier',
-            ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Panier')),
       body: AsyncView<Cart>(
         value: cart,
         isEmpty: (c) => c.isEmpty,
@@ -42,27 +32,6 @@ class CartScreen extends ConsumerWidget {
       bottomNavigationBar:
           cart.valueOrNull?.isEmpty ?? true ? null : _CheckoutBar(cart: cart.value!),
     );
-  }
-
-  Future<void> _confirmClear(BuildContext context, WidgetRef ref) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Vider le panier ?'),
-        content: const Text('Tous les articles seront retirés. Cette action est irréversible.'),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Vider'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true) await ref.read(cartControllerProvider.notifier).clear();
   }
 }
 
@@ -165,13 +134,6 @@ class _CartLineTile extends ConsumerWidget {
                 children: <Widget>[
                   Text(line.name, maxLines: 2, overflow: TextOverflow.ellipsis),
                   const SizedBox(height: AllGoTokens.space1),
-                  if (line.quantity > 1)
-                    Text(
-                      '${Ariary.format(line.unitPrice)} × ${line.quantity}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
                   Text(
                     Ariary.format(line.subtotal),
                     style: theme.textTheme.titleSmall?.copyWith(color: AllGoTokens.brand),

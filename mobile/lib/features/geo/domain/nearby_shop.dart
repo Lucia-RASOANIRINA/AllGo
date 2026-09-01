@@ -1,4 +1,3 @@
-import 'package:allgo/features/geo/domain/nearby_product.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 part 'nearby_shop.freezed.dart';
@@ -39,44 +38,25 @@ class NearbyQuery {
     required this.longitude,
     this.radiusKm = 5,
     this.categoryId,
-    this.openNow = false,
-    this.closedNow = false,
   });
 
   final double latitude;
   final double longitude;
   final double radiusKm;
   final String? categoryId;
-  final bool openNow;
 
-  /// Ignoré côté serveur si `openNow` est aussi vrai (§ `GeoService.nearbyShops`).
-  final bool closedNow;
-
-  NearbyQuery copyWith({
-    double? latitude,
-    double? longitude,
-    double? radiusKm,
-    String? categoryId,
-    bool clearCategory = false,
-    bool? openNow,
-    bool? closedNow,
-  }) {
+  NearbyQuery copyWith({double? radiusKm, String? categoryId, bool clearCategory = false}) {
     return NearbyQuery(
-      latitude: latitude ?? this.latitude,
-      longitude: longitude ?? this.longitude,
+      latitude: latitude,
+      longitude: longitude,
       radiusKm: radiusKm ?? this.radiusKm,
       categoryId: clearCategory ? null : (categoryId ?? this.categoryId),
-      openNow: openNow ?? this.openNow,
-      closedNow: closedNow ?? this.closedNow,
     );
   }
 }
 
 abstract interface class GeoRepository {
   Future<List<NearbyShop>> nearbyShops(NearbyQuery query);
-
-  /// Produits à proximité — `GET /geo/products`.
-  Future<List<NearbyProduct>> nearbyProducts(NearbyQuery query);
 
   /// Position courante de l'appareil.
   ///

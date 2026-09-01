@@ -25,16 +25,6 @@ export class GeoPointDto {
   coordinates!: [number, number];
 }
 
-export class DeliverySlotDto {
-  @ApiProperty({ description: 'Date ISO (AAAA-MM-JJ).' })
-  @IsString()
-  date!: string;
-
-  @ApiProperty({ enum: ['morning', 'afternoon', 'evening'] })
-  @IsIn(['morning', 'afternoon', 'evening'])
-  window!: 'morning' | 'afternoon' | 'evening';
-}
-
 export class DeliveryDto {
   @ApiProperty({ enum: ['delivery', 'pickup'] })
   @IsIn(['delivery', 'pickup'])
@@ -69,16 +59,6 @@ export class DeliveryDto {
   @ValidateNested()
   @Type(() => GeoPointDto)
   location?: GeoPointDto;
-
-  @ApiPropertyOptional({
-    description:
-      'Créneau souhaité — préférence transmise au commerçant, sans moteur de ' +
-      'capacité/disponibilité derrière (§ décisions de portée).',
-  })
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => DeliverySlotDto)
-  slot?: DeliverySlotDto;
 }
 
 export class CreateOrderDto {
@@ -91,12 +71,7 @@ export class CreateOrderDto {
   @IsIn(['cod', 'mvola', 'orange_money', 'airtel_money', 'card'])
   paymentMethod!: string;
 
-  @ApiPropertyOptional({
-    deprecated: true,
-    description:
-      'Ignoré : le serveur calcule désormais toujours les frais de livraison ' +
-      '(`GeoService.computeDeliveryFee`). Conservé pour compatibilité descendante.',
-  })
+  @ApiPropertyOptional({ description: 'Frais de livraison en Ariary, calculés par la boutique.' })
   @IsOptional()
   @IsNumber()
   @Min(0)
@@ -110,34 +85,9 @@ export class CreateOrderDto {
 }
 
 export class UpdateOrderStatusDto {
-  @ApiProperty({
-    enum: [
-      'confirmed',
-      'preparing',
-      'ready',
-      'courier_assigned',
-      'shipped',
-      'delivered',
-      'cancelled',
-    ],
-  })
-  @IsIn([
-    'confirmed',
-    'preparing',
-    'ready',
-    'courier_assigned',
-    'shipped',
-    'delivered',
-    'cancelled',
-  ])
-  status!:
-    | 'confirmed'
-    | 'preparing'
-    | 'ready'
-    | 'courier_assigned'
-    | 'shipped'
-    | 'delivered'
-    | 'cancelled';
+  @ApiProperty({ enum: ['confirmed', 'preparing', 'shipped', 'delivered', 'cancelled'] })
+  @IsIn(['confirmed', 'preparing', 'shipped', 'delivered', 'cancelled'])
+  status!: 'confirmed' | 'preparing' | 'shipped' | 'delivered' | 'cancelled';
 
   @ApiPropertyOptional()
   @IsOptional()

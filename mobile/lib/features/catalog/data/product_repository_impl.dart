@@ -1,6 +1,7 @@
 import 'package:allgo/core/error/failure.dart';
 import 'package:allgo/core/network/json_parsing.dart';
 import 'package:allgo/core/storage/app_database.dart';
+import 'package:collection/collection.dart';
 import 'package:allgo/features/catalog/domain/entities/product.dart';
 import 'package:allgo/features/catalog/domain/repositories/product_repository.dart';
 import 'package:dio/dio.dart';
@@ -61,11 +62,8 @@ class ProductRepositoryImpl implements ProductRepository {
           if (filter.minPrice != null) 'minPrice': filter.minPrice,
           if (filter.maxPrice != null) 'maxPrice': filter.maxPrice,
           if (filter.inStockOnly) 'inStock': true,
-          if (filter.sort == ProductSort.popular) 'sort': 'popular',
-          if (filter.onSale) 'onSale': true,
-          if (filter.minRating != null) 'minRating': filter.minRating,
           // Projection partielle : une grille n'a pas besoin des descriptions.
-          'fields': 'id,name,price,promoPrice,media,stock,shop,shopId,categoryId,stats',
+          'fields': 'id,name,price,promoPrice,media,stock,shop,shopId,categoryId',
         },
       );
 
@@ -96,7 +94,6 @@ class ProductRepositoryImpl implements ProductRepository {
       final response = await _dio.get<Map<String, dynamic>>('/products/$id');
       final product = _fromJson(response.data!['data'] as Map<String, dynamic>);
       await _cache(<Product>[product]);
-      await _recordView(product);
       return product;
     } on DioException catch (error) {
       if (error.error is! NetworkFailure) rethrow;
@@ -105,82 +102,9 @@ class ProductRepositoryImpl implements ProductRepository {
       final cached =
           await (_db.select(_db.cachedProducts)..where((t) => t.id.equals(id))).getSingleOrNull();
       if (cached == null) rethrow;
-      final product = _fromCache(cached);
-      await _recordView(product);
-      return product;
+      return _fromCache(cached);
     }
   }
-
-  @override
-  Future<List<Product>> fetchRail({
-    String? categoryId,
-    ProductSort sort = ProductSort.newest,
-    bool onSale = false,
-    bool flashOnly = false,
-    double? minRating,
-    int limit = 10,
-  }) async {
-    try {
-      final response = await _dio.get<Map<String, dynamic>>(
-        '/products',
-        queryParameters: <String, dynamic>{
-          'limit': limit,
-          if (categoryId != null) 'category': categoryId,
-          if (sort == ProductSort.popular) 'sort': 'popular',
-          if (onSale) 'onSale': true,
-          if (flashOnly) 'flashOnly': true,
-          if (minRating != null) 'minRating': minRating,
-          'fields': 'id,name,price,promoPrice,media,stock,shop,shopId,categoryId,stats',
-        },
-      );
-
-      return (response.data!['data'] as List<dynamic>)
-          .map((json) => _fromJson(json as Map<String, dynamic>))
-          .toList();
-    } on DioException catch (error) {
-      // Section secondaire : hors ligne, elle se masque plutôt que de casser
-      // l'écran d'accueil.
-      if (error.error is NetworkFailure) return const <Product>[];
-      rethrow;
-    }
-  }
-
-  @override
-  Future<List<Product>> similarProducts(String productId) => _relatedProducts(productId, 'similar');
-
-  @override
-  Future<List<Product>> recommendedProducts(String productId) =>
-      _relatedProducts(productId, 'recommended');
-
-  /// Rails bornés (10 au plus) : pas de repli hors ligne — une fiche produit
-  /// affichée depuis le cache n'a de toute façon pas de connexion pour ces
-  /// sections secondaires.
-  Future<List<Product>> _relatedProducts(String productId, String mode) async {
-    try {
-      final response = await _dio.get<Map<String, dynamic>>('/products/$productId/$mode');
-      return (response.data!['data'] as List<dynamic>)
-          .map((json) => _fromJson(json as Map<String, dynamic>))
-          .toList();
-    } on DioException catch (error) {
-      if (error.error is NetworkFailure) return const <Product>[];
-      rethrow;
-    }
-  }
-
-  /// Alimente le rail « récemment consultés » (§ accueil, historique local).
-  Future<void> _recordView(Product product) => _db.recordProductView(
-        RecentlyViewedProductsCompanion.insert(
-          id: product.id,
-          name: product.name,
-          thumbUrl: Value(product.thumbUrl),
-          price: product.price,
-          promoPrice: Value(product.promoPrice),
-          shopId: product.shopId,
-          shopName: product.shopName,
-          categoryId: Value(product.categoryId),
-          viewedAt: DateTime.now(),
-        ),
-      );
 
   @override
   Future<Product> getByBarcode(String barcode, {String? shopId}) async {
@@ -228,32 +152,67 @@ class ProductRepositoryImpl implements ProductRepository {
 
   Product _fromJson(Map<String, dynamic> json) {
     final media = (json['media'] as List<dynamic>?) ?? const <dynamic>[];
-    final main = media.isEmpty ? null : media.first as Map<String, dynamic>;
     final shop = (json['shop'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
-    final stats = (json['stats'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    final productName = (json['name'] as String?) ?? 'Produit';
+    final fallbackGallery = _fallbackGalleryFor(productName);
+    final safeMedia = media.whereType<Map<String, dynamic>>().toList();
+    final main = safeMedia.isEmpty ? null : safeMedia.first;
+    final gallery = safeMedia.isNotEmpty
+        ? safeMedia
+            .map((m) => (m['previewUrl'] as String?) ?? (m['thumbUrl'] as String?))
+            .whereType<String>()
+            .toList()
+        : fallbackGallery;
 
     return Product(
       id: idFromJson(json),
       shopId: json['shopId'] as String? ?? '',
       shopName: shop['name'] as String? ?? '',
       shopSlug: shop['slug'] as String? ?? '',
-      name: json['name'] as String,
+      name: productName,
       description: json['description'] as String?,
       categoryId: json['categoryId'] as String?,
       // Montants lus par `moneyFromJson` : jamais par un `double`.
       price: moneyFromJson(json['price']),
       promoPrice: json['promoPrice'] == null ? null : moneyFromJson(json['promoPrice']),
       stock: json['stock'] as int? ?? 0,
-      thumbUrl: main?['thumbUrl'] as String?,
-      previewUrl: main?['previewUrl'] as String?,
+      thumbUrl: (main?['thumbUrl'] as String?) ?? gallery.firstOrNull,
+      previewUrl: (main?['previewUrl'] as String?) ?? gallery.firstOrNull,
       barcode: json['barcode'] as String?,
-      gallery: media
-          .map((m) => (m as Map<String, dynamic>)['previewUrl'] as String?)
-          .whereType<String>()
-          .toList(),
-      rating: stats['rating'] == null ? null : doubleFromJson(stats['rating']),
-      reviewCount: stats['reviewCount'] as int? ?? 0,
+      gallery: gallery,
     );
+  }
+
+  List<String> _fallbackGalleryFor(String productName) {
+    final normalized = productName.toLowerCase();
+
+    if (normalized.contains('riz')) {
+      return <String>[
+        'https://images.unsplash.com/photo-1586201375761-83865001e31d?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1604908556856-ff686c9fe616?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?auto=format&fit=crop&w=1200&q=80',
+      ];
+    }
+    if (normalized.contains('huile')) {
+      return <String>[
+        'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1577311364431-2358a7f306d9?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=1200&q=80',
+      ];
+    }
+    if (normalized.contains('sucre')) {
+      return <String>[
+        'https://images.unsplash.com/photo-1596040033229-a9821ebd058d?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1502741338009-cac2772e18bc?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1518843875459-f738682238a6?auto=format&fit=crop&w=1200&q=80',
+      ];
+    }
+
+    return <String>[
+      'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1528747045269-390fe33c19f2?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=1200&q=80',
+    ];
   }
 
   Product _fromCache(CachedProduct row) => Product(
