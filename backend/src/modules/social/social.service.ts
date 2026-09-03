@@ -7,6 +7,8 @@ import type { Paginated } from '../../common/http/response.interceptor';
 import { cursorFilter, decodeCursor, encodeCursor } from '../../common/pagination/cursor';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { Role } from '../../common/rbac/roles';
+import { ModerationService } from '../moderation/moderation.service';
+import type { ReportReasonCode } from '../moderation/schemas/report.schema';
 import { Shop, type ShopDocument } from '../shops/schemas/shop.schema';
 import {
   Comment,
@@ -26,10 +28,15 @@ export class SocialService {
     @InjectModel(Comment.name) private readonly comments: Model<CommentDocument>,
     @InjectModel(Reaction.name) private readonly reactions: Model<ReactionDocument>,
     @InjectModel(Shop.name) private readonly shops: Model<ShopDocument>,
+    private readonly moderation: ModerationService,
   ) {}
 
-  async feed(limit: number, cursor?: string): Promise<Paginated<unknown>> {
-    const filter: Record<string, unknown> = { visibility: 'public' };
+  async feed(limit: number, cursor?: string, viewerId?: string): Promise<Paginated<unknown>> {
+    const filter: Record<string, unknown> = { visibility: 'public', reported: { $ne: true } };
+    if (viewerId) {
+      const blocked = await this.moderation.blockedAuthorIds(viewerId);
+      if (blocked.length > 0) filter.authorId = { $nin: blocked };
+    }
     if (cursor) Object.assign(filter, cursorFilter('createdAt', decodeCursor(cursor)));
     const docs = await this.posts.find(filter).sort({ createdAt: -1, _id: -1 }).limit(limit + 1).lean();
     const hasMore = docs.length > limit;
@@ -81,6 +88,11 @@ export class SocialService {
       visibility: input.visibility ?? 'public',
       counters: { reactions: 0, comments: 0, shares: 0, views: 0 },
     });
+    const flagged = await this.moderation.autoModerate('post', String(post._id), input.content);
+    if (flagged) {
+      post.reported = flagged.reported;
+      post.reportReason = flagged.reportReason;
+    }
     return post.toJSON();
   }
 
@@ -144,11 +156,16 @@ export class SocialService {
       parentId: null,
     });
     await this.posts.updateOne({ _id: postId }, { $inc: { 'counters.comments': 1 } });
+    const flagged = await this.moderation.autoModerate('comment', String(comment._id), content);
+    if (flagged) {
+      comment.reported = flagged.reported;
+      comment.reportReason = flagged.reportReason;
+    }
     return comment.toJSON();
   }
 
   async commentsFor(postId: string, limit: number): Promise<unknown[]> {
-    return this.comments.find({ postId }).sort({ createdAt: 1 }).limit(limit).lean();
+    return this.comments.find({ postId, reported: { $ne: true } }).sort({ createdAt: 1 }).limit(limit).lean();
   }
 
   /**
@@ -166,13 +183,29 @@ export class SocialService {
     return { shares: post.counters.shares };
   }
 
-  /** Signalement — même motif que `ReviewsService.report` : un drapeau, jamais une suppression. */
-  async report(postId: string, reason?: string): Promise<{ reported: true }> {
+  /**
+   * Signalement — pose le drapeau (même motif que `ReviewsService.report` :
+   * jamais une suppression) ET dépose une entrée dans la file de modération
+   * unifiée (§29), avec l'identité du signalant — ce que le drapeau seul ne
+   * conservait pas.
+   */
+  async report(userId: string, postId: string, reason?: string, reasonCode?: ReportReasonCode): Promise<{ reported: true }> {
     const result = await this.posts.updateOne(
       { _id: postId },
       { $set: { reported: true, reportReason: reason } },
     );
     if (!result.matchedCount) throw AppError.notFound('Publication');
+    await this.moderation.fileReport({ reporterId: userId, targetType: 'post', targetId: postId, reason, reasonCode });
+    return { reported: true };
+  }
+
+  async reportComment(userId: string, commentId: string, reason?: string, reasonCode?: ReportReasonCode): Promise<{ reported: true }> {
+    const result = await this.comments.updateOne(
+      { _id: commentId },
+      { $set: { reported: true, reportReason: reason } },
+    );
+    if (!result.matchedCount) throw AppError.notFound('Commentaire');
+    await this.moderation.fileReport({ reporterId: userId, targetType: 'comment', targetId: commentId, reason, reasonCode });
     return { reported: true };
   }
 }

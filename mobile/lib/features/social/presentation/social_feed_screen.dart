@@ -4,6 +4,8 @@ import 'package:allgo/app/router.dart';
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/core/network/json_parsing.dart';
+import 'package:allgo/features/auth/presentation/session_controller.dart';
+import 'package:allgo/features/moderation/presentation/moderation_actions.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -289,20 +291,56 @@ class _PostCardState extends ConsumerState<_PostCard> {
     }
   }
 
-  Future<void> _report() async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await ref.read(apiClientProvider).post<void>('/social/posts/${widget.post.id}/report');
-      messenger.showSnackBar(const SnackBar(content: Text('Publication signalée à la modération.')));
-    } on DioException {
-      messenger.showSnackBar(const SnackBar(content: Text('Impossible de signaler cette publication.')));
+  Future<void> _reportPost() => reportViaDialog(
+        context,
+        ref,
+        path: '/social/posts/${widget.post.id}/report',
+        dialogTitle: 'Signaler cette publication',
+        successMessage: 'Publication signalée à la modération.',
+      );
+
+  Future<void> _reportAuthor() {
+    final post = widget.post;
+    return post.authorType == 'shop' && post.shopId != null
+        ? reportViaDialog(
+            context,
+            ref,
+            path: '/moderation/shops/${post.shopId}/report',
+            dialogTitle: 'Signaler ${post.author}',
+            successMessage: 'Boutique signalée à la modération.',
+          )
+        : reportViaDialog(
+            context,
+            ref,
+            path: '/moderation/users/${post.authorId}/report',
+            dialogTitle: 'Signaler ${post.author}',
+            successMessage: 'Compte signalé à la modération.',
+          );
+  }
+
+  Future<void> _blockAuthor() async {
+    final post = widget.post;
+    final confirmed = await confirmBlockUser(context, post.author);
+    if (confirmed == true && context.mounted) {
+      await blockUserAccount(context, ref, post.authorId);
     }
+  }
+
+  void _openComments() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => _CommentsSheet(postId: widget.post.id),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final post = widget.post;
+    final myUserId = ref.watch(sessionControllerProvider).userId;
+    final isMine = post.authorId.isNotEmpty && post.authorId == myUserId;
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -324,10 +362,20 @@ class _PostCardState extends ConsumerState<_PostCard> {
                 ),
                 PopupMenuButton<String>(
                   onSelected: (value) {
-                    if (value == 'report') unawaited(_report());
+                    if (value == 'report_post') unawaited(_reportPost());
+                    if (value == 'report_author') unawaited(_reportAuthor());
+                    if (value == 'block') unawaited(_blockAuthor());
                   },
-                  itemBuilder: (context) => const <PopupMenuEntry<String>>[
-                    PopupMenuItem<String>(value: 'report', child: Text('Signaler')),
+                  itemBuilder: (context) => <PopupMenuEntry<String>>[
+                    const PopupMenuItem<String>(value: 'report_post', child: Text('Signaler la publication')),
+                    if (!isMine) ...<PopupMenuEntry<String>>[
+                      PopupMenuItem<String>(
+                        value: 'report_author',
+                        child: Text(post.authorType == 'shop' ? 'Signaler la boutique' : 'Signaler ce compte'),
+                      ),
+                      if (post.authorType != 'shop')
+                        const PopupMenuItem<String>(value: 'block', child: Text('Bloquer ce compte')),
+                    ],
                   ],
                 ),
               ],
@@ -363,6 +411,7 @@ class _PostCardState extends ConsumerState<_PostCard> {
                 _SocialAction(
                   icon: Icons.chat_bubble_outline,
                   label: '${post.comments}',
+                  onTap: _openComments,
                 ),
                 const SizedBox(width: AllGoTokens.space3),
                 _SocialAction(icon: Icons.share_outlined, label: '$_shares', onTap: _share),
@@ -407,9 +456,157 @@ class _SocialAction extends StatelessWidget {
   }
 }
 
+class _CommentData {
+  const _CommentData({required this.id, required this.author, required this.content});
+
+  final String id;
+  final String author;
+  final String content;
+
+  factory _CommentData.fromJson(Map<String, dynamic> json) {
+    final author = json['author'] is Map<String, dynamic>
+        ? json['author'] as Map<String, dynamic>
+        : const <String, dynamic>{};
+    return _CommentData(
+      id: idFromJson(json),
+      author: author['name'] as String? ?? 'Membre AllGo',
+      content: json['content'] as String? ?? '',
+    );
+  }
+}
+
+final _commentsProvider = FutureProvider.autoDispose.family<List<_CommentData>, String>((ref, postId) async {
+  final response = await ref.watch(apiClientProvider).get<Map<String, dynamic>>('/social/posts/$postId/comments');
+  final items = (response.data?['data'] as List<dynamic>?) ?? const <dynamic>[];
+  return items.whereType<Map<String, dynamic>>().map(_CommentData.fromJson).toList();
+});
+
+/// Feuille de commentaires — lecture, ajout et signalement (§29). Avant cet
+/// écran, seul le compteur de commentaires était visible : aucune route
+/// mobile ne permettait de les lire ni d'en signaler un.
+class _CommentsSheet extends ConsumerStatefulWidget {
+  const _CommentsSheet({required this.postId});
+
+  final String postId;
+
+  @override
+  ConsumerState<_CommentsSheet> createState() => _CommentsSheetState();
+}
+
+class _CommentsSheetState extends ConsumerState<_CommentsSheet> {
+  final _controller = TextEditingController();
+  bool _sending = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    final content = _controller.text.trim();
+    if (content.isEmpty || _sending) return;
+    setState(() => _sending = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(apiClientProvider).post<void>(
+        '/social/posts/${widget.postId}/comments',
+        data: <String, String>{'content': content},
+      );
+      _controller.clear();
+      ref.invalidate(_commentsProvider(widget.postId));
+    } on DioException {
+      messenger.showSnackBar(const SnackBar(content: Text('Impossible d’envoyer ce commentaire.')));
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _reportComment(String commentId) => reportViaDialog(
+        context,
+        ref,
+        path: '/social/comments/$commentId/report',
+        dialogTitle: 'Signaler ce commentaire',
+        successMessage: 'Commentaire signalé à la modération.',
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final comments = ref.watch(_commentsProvider(widget.postId));
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.7,
+        child: Column(
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space4),
+              child: Text('Commentaires', style: Theme.of(context).textTheme.titleMedium),
+            ),
+            const SizedBox(height: AllGoTokens.space2),
+            Expanded(
+              child: comments.when(
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (_, __) => const Center(child: Text('Commentaires indisponibles hors ligne.')),
+                data: (items) => items.isEmpty
+                    ? const Center(child: Text('Aucun commentaire pour l’instant.'))
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space4),
+                        itemCount: items.length,
+                        itemBuilder: (context, index) {
+                          final comment = items[index];
+                          return ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(comment.author, style: Theme.of(context).textTheme.titleSmall),
+                            subtitle: Text(comment.content),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.flag_outlined, size: 18),
+                              tooltip: 'Signaler',
+                              onPressed: () => _reportComment(comment.id),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.all(AllGoTokens.space3),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: TextField(
+                        controller: _controller,
+                        maxLength: 2000,
+                        decoration: const InputDecoration(
+                          hintText: 'Ajouter un commentaire…',
+                          counterText: '',
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: _sending ? null : _send,
+                      icon: const Icon(Icons.send),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _PostData {
   const _PostData({
     required this.id,
+    required this.authorId,
+    required this.authorType,
+    required this.shopId,
     required this.author,
     required this.avatar,
     required this.content,
@@ -421,6 +618,12 @@ class _PostData {
   });
 
   final String id;
+  /// Compte à l'origine de la publication — la cible d'un signalement ou d'un
+  /// blocage « utilisateur », que l'auteur affiché soit son propre nom ou
+  /// celui d'une boutique qu'il gère (§29).
+  final String authorId;
+  final String authorType;
+  final String? shopId;
   final String author;
   final String avatar;
   final String content;
@@ -444,6 +647,9 @@ class _PostData {
         : const <String, dynamic>{};
     return _PostData(
       id: idFromJson(json),
+      authorId: json['authorId']?.toString() ?? '',
+      authorType: author['type'] as String? ?? 'user',
+      shopId: author['shopId']?.toString() ?? json['shopId']?.toString(),
       author: author['name'] as String? ?? 'Membre AllGo',
       avatar: author['avatar'] as String? ?? '',
       content: json['content'] as String? ?? '',

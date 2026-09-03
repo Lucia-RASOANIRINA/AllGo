@@ -8,6 +8,7 @@ import 'package:allgo/features/cart/presentation/cart_controller.dart';
 import 'package:allgo/features/catalog/domain/entities/product.dart';
 import 'package:allgo/features/catalog/presentation/catalog_providers.dart';
 import 'package:allgo/features/favorites/presentation/favorites_controller.dart';
+import 'package:allgo/features/moderation/presentation/moderation_actions.dart';
 import 'package:allgo/shared/widgets/async_view.dart';
 import 'package:allgo/shared/widgets/product_image.dart';
 import 'package:dio/dio.dart';
@@ -57,13 +58,13 @@ class ProductDetailScreen extends ConsumerWidget {
   }
 }
 
-class _Content extends StatelessWidget {
+class _Content extends ConsumerWidget {
   const _Content({required this.product});
 
   final Product product;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final price = Ariary.formatWithPromo(product.price, product.promoPrice);
 
@@ -82,6 +83,17 @@ class _Content extends StatelessWidget {
               ),
               icon: const Icon(Icons.share_outlined),
               tooltip: 'Partager',
+            ),
+            IconButton(
+              onPressed: () => reportViaDialog(
+                context,
+                ref,
+                path: '/moderation/products/${product.id}/report',
+                dialogTitle: 'Signaler ce produit',
+                successMessage: 'Produit signalé à la modération.',
+              ),
+              icon: const Icon(Icons.flag_outlined),
+              tooltip: 'Signaler',
             ),
           ],
           flexibleSpace: FlexibleSpaceBar(

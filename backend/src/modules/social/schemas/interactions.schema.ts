@@ -18,6 +18,9 @@ export class Comment extends Document {
   /** Réponse à un commentaire : un seul niveau d'imbrication. */
   @Prop({ type: Types.ObjectId, ref: 'Comment', default: null })
   parentId!: Types.ObjectId | null;
+  /** Même motif que `Post.reported` (§22) : un drapeau posé par un signalement ou le filtre automatique, jamais une suppression. */
+  @Prop({ type: Boolean, default: false, index: true }) reported!: boolean;
+  @Prop({ maxlength: 300 }) reportReason?: string;
   createdAt!: Date;
 }
 export type CommentDocument = HydratedDocument<Comment>;

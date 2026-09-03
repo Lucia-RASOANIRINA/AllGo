@@ -16,8 +16,14 @@ import { Role } from './roles';
  * `OrderDispute` — fonctionnalités précédemment absentes (partage/signalement
  * de publication, blocage/signalement de conversation, litige de commande).
  * Aucune permission existante retirée ni renommée.
+ *
+ * v3 : ajout de `CommentReport`, `UserReport`, `ShopReport`, `ProductReport`,
+ * `UserBlock` — modération sociale (§29) : signalement d'un commentaire, d'un
+ * compte, d'une boutique ou d'un produit, et blocage générique compte-à-compte
+ * (distinct du blocage de conversation déjà porté par `MessageBlock`). Aucune
+ * permission existante retirée ni renommée.
  */
-export const PERMISSIONS_VERSION = 2;
+export const PERMISSIONS_VERSION = 3;
 
 export const Permission = {
   // --- Session ---
@@ -77,9 +83,16 @@ export const Permission = {
   PostShare: 'post:share',
   PostReport: 'post:report',
   CommentCreate: 'comment:create',
+  CommentReport: 'comment:report',
   ReactionToggle: 'reaction:toggle',
   StoryCreate: 'story:create',
   FollowToggle: 'follow:toggle',
+
+  // --- Modération sociale (§29) ---
+  UserReport: 'user:report',
+  ShopReport: 'shop:report',
+  ProductReport: 'product:report',
+  UserBlock: 'user:block',
 
   // --- Demandes clients ---
   RequestCreate: 'request:create',
@@ -142,9 +155,14 @@ const CLIENT_PERMISSIONS: PermissionValue[] = [
   Permission.PostShare,
   Permission.PostReport,
   Permission.CommentCreate,
+  Permission.CommentReport,
   Permission.ReactionToggle,
   Permission.StoryCreate,
   Permission.FollowToggle,
+  Permission.UserReport,
+  Permission.ShopReport,
+  Permission.ProductReport,
+  Permission.UserBlock,
   Permission.RequestCreate,
   Permission.RequestRead,
   Permission.MessageRead,

@@ -15,6 +15,7 @@ import { Product, ProductSchema } from '../catalog/schemas/product.schema';
 import { Shop, ShopSchema } from '../shops/schemas/shop.schema';
 import { Promotion, PromotionSchema } from '../campaigns/schemas/promotion.schema';
 import { MediaModule } from '../media/media.module';
+import { ModerationModule } from '../moderation/moderation.module';
 import { FavoritesController } from './favorites.controller';
 import { FavoritesService } from './favorites.service';
 import { FollowsController } from './follows.controller';
@@ -37,6 +38,7 @@ import { StoriesService } from './stories.service';
 @Module({
   imports: [
     MediaModule,
+    ModerationModule,
     MongooseModule.forFeature([
       { name: Post.name, schema: PostSchema },
       { name: Comment.name, schema: CommentSchema },

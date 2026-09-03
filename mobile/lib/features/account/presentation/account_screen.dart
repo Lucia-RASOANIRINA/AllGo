@@ -56,6 +56,16 @@ class AccountScreen extends ConsumerWidget {
             onTap: () => context.push('/compte/favoris'),
           ),
           ListTile(
+            leading: const Icon(Icons.block_outlined),
+            title: const Text('Comptes bloqués'),
+            onTap: () => context.push(Routes.blockedUsers),
+          ),
+          ListTile(
+            leading: const Icon(Icons.gavel_outlined),
+            title: const Text('Mes sanctions'),
+            onTap: () => context.push(Routes.sanctions),
+          ),
+          ListTile(
             leading: const Icon(Icons.groups_outlined),
             title: const Text('Réseau social'),
             subtitle: const Text('Publications, stories et communauté AllGo'),
@@ -71,6 +81,22 @@ class AccountScreen extends ConsumerWidget {
             title: const Text('Notifications'),
             onTap: () => context.push(Routes.notifications),
           ),
+
+          // Modération plateforme — réservée au rôle `platform_admin` (§29).
+          // Sans ce filtre, l'entrée serait visible de tout le monde alors que
+          // chaque route de `/admin` exige déjà `platform:moderate` côté API :
+          // l'inviter à taper dessus pour se voir refuser l'accès est pire que
+          // de ne pas la montrer.
+          if (session.roles.contains('platform_admin')) ...<Widget>[
+            const Divider(),
+            const _SectionTitle('Modération plateforme'),
+            ListTile(
+              leading: const Icon(Icons.shield_outlined),
+              title: const Text('Administration'),
+              subtitle: const Text('Utilisateurs, boutiques, produits, signalements'),
+              onTap: () => context.push(Routes.admin),
+            ),
+          ],
 
           const Divider(),
           const _SectionTitle('Application'),

@@ -7,6 +7,7 @@ import { CurrentUser, RequirePermission } from '../../common/decorators/auth.dec
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 import { Permission } from '../../common/rbac/permissions';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
+import { ReportDto } from '../moderation/dto/moderation.dto';
 import { SocialService } from './social.service';
 
 class PostMediaDto {
@@ -33,14 +34,6 @@ export class CommentDto {
   @ApiProperty() @IsString() @MaxLength(2000) content!: string;
 }
 
-export class ReportPostDto {
-  @ApiProperty({ required: false, maxLength: 300 })
-  @IsOptional()
-  @IsString()
-  @MaxLength(300)
-  reason?: string;
-}
-
 @ApiTags('Publications')
 @Controller('social')
 export class SocialController {
@@ -48,8 +41,8 @@ export class SocialController {
 
   @Get('posts')
   @RequirePermission(Permission.PostRead)
-  feed(@Query() query: PaginationQueryDto) {
-    return this.social.feed(query.limit, query.cursor);
+  feed(@CurrentUser() user: AuthenticatedUser, @Query() query: PaginationQueryDto) {
+    return this.social.feed(query.limit, query.cursor, user.id);
   }
 
   @Post('posts')
@@ -98,7 +91,14 @@ export class SocialController {
   @Post('posts/:id/report')
   @RequirePermission(Permission.PostReport)
   @ApiOperation({ summary: 'Signaler une publication à la modération.' })
-  report(@Param('id') id: string, @Body() dto: ReportPostDto) {
-    return this.social.report(id, dto.reason);
+  report(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: ReportDto) {
+    return this.social.report(user.id, id, dto.reason, dto.reasonCode);
+  }
+
+  @Post('comments/:id/report')
+  @RequirePermission(Permission.CommentReport)
+  @ApiOperation({ summary: 'Signaler un commentaire à la modération.' })
+  reportComment(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: ReportDto) {
+    return this.social.reportComment(user.id, id, dto.reason, dto.reasonCode);
   }
 }

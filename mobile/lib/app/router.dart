@@ -22,6 +22,8 @@ import 'package:allgo/features/home/presentation/home_screen.dart';
 import 'package:allgo/features/home/presentation/shell_scaffold.dart';
 import 'package:allgo/features/messaging/presentation/messages_list_screen.dart';
 import 'package:allgo/features/messaging/presentation/chat_screen.dart';
+import 'package:allgo/features/moderation/presentation/blocked_users_screen.dart';
+import 'package:allgo/features/moderation/presentation/sanctions_screen.dart';
 import 'package:allgo/features/merchant/presentation/merchant_dashboard_screen.dart';
 import 'package:allgo/features/notifications/presentation/notifications_screen.dart';
 import 'package:allgo/features/orders/presentation/order_detail_screen.dart';
@@ -63,6 +65,8 @@ abstract final class Routes {
   static const String tracking = '/suivi';
   static const String checkout = '/panier/livraison';
   static const String favorites = '/compte/favoris';
+  static const String sanctions = '/compte/sanctions';
+  static const String blockedUsers = '/compte/comptes-bloques';
   static const String publish = '/publier';
   static const String stories = '/stories';
   static const String messages = '/messages';
@@ -112,6 +116,8 @@ abstract final class Routes {
     tracking,
     checkout,
     favorites,
+    sanctions,
+    blockedUsers,
     publish,
     stories,
     messages,
@@ -222,6 +228,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: Routes.favorites,
         parentNavigatorKey: rootKey,
         builder: (context, state) => const FavoritesScreen(),
+      ),
+      GoRoute(
+        path: Routes.sanctions,
+        parentNavigatorKey: rootKey,
+        builder: (context, state) => const SanctionsScreen(),
+      ),
+      GoRoute(
+        path: Routes.blockedUsers,
+        parentNavigatorKey: rootKey,
+        builder: (context, state) => const BlockedUsersScreen(),
       ),
       GoRoute(
         path: Routes.shop,

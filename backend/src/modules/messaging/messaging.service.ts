@@ -7,6 +7,7 @@ import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { EventsGateway, RealtimeEvent } from '../realtime/events.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 import { Role } from '../../common/rbac/roles';
+import { ModerationService } from '../moderation/moderation.service';
 import { Shop, type ShopDocument } from '../shops/schemas/shop.schema';
 import {
   Conversation,
@@ -23,6 +24,7 @@ export class MessagingService {
     @InjectModel(Shop.name) private readonly shops: Model<ShopDocument>,
     private readonly realtime: EventsGateway,
     private readonly notifications: NotificationsService,
+    private readonly moderation: ModerationService,
   ) {}
 
   list(userId: string): Promise<unknown[]> {
@@ -104,6 +106,13 @@ export class MessagingService {
   ): Promise<unknown> {
     const conversation = await this.member(conversationId, user.id);
     if (conversation.blockedBy.length > 0) {
+      throw new AppError('CONVERSATION_BLOCKED', 'Cette conversation est bloquée.', 403);
+    }
+    // Blocage générique compte-à-compte (§29) — distinct du blocage de
+    // conversation ci-dessus : ferme aussi les nouvelles conversations entre
+    // les deux comptes, pas seulement celle-ci.
+    const other = conversation.participants.find((participant) => String(participant.userId) !== user.id);
+    if (other && (await this.moderation.isBlockedEitherWay(user.id, String(other.userId)))) {
       throw new AppError('CONVERSATION_BLOCKED', 'Cette conversation est bloquée.', 403);
     }
     if (!content.trim()) throw new AppError('MESSAGE_EMPTY', 'Le message ne peut pas être vide.', 400);

@@ -1,5 +1,7 @@
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/features/messaging/presentation/messaging_providers.dart';
+import 'package:allgo/features/moderation/presentation/moderation_actions.dart';
+import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -33,6 +35,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget build(BuildContext context) {
     final myUserId = currentUserId(ref);
     final messages = ref.watch(conversationControllerProvider(widget.conversationId));
+    final conversations = ref.watch(conversationsProvider).valueOrNull ?? const <Conversation>[];
+    final conversation = conversations.firstWhereOrNull((c) => c.id == widget.conversationId);
+    final otherUserId = myUserId == null ? null : conversation?.other(myUserId)?.userId;
 
     ref.listen(conversationControllerProvider(widget.conversationId), (_, __) {
       // Nouveau message (reçu ou envoyé) : on descend en bas de la liste.
@@ -49,10 +54,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         title: Text(widget.title ?? 'Conversation'),
         actions: <Widget>[
           PopupMenuButton<String>(
-            onSelected: (value) => _onMenuSelected(context, value),
-            itemBuilder: (context) => const <PopupMenuEntry<String>>[
-              PopupMenuItem<String>(value: 'block', child: Text('Bloquer')),
-              PopupMenuItem<String>(value: 'report', child: Text('Signaler')),
+            onSelected: (value) => _onMenuSelected(context, value, otherUserId),
+            itemBuilder: (context) => <PopupMenuEntry<String>>[
+              const PopupMenuItem<String>(value: 'block_conversation', child: Text('Bloquer la conversation')),
+              const PopupMenuItem<String>(value: 'report', child: Text('Signaler la conversation')),
+              if (otherUserId != null) ...<PopupMenuEntry<String>>[
+                const PopupMenuDivider(),
+                const PopupMenuItem<String>(value: 'block_account', child: Text('Bloquer ce compte')),
+                const PopupMenuItem<String>(value: 'report_account', child: Text('Signaler ce compte')),
+              ],
             ],
           ),
         ],
@@ -109,10 +119,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  Future<void> _onMenuSelected(BuildContext context, String action) async {
+  Future<void> _onMenuSelected(BuildContext context, String action, String? otherUserId) async {
+    if (action == 'block_account' && otherUserId != null) {
+      final confirmed = await confirmBlockUser(context, widget.title ?? 'ce compte');
+      if (confirmed == true && context.mounted) await blockUserAccount(context, ref, otherUserId);
+      return;
+    }
+    if (action == 'report_account' && otherUserId != null) {
+      await reportViaDialog(
+        context,
+        ref,
+        path: '/moderation/users/$otherUserId/report',
+        dialogTitle: 'Signaler ce compte',
+        successMessage: 'Compte signalé à la modération.',
+      );
+      return;
+    }
+
     final messenger = ScaffoldMessenger.of(context);
     try {
-      if (action == 'block') {
+      if (action == 'block_conversation') {
         await blockConversation(ref, widget.conversationId);
         messenger.showSnackBar(const SnackBar(content: Text('Conversation bloquée.')));
       } else if (action == 'report') {

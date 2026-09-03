@@ -10,6 +10,7 @@ import 'package:allgo/features/catalog/domain/repositories/product_repository.da
 import 'package:allgo/features/catalog/presentation/catalog_providers.dart';
 import 'package:allgo/features/home/presentation/home_screen.dart';
 import 'package:allgo/features/messaging/presentation/messaging_providers.dart';
+import 'package:allgo/features/moderation/presentation/moderation_actions.dart';
 import 'package:allgo/features/shops/presentation/shop_follow_controller.dart';
 import 'package:allgo/features/shops/presentation/shop_posts_providers.dart';
 import 'package:allgo/features/shops/presentation/reviews_providers.dart';
@@ -179,6 +180,17 @@ class _ShopContent extends ConsumerWidget {
               onPressed: () => Share.share('${shop.name} sur AllGo\nhttps://allgo.mg/boutique/${shop.slug}'),
               icon: const Icon(Icons.share_outlined),
               tooltip: 'Partager',
+            ),
+            IconButton(
+              onPressed: () => reportViaDialog(
+                context,
+                ref,
+                path: '/moderation/shops/${shop.id}/report',
+                dialogTitle: 'Signaler cette boutique',
+                successMessage: 'Boutique signalée à la modération.',
+              ),
+              icon: const Icon(Icons.flag_outlined),
+              tooltip: 'Signaler',
             ),
           ],
           flexibleSpace: FlexibleSpaceBar(
