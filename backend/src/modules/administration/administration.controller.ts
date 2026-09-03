@@ -18,7 +18,9 @@ export class AdministrationController {
   @Patch('products/:id/delete') @RequirePermission(Permission.PlatformModerate) deleteProduct(@Param('id') id: string) { return this.administration.removeProduct(id); }
   @Get('reported-products') @RequirePermission(Permission.PlatformModerate) reportedProducts() { return this.administration.reportedProducts(); }
   @Get('orders') @RequirePermission(Permission.PlatformModerate) orders(@Query('status') status?: string) { return this.administration.ordersList(status); }
-  @Patch('orders/:id/refund') @RequirePermission(Permission.PlatformModerate) refund(@Param('id') id: string) { return this.administration.refundOrder(id); }
+  @Patch('orders/:id/refund') @RequirePermission(Permission.PlatformModerate) refund(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.administration.refundOrder(id, user.id); }
+
+  @Get('dashboard') @RequirePermission(Permission.PlatformModerate) dashboard(@Query('days') days?: string) { return this.administration.dashboard(days ? Number(days) : undefined); }
 
   @Get('disputes') @RequirePermission(Permission.PlatformModerate) disputes(@Query('status') status?: string) { return this.administration.disputesList(status); }
   @Patch('disputes/:id')

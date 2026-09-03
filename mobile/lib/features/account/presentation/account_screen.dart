@@ -96,6 +96,18 @@ class AccountScreen extends ConsumerWidget {
               subtitle: const Text('Utilisateurs, boutiques, produits, signalements'),
               onTap: () => context.push(Routes.admin),
             ),
+            ListTile(
+              leading: const Icon(Icons.dashboard_outlined),
+              title: const Text('Dashboard global'),
+              subtitle: const Text('Statistiques, croissance, performance'),
+              onTap: () => context.push(Routes.adminDashboard),
+            ),
+            ListTile(
+              leading: const Icon(Icons.account_balance_outlined),
+              title: const Text('Administration financière'),
+              subtitle: const Text('Transactions, commissions, retraits, factures'),
+              onTap: () => context.push(Routes.adminFinance),
+            ),
           ],
 
           const Divider(),

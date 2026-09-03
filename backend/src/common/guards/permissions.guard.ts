@@ -40,8 +40,12 @@ export class PermissionsGuard implements CanActivate {
     if (!user) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Accès refusé.' });
 
     const scopeParam = this.reflector.getAllAndOverride<string>(SCOPE_PARAM_KEY, targets);
+    // Une route de lecture porte sa portée en chaîne de requête (`?shopId=`),
+    // jamais dans un corps — sans ce troisième repli, toute route `GET`
+    // filtrée par boutique (ex. solde commerçant, §30) serait refusée à qui
+    // détient pourtant la permission, faute de savoir où lire `shopId`.
     const shopId = scopeParam
-      ? (request.params?.[scopeParam] ?? request.body?.[scopeParam])
+      ? (request.params?.[scopeParam] ?? request.body?.[scopeParam] ?? request.query?.[scopeParam])
       : undefined;
 
     if (this.holds(user, required, shopId)) return true;

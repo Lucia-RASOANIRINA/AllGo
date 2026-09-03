@@ -22,8 +22,12 @@ import { Role } from './roles';
  * compte, d'une boutique ou d'un produit, et blocage générique compte-à-compte
  * (distinct du blocage de conversation déjà porté par `MessageBlock`). Aucune
  * permission existante retirée ni renommée.
+ *
+ * v4 : ajout de `WithdrawalRequest` — administration financière (§30) : un
+ * commerçant demande le retrait de son solde, portée par boutique comme
+ * `ShopDashboard`. Aucune permission existante retirée ni renommée.
  */
-export const PERMISSIONS_VERSION = 3;
+export const PERMISSIONS_VERSION = 4;
 
 export const Permission = {
   // --- Session ---
@@ -69,6 +73,7 @@ export const Permission = {
   InvoiceRead: 'invoice:read',
   InvoiceCreate: 'invoice:create',
   RefundCreate: 'refund:create',
+  WithdrawalRequest: 'withdrawal:request',
 
   // --- Stock ---
   StockRead: 'stock:read',
@@ -215,6 +220,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly PermissionValue[]> = {
     Permission.InvoiceRead,
     Permission.InvoiceCreate,
     Permission.RefundCreate,
+    Permission.WithdrawalRequest,
     Permission.StockRead,
     Permission.StockMove,
     Permission.StockAlertRead,

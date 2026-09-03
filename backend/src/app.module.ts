@@ -34,6 +34,7 @@ import { CourierEarningsModule } from './modules/courier-earnings/courier-earnin
 import { AdministrationModule } from './modules/administration/administration.module';
 import { SearchModule } from './modules/search/search.module';
 import { ModerationModule } from './modules/moderation/moderation.module';
+import { FinanceModule } from './modules/finance/finance.module';
 
 @Module({
   imports: [
@@ -104,6 +105,7 @@ import { ModerationModule } from './modules/moderation/moderation.module';
     AdministrationModule,
     SearchModule,
     ModerationModule,
+    FinanceModule,
   ],
   providers: [
     // Ordre significatif : authentification, puis permissions, puis débit.

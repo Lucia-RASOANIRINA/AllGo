@@ -15,9 +15,11 @@ import { Order, OrderSchema } from './schemas/order.schema';
 import { Coupon, CouponSchema } from './schemas/coupon.schema';
 import { Dispute, DisputeSchema } from './schemas/dispute.schema';
 import { Promotion, PromotionSchema } from '../campaigns/schemas/promotion.schema';
+import { FinanceModule } from '../finance/finance.module';
 
 @Module({
   imports: [
+    FinanceModule,
     MongooseModule.forFeature([
       { name: Order.name, schema: OrderSchema },
       { name: Cart.name, schema: CartSchema },

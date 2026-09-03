@@ -8,6 +8,9 @@ import { Product, type ProductDocument } from '../catalog/schemas/product.schema
 import { Order, type OrderDocument } from '../orders/schemas/order.schema';
 import { Dispute, type DisputeDocument, type DisputeStatus } from '../orders/schemas/dispute.schema';
 import { CourierEarningsService } from '../courier-earnings/courier-earnings.service';
+import { FinanceService } from '../finance/finance.service';
+import { Review, type ReviewDocument } from '../reviews/schemas/review.schema';
+import { Post, type PostDocument } from '../social/schemas/post.schema';
 
 @Injectable()
 export class AdministrationService {
@@ -17,7 +20,10 @@ export class AdministrationService {
     @InjectModel(Product.name) private readonly products: Model<ProductDocument>,
     @InjectModel(Order.name) private readonly orders: Model<OrderDocument>,
     @InjectModel(Dispute.name) private readonly disputes: Model<DisputeDocument>,
+    @InjectModel(Review.name) private readonly reviews: Model<ReviewDocument>,
+    @InjectModel(Post.name) private readonly posts: Model<PostDocument>,
     private readonly courierEarnings: CourierEarningsService,
+    private readonly finance: FinanceService,
   ) {}
 
   usersList(status?: string) {
@@ -61,10 +67,9 @@ export class AdministrationService {
   ordersList(status?: string) {
     return this.orders.find(status ? { status } : {}).select('orderNumber userId shopId amounts payment status delivery createdAt updatedAt').sort({ createdAt: -1 }).limit(300).lean();
   }
-  async refundOrder(id: string) {
-    const order = await this.orders.findByIdAndUpdate(id, { $set: { 'payment.status': 'refunded', status: 'cancelled' } }, { new: true });
-    if (!order) throw AppError.notFound('Commande');
-    return order;
+  /** Délègue à `FinanceService` (§30) : un remboursement dépose désormais un `Refund` qualifié et une ligne de grand livre, jamais une simple bascule de statut. */
+  refundOrder(id: string, resolvedBy: string) {
+    return this.finance.createRefund(id, undefined, 'Remboursement administratif', resolvedBy);
   }
 
   disputesList(status?: string) {
@@ -83,5 +88,111 @@ export class AdministrationService {
 
   grantCourierBonus(courierId: string, amount: number, reason: string, grantedBy: string) {
     return this.courierEarnings.grantBonus(courierId, amount, reason, grantedBy);
+  }
+
+  /**
+   * Dashboard global — §31. Une seule vue d'ensemble plutôt que de naviguer
+   * entre les sections `usersList`/`ordersList`/etc. pour reconstituer une
+   * tendance à la main — même esprit que `ShopsService.dashboard()`, à
+   * l'échelle de la plateforme entière plutôt que d'une boutique.
+   */
+  async dashboard(days = 30) {
+    const from = new Date(Date.now() - days * 86_400_000);
+
+    const [
+      userCount,
+      shopCount,
+      productCount,
+      orderCount,
+      reviewCount,
+      postCount,
+      revenue,
+      byStatus,
+      paymentBreakdown,
+      userGrowth,
+      shopGrowth,
+      topProducts,
+      topZones,
+      courierPerformance,
+    ] = await Promise.all([
+      this.users.countDocuments({}),
+      this.shops.countDocuments({}),
+      this.products.countDocuments({}),
+      this.orders.countDocuments({}),
+      this.reviews.countDocuments({}),
+      this.posts.countDocuments({}),
+      this.orders.aggregate([
+        { $match: { status: 'delivered' } },
+        { $group: { _id: null, total: { $sum: '$amounts.total' } } },
+      ]),
+      this.orders.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
+      this.orders.aggregate([
+        { $group: { _id: { method: '$payment.method', status: '$payment.status' }, count: { $sum: 1 }, total: { $sum: '$amounts.total' } } },
+      ]),
+      this.users.aggregate([
+        { $match: { createdAt: { $gte: from } } },
+        { $group: { _id: { $dateToString: { date: '$createdAt', format: '%Y-%m-%d' } }, count: { $sum: 1 } } },
+        { $sort: { _id: 1 } },
+      ]),
+      this.shops.aggregate([
+        { $match: { createdAt: { $gte: from } } },
+        { $group: { _id: { $dateToString: { date: '$createdAt', format: '%Y-%m-%d' } }, count: { $sum: 1 } } },
+        { $sort: { _id: 1 } },
+      ]),
+      this.orders.aggregate([
+        { $match: { status: 'delivered' } },
+        { $unwind: '$items' },
+        { $group: { _id: { productId: '$items.productId', name: '$items.name' }, quantity: { $sum: '$items.quantity' }, revenue: { $sum: '$items.subtotal' } } },
+        { $sort: { quantity: -1 } },
+        { $limit: 10 },
+      ]),
+      this.orders.aggregate([
+        { $match: { 'delivery.city': { $ne: null } } },
+        { $group: { _id: '$delivery.city', orders: { $sum: 1 } } },
+        { $sort: { orders: -1 } },
+        { $limit: 10 },
+      ]),
+      this.orders.aggregate([
+        { $match: { status: 'delivered', 'delivery.courierId': { $ne: null } } },
+        {
+          $group: {
+            _id: '$delivery.courierId',
+            deliveries: { $sum: 1 },
+            shippingRevenue: { $sum: '$amounts.shippingFee' },
+            tips: { $sum: { $ifNull: ['$delivery.tip', 0] } },
+          },
+        },
+        { $sort: { deliveries: -1 } },
+        { $limit: 10 },
+        {
+          $lookup: {
+            from: 'users',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'courier',
+            pipeline: [{ $project: { firstName: 1, lastName: 1, phone: 1 } }],
+          },
+        },
+        { $unwind: { path: '$courier', preserveNullAndEmptyArrays: true } },
+      ]),
+    ]);
+
+    return {
+      counts: {
+        users: userCount,
+        shops: shopCount,
+        products: productCount,
+        orders: orderCount,
+        reviews: reviewCount,
+        posts: postCount,
+      },
+      revenue: revenue[0]?.total ?? 0,
+      ordersByStatus: byStatus,
+      paymentBreakdown,
+      growth: { periodDays: days, users: userGrowth, shops: shopGrowth },
+      topProducts,
+      topZones,
+      courierPerformance,
+    };
   }
 }

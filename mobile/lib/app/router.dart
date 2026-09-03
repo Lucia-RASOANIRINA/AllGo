@@ -16,6 +16,9 @@ import 'package:allgo/features/delivery/presentation/delivery_screen.dart';
 import 'package:allgo/features/delivery/presentation/courier_dashboard_screen.dart';
 import 'package:allgo/features/delivery/presentation/courier_earnings_screen.dart';
 import 'package:allgo/features/admin/presentation/admin_dashboard_screen.dart';
+import 'package:allgo/features/admin/presentation/admin_stats_screen.dart';
+import 'package:allgo/features/admin/presentation/finance_admin_screen.dart';
+import 'package:allgo/features/finance/presentation/merchant_withdrawals_screen.dart';
 import 'package:allgo/features/favorites/presentation/favorites_screen.dart';
 import 'package:allgo/features/geo/presentation/map_screen.dart';
 import 'package:allgo/features/home/presentation/home_screen.dart';
@@ -86,6 +89,9 @@ abstract final class Routes {
   static const String courier = '/livreur';
   static const String courierEarnings = '/livreur/revenus';
   static const String admin = '/admin';
+  static const String adminDashboard = '/admin/dashboard';
+  static const String adminFinance = '/admin/finances';
+  static const String merchantWithdrawals = '/bord/retraits';
 
   static String productPath(String id) => '/produit/$id';
   static String orderPath(String id) => '/commandes/$id';
@@ -133,6 +139,9 @@ abstract final class Routes {
     courier,
     courierEarnings,
     admin,
+    adminDashboard,
+    adminFinance,
+    merchantWithdrawals,
   ];
 }
 
@@ -282,6 +291,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           detail: 'Texte embarqué dans l’application, consultable hors ligne.',
         ),
       ),
+      GoRoute(
+        path: Routes.merchantWithdrawals,
+        parentNavigatorKey: rootKey,
+        builder: (context, state) => MerchantWithdrawalsScreen(shopId: state.extra as String? ?? ''),
+      ),
 
       // --- Coquille persistante : la barre de navigation ne se reconstruit pas
       //     d'un onglet à l'autre. ---
@@ -339,6 +353,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.admin,
             builder: (context, state) => const AdminDashboardScreen(),
+          ),
+          GoRoute(
+            path: Routes.adminDashboard,
+            builder: (context, state) => const AdminStatsScreen(),
+          ),
+          GoRoute(
+            path: Routes.adminFinance,
+            builder: (context, state) => const FinanceAdminScreen(),
           ),
           GoRoute(
             path: Routes.courierEarnings,

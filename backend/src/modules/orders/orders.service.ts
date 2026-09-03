@@ -13,6 +13,7 @@ import { Counter, type CounterDocument } from './schemas/counter.schema';
 import { Coupon, type CouponDocument } from './schemas/coupon.schema';
 import { Dispute, type DisputeDocument } from './schemas/dispute.schema';
 import { Promotion, type PromotionDocument } from '../campaigns/schemas/promotion.schema';
+import { FinanceService } from '../finance/finance.service';
 import {
   ORDER_TRANSITIONS,
   Order,
@@ -43,6 +44,7 @@ export class OrdersService {
     @InjectModel(Coupon.name) private readonly coupons: Model<CouponDocument>,
     @InjectModel(Promotion.name) private readonly promotions: Model<PromotionDocument>,
     @InjectModel(Dispute.name) private readonly disputes: Model<DisputeDocument>,
+    private readonly finance: FinanceService,
   ) {}
 
   /**
@@ -393,6 +395,7 @@ export class OrdersService {
       note,
     });
     await order.save();
+    if (next === 'delivered') await this.finance.recordDeliveryRevenue(order);
 
     return order.toJSON();
   }
@@ -502,6 +505,7 @@ export class OrdersService {
     order.delivery.workflowStatus = 'delivered';
     order.delivery.proof = photoUrl ? { photoUrl, capturedAt: new Date() } : undefined;
     await order.save();
+    await this.finance.recordDeliveryRevenue(order);
     return order.toJSON();
   }
 

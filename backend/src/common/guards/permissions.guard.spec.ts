@@ -22,8 +22,9 @@ describe('PermissionsGuard', () => {
   function contextFor(
     user: AuthenticatedUser | undefined,
     params: Record<string, string> = {},
+    query: Record<string, string> = {},
   ): ExecutionContext {
-    const request = { user, params, body: {} };
+    const request = { user, params, body: {}, query };
     return {
       switchToHttp: () => ({ getRequest: () => request }),
       getHandler: () => 'handler',
@@ -96,6 +97,20 @@ describe('PermissionsGuard', () => {
       // autorisation de boutique ne peut pas s'élargir à la plateforme.
       const guard = guardWith({ [PERMISSION_KEY]: Permission.PaymentCollect });
       expect(() => guard.canActivate(contextFor(cashierOfA))).toThrow(ForbiddenException);
+    });
+
+    it('accorde la permission quand la boutique est nommée en chaîne de requête (§30)', () => {
+      // Une route `GET` filtrée (`?shopId=`) n'a ni corps ni paramètre de
+      // route pour porter la portée — sans ce repli, un solde commerçant
+      // resterait inaccessible à son propre propriétaire.
+      const guard = guardWith({
+        [PERMISSION_KEY]: Permission.PaymentCollect,
+        [SCOPE_PARAM_KEY]: 'shopId',
+      });
+      expect(guard.canActivate(contextFor(cashierOfA, {}, { shopId: SHOP_A }))).toBe(true);
+      expect(() => guard.canActivate(contextFor(cashierOfA, {}, { shopId: SHOP_B }))).toThrow(
+        ForbiddenException,
+      );
     });
   });
 

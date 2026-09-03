@@ -1,9 +1,11 @@
+import 'package:allgo/app/router.dart';
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/shared/widgets/async_view.dart';
 import 'package:allgo/features/merchant/presentation/merchant_team_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 final merchantDashboardProvider =
     FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
@@ -60,6 +62,12 @@ class MerchantDashboardScreen extends ConsumerWidget {
                     builder: (_) => const MerchantTeamScreen(),
                   ),
                 ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.account_balance_wallet_outlined),
+                title: const Text('Solde et retraits'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push(Routes.merchantWithdrawals, extra: data['shopId']),
               ),
             ],
           ),
