@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, HydratedDocument, Types } from 'mongoose';
+import { Document, HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
 
 /** Catalogue des notifications — §10.1. */
 export const NOTIFICATION_TYPES = [
@@ -38,7 +38,7 @@ export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
 @Schema({ collection: 'notifications', timestamps: { createdAt: true, updatedAt: false } })
 export class Notification extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
   @Prop({ type: String, enum: NOTIFICATION_TYPES, required: true }) type!: NotificationType;
 
   /** Titre et corps **déjà localisés** : affichables sans appel API (§10.2). */

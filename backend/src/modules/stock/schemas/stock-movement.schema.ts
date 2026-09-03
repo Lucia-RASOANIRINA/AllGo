@@ -40,8 +40,8 @@ import { Document, HydratedDocument, Types, Schema as MongooseSchema } from 'mon
 export class StockMovement extends Document {
   @Prop({ type: Date, default: () => new Date(), required: true }) at!: Date;
 
-  @Prop({ type: Types.ObjectId, ref: 'Shop', required: true }) shopId!: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, ref: 'Product', required: true }) productId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Shop', required: true }) shopId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Product', required: true }) productId!: Types.ObjectId;
 
   @Prop({ type: String, enum: ['in', 'out', 'correction'], required: true })
   type!: 'in' | 'out' | 'correction';
@@ -55,7 +55,7 @@ export class StockMovement extends Document {
   @Prop() supplier?: string;
   @Prop() note?: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
 }
 
 export type StockMovementDocument = HydratedDocument<StockMovement>;

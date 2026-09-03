@@ -89,12 +89,28 @@ export class ShopsService {
     if (!shop) throw AppError.notFound('Boutique');
     const shopObjectId = new Types.ObjectId(shopId);
     const [orders, products, customers, revenue, periods, topProducts, followers, postStats, promotions, deliveryRevenue, visitors] = await Promise.all([
-      this.orders.countDocuments({ shopId }),
-      this.products.countDocuments({ shopId }),
-      this.orders.distinct('userId', { shopId }),
+      this.orders.countDocuments({ shopId: shopObjectId }),
+      this.products.countDocuments({ shopId: shopObjectId }),
+      this.orders.distinct('userId', { shopId: shopObjectId }),
       this.orders.aggregate([{ $match: { shopId: shopObjectId, status: { $ne: 'cancelled' } } }, { $group: { _id: null, total: { $sum: '$amounts.total' } } }]),
       this.orders.aggregate([{ $match: { shopId: shopObjectId, status: 'delivered' } }, { $group: { _id: { day: { $dateToString: { date: '$createdAt', format: '%Y-%m-%d' } }, week: { $isoWeek: '$createdAt' }, month: { $dateToString: { date: '$createdAt', format: '%Y-%m' } } }, sales: { $sum: '$amounts.total' }, orders: { $sum: 1 } } }, { $sort: { '_id.day': -1 } }]),
-      this.orders.aggregate([{ $match: { shopId: shopObjectId, status: 'delivered' } }, { $unwind: '$items' }, { $group: { _id: '$items.productId', quantity: { $sum: '$items.quantity' }, revenue: { $sum: '$items.subtotal' } } }, { $sort: { quantity: -1 } }, { $limit: 10 }]),
+      this.orders.aggregate([
+        { $match: { shopId: shopObjectId, status: 'delivered' } },
+        { $unwind: '$items' },
+        { $group: { _id: '$items.productId', quantity: { $sum: '$items.quantity' }, revenue: { $sum: '$items.subtotal' } } },
+        { $sort: { quantity: -1 } },
+        { $limit: 10 },
+        {
+          $lookup: {
+            from: 'products',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'product',
+            pipeline: [{ $project: { name: 1 } }],
+          },
+        },
+        { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
+      ]),
       this.follows.countDocuments({ targetType: 'shop', targetId: shopObjectId }),
       this.posts.aggregate([{ $match: { $or: [{ shopId: shopObjectId }, { 'author.shopId': shopObjectId }] } }, { $group: { _id: null, posts: { $sum: 1 }, likes: { $sum: '$counters.reactions' }, comments: { $sum: '$counters.comments' }, shares: { $sum: '$counters.shares' }, reach: { $sum: '$counters.views' } } }]),
       this.promotions.aggregate([{ $match: { shopId: shopObjectId } }, { $group: { _id: null, count: { $sum: 1 }, active: { $sum: { $cond: ['$active', 1, 0] } } } }]),
@@ -102,12 +118,12 @@ export class ShopsService {
       this.products.aggregate([{ $match: { shopId: shopObjectId } }, { $group: { _id: null, views: { $sum: '$stats.views' } } }]),
     ]);
     const byStatus = await this.orders.aggregate([{ $match: { shopId: shopObjectId } }, { $group: { _id: '$status', count: { $sum: 1 } } }]);
-    const lowStock = await this.products.countDocuments({ shopId, status: 'published', $expr: { $lte: ['$stock', '$minStock'] } });
+    const lowStock = await this.products.countDocuments({ shopId: shopObjectId, status: 'published', $expr: { $lte: ['$stock', '$minStock'] } });
     return {
       shopId: String(shop._id),
       revenue: revenue[0]?.total ?? 0,
       orders,
-      sales: await this.orders.countDocuments({ shopId, status: 'delivered' }),
+      sales: await this.orders.countDocuments({ shopId: shopObjectId, status: 'delivered' }),
       products,
       stock: { lowStock },
       customers: customers.length,
@@ -128,6 +144,32 @@ export class ShopsService {
         deliveryRevenue: deliveryRevenue[0]?.total ?? 0,
       },
     };
+  }
+
+  /**
+   * Clients de la boutique — le tableau de bord n'en affichait qu'un compte
+   * (`orders.distinct('userId').length`) sans jamais donner accès aux
+   * personnes elles-mêmes : impossible de recontacter son meilleur client ou
+   * de repérer qui n'a plus commandé depuis longtemps.
+   */
+  async customers(shopId: string): Promise<unknown[]> {
+    const shopObjectId = new Types.ObjectId(shopId);
+    const rows = await this.orders.aggregate([
+      { $match: { shopId: shopObjectId, status: { $ne: 'cancelled' } } },
+      {
+        $group: {
+          _id: '$userId',
+          name: { $last: '$customer.name' },
+          phone: { $last: '$customer.phone' },
+          orders: { $sum: 1 },
+          totalSpent: { $sum: '$amounts.total' },
+          lastOrderAt: { $max: '$createdAt' },
+        },
+      },
+      { $sort: { lastOrderAt: -1 } },
+      { $limit: 200 },
+    ]);
+    return rows;
   }
 
   async create(ownerId: string, dto: CreateShopDto): Promise<unknown> {

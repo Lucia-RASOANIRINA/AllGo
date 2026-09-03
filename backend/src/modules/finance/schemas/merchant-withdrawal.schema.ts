@@ -4,10 +4,10 @@ import { Document, HydratedDocument, Types, Schema as MongooseSchema } from 'mon
 /** Retrait commerçant — même motif que `CourierWithdrawal` (courier-earnings), pour les boutiques plutôt que les livreurs. */
 @Schema({ collection: 'merchant_withdrawals', timestamps: true })
 export class MerchantWithdrawal extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'Shop', required: true, index: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Shop', required: true, index: true })
   shopId!: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true })
   ownerId!: Types.ObjectId;
 
   @Prop({ type: MongooseSchema.Types.Decimal128, required: true })

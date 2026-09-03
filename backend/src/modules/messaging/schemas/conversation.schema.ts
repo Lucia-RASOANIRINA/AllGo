@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, HydratedDocument, Types } from 'mongoose';
+import { Document, HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
 
 @Schema({ collection: 'conversations', timestamps: true })
 export class Conversation extends Document {
@@ -26,7 +26,7 @@ export class Conversation extends Document {
    * séparée, car c'est bien LE canal entre ces deux personnes qui se ferme,
    * pas leur compte l'un pour l'autre à l'échelle de toute l'application.
    */
-  @Prop({ type: [Types.ObjectId], default: [] }) blockedBy!: Types.ObjectId[];
+  @Prop({ type: [MongooseSchema.Types.ObjectId], default: [] }) blockedBy!: Types.ObjectId[];
   @Prop({ default: false, index: true }) reported!: boolean;
   @Prop() reportReason?: string;
 
@@ -44,16 +44,16 @@ ConversationSchema.index({ 'participants.userId': 1, updatedAt: -1 });
  */
 @Schema({ collection: 'messages', timestamps: { createdAt: true, updatedAt: false } })
 export class Message extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'Conversation', required: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Conversation', required: true })
   conversationId!: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) senderId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) senderId!: Types.ObjectId;
   @Prop({ maxlength: 4000 }) content?: string;
 
   @Prop({ type: [Object], default: [] })
   attachments!: Array<{ url: string; type: string; name?: string; size?: number }>;
 
-  @Prop({ type: [Types.ObjectId], default: [] }) readBy!: Types.ObjectId[];
+  @Prop({ type: [MongooseSchema.Types.ObjectId], default: [] }) readBy!: Types.ObjectId[];
 
   createdAt!: Date;
 }

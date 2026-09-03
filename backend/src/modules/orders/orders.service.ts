@@ -473,6 +473,30 @@ export class OrdersService {
     return order.toJSON();
   }
 
+  /**
+   * Confirme l'encaissement d'un paiement à la livraison — jusqu'ici
+   * `Permission.PaymentCollect` n'était vérifiée par aucune route : un
+   * commerçant n'avait aucun moyen de faire passer une commande contre-
+   * remboursement d'`unpaid` à `paid`.
+   */
+  async collectPayment(orderId: string, shopId: string): Promise<unknown> {
+    const order = await this.orders.findOne({
+      _id: new Types.ObjectId(orderId),
+      shopId: new Types.ObjectId(shopId),
+    });
+    if (!order) throw AppError.notFound('Commande');
+    if (order.payment.method !== 'cod') {
+      throw new AppError('NOT_COD', 'Seule une commande contre-remboursement peut être encaissée manuellement.', 409);
+    }
+    if (order.payment.status === 'paid') {
+      throw new AppError('ALREADY_PAID', 'Cette commande est déjà marquée payée.', 409);
+    }
+    order.payment.status = 'paid';
+    order.payment.paidAt = new Date();
+    await order.save();
+    return order.toJSON();
+  }
+
   async courierMissions(userId: string): Promise<unknown[]> {
     return this.orders.find({ $or: [{ 'delivery.courierId': new Types.ObjectId(userId) }, { 'delivery.courierId': { $exists: false }, status: { $in: ['confirmed', 'preparing'] } }] }).sort({ createdAt: -1 }).limit(50).lean();
   }

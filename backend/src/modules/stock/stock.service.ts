@@ -109,4 +109,28 @@ export class StockService {
       .sort({ stock: 1 })
       .lean();
   }
+
+  /**
+   * Historique des mouvements — jusqu'ici enregistré à chaque `move()` mais
+   * jamais relu : aucune route ne l'exposait, donc aucun écran ne pouvait
+   * répondre à « qui a touché ce stock, et quand ? ».
+   */
+  async history(shopId: string): Promise<unknown[]> {
+    return this.movements
+      .aggregate([
+        { $match: { shopId: new Types.ObjectId(shopId) } },
+        { $sort: { at: -1 } },
+        { $limit: 200 },
+        {
+          $lookup: {
+            from: 'products',
+            localField: 'productId',
+            foreignField: '_id',
+            as: 'product',
+            pipeline: [{ $project: { name: 1 } }],
+          },
+        },
+        { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
+      ]);
+  }
 }

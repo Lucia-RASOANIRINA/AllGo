@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, HydratedDocument, Types } from 'mongoose';
+import { Document, HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
 
 /**
  * Blocage générique compte-à-compte — distinct du blocage de conversation
@@ -10,8 +10,8 @@ import { Document, HydratedDocument, Types } from 'mongoose';
  */
 @Schema({ collection: 'user_blocks', timestamps: { createdAt: true, updatedAt: false } })
 export class UserBlock extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) blockerId!: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) blockedId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) blockerId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) blockedId!: Types.ObjectId;
   createdAt!: Date;
 }
 

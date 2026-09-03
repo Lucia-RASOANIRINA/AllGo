@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, HydratedDocument, Types } from 'mongoose';
+import { Document, HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
 import { Role } from '../../../common/rbac/roles';
 
 /** Point GeoJSON. Ordre des coordonnées : **[longitude, latitude]** (§15.4). */
@@ -20,7 +20,7 @@ export class RoleAssignment {
   role!: Role;
 
   /** Portée du rôle. Requis pour tout rôle de boutique, absent pour les rôles globaux. */
-  @Prop({ type: Types.ObjectId, ref: 'Shop' })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Shop' })
   shopId?: Types.ObjectId;
 }
 export const RoleAssignmentSchema = SchemaFactory.createForClass(RoleAssignment);

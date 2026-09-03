@@ -53,4 +53,11 @@ export class StockController {
   alerts(@Param('shopId') shopId: string) {
     return this.stock.alerts(shopId);
   }
+
+  @Get('movements')
+  @RequirePermission(Permission.StockRead, 'shopId')
+  @ApiOperation({ summary: 'Historique des mouvements de stock.' })
+  history(@Param('shopId') shopId: string) {
+    return this.stock.history(shopId);
+  }
 }

@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, HydratedDocument, Types } from 'mongoose';
+import { Document, HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
 
 export const SANCTION_TYPES = ['warning', 'suspension', 'ban'] as const;
 export type SanctionType = (typeof SANCTION_TYPES)[number];
@@ -12,11 +12,11 @@ export type SanctionType = (typeof SANCTION_TYPES)[number];
  */
 @Schema({ collection: 'sanctions', timestamps: { createdAt: true, updatedAt: false } })
 export class Sanction extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true }) userId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true, index: true }) userId!: Types.ObjectId;
   @Prop({ type: String, enum: SANCTION_TYPES, required: true }) type!: SanctionType;
   @Prop({ required: true, trim: true, maxlength: 500 }) reason!: string;
-  @Prop({ type: Types.ObjectId, ref: 'Report' }) reportId?: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) issuedBy!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Report' }) reportId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) issuedBy!: Types.ObjectId;
   /** Absente pour un avertissement ou une exclusion définitive ; posée pour une suspension temporaire. */
   @Prop({ type: Date }) expiresAt?: Date;
   createdAt!: Date;

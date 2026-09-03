@@ -90,17 +90,22 @@ class _OrderTile extends ConsumerWidget {
     final status = order['status']?.toString() ?? 'pending';
     final next = <String, String>{'pending': 'confirmed', 'confirmed': 'preparing', 'preparing': 'shipped', 'shipped': 'delivered'}[status];
     final canCancel = const {'pending', 'confirmed', 'preparing', 'shipped'}.contains(status);
+    final payment = order['payment'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+    final awaitingCodCollection = payment['method'] == 'cod' && payment['status'] != 'paid';
     final shopIdFuture = ref.read(apiClientProvider).get<Map<String, dynamic>>('/me/shops');
     return Card(child: ListTile(
       title: Text(order['orderNumber']?.toString() ?? id),
-      subtitle: Text('${order['customer']?['phone'] ?? ''} • ${order['amounts']?['total'] ?? 0} Ar\nStatut : $status'),
+      subtitle: Text(
+        '${order['customer']?['phone'] ?? ''} • ${order['amounts']?['total'] ?? 0} Ar\n'
+        'Statut : $status${awaitingCodCollection ? ' • Contre-remboursement en attente' : ''}',
+      ),
       isThreeLine: true,
       onTap: () => showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
         title: Text('Commande ${order['orderNumber'] ?? id}'),
         content: Text('Articles : ${(order['items'] as List?)?.length ?? 0}\nClient : ${order['customer']?['name'] ?? ''}\nTotal : ${order['amounts']?['total'] ?? 0} Ar'),
         actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Fermer')), TextButton(onPressed: () { Navigator.pop(dialogContext); _receipt(context, order); }, child: const Text('Reçu / imprimer'))],
       )),
-      trailing: next == null && !canCancel ? null : PopupMenuButton<String>(
+      trailing: next == null && !canCancel && !awaitingCodCollection ? null : PopupMenuButton<String>(
         onSelected: (action) async {
           final shops = await shopIdFuture;
           final items = shops.data?['data'];
@@ -109,6 +114,8 @@ class _OrderTile extends ConsumerWidget {
           final shopId = (shop['id'] ?? shop['_id']).toString();
           if (action == 'cancel') {
             await ref.read(apiClientProvider).patch<void>('/shop/$shopId/orders/$id/cancel');
+          } else if (action == 'collect-payment') {
+            await ref.read(apiClientProvider).patch<void>('/shop/$shopId/orders/$id/collect-payment');
           } else if (next != null) {
             await ref.read(apiClientProvider).patch<void>('/shop/$shopId/orders/$id/status', data: {'status': next});
           }
@@ -116,6 +123,7 @@ class _OrderTile extends ConsumerWidget {
         },
         itemBuilder: (_) => [
           if (next != null) PopupMenuItem(value: 'next', child: Text(next == 'confirmed' ? 'Valider' : 'Suivant')),
+          if (awaitingCodCollection) const PopupMenuItem(value: 'collect-payment', child: Text('Marquer payé (encaissé)')),
           if (canCancel) const PopupMenuItem(value: 'cancel', child: Text('Refuser / annuler')),
         ],
       ),

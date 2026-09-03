@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, HydratedDocument, Types } from 'mongoose';
+import { Document, HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
 import { GeoPoint, GeoPointSchema } from '../../users/schemas/user.schema';
 import { Role } from '../../../common/rbac/roles';
 
@@ -11,13 +11,13 @@ import { Role } from '../../../common/rbac/roles';
  */
 @Schema({ _id: false })
 export class TeamMember {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
   @Prop({ required: true }) name!: string;
   @Prop() avatar?: string;
   @Prop({ type: String, enum: Object.values(Role), required: true }) role!: Role;
   @Prop({ type: String, enum: ['active', 'suspended'], default: 'active' })
   status!: 'active' | 'suspended';
-  @Prop({ type: Types.ObjectId, ref: 'User' }) invitedBy?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User' }) invitedBy?: Types.ObjectId;
   @Prop({ type: Date, default: () => new Date() }) joinedAt!: Date;
 }
 export const TeamMemberSchema = SchemaFactory.createForClass(TeamMember);
@@ -33,7 +33,7 @@ export const OpeningHoursSchema = SchemaFactory.createForClass(OpeningHours);
 
 @Schema({ collection: 'shops', timestamps: true })
 export class Shop extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) ownerId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) ownerId!: Types.ObjectId;
 
   @Prop({ required: true, lowercase: true, trim: true }) slug!: string;
   @Prop({ required: true, trim: true }) name!: string;
@@ -41,7 +41,7 @@ export class Shop extends Document {
   @Prop() logo?: string;
   @Prop() banner?: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Category' }) categoryId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Category' }) categoryId?: Types.ObjectId;
   /** Instantané d'affichage : évite une jointure sur chaque carte de boutique. */
   @Prop() categoryName?: string;
 

@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, HydratedDocument, Types } from 'mongoose';
+import { Document, HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
 
 /** Cibles signalables — §29. Une par type de contenu ou de compte modérable. */
 export const REPORT_TARGET_TYPES = ['post', 'comment', 'user', 'shop', 'product'] as const;
@@ -33,9 +33,9 @@ export type ReportAction = (typeof REPORT_ACTIONS)[number];
 @Schema({ collection: 'reports', timestamps: true })
 export class Report extends Document {
   /** `null` pour un signalement déposé par le filtre automatique, pas un compte. */
-  @Prop({ type: Types.ObjectId, ref: 'User', default: null }) reporterId!: Types.ObjectId | null;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', default: null }) reporterId!: Types.ObjectId | null;
   @Prop({ type: String, enum: REPORT_TARGET_TYPES, required: true }) targetType!: ReportTargetType;
-  @Prop({ type: Types.ObjectId, required: true }) targetId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, required: true }) targetId!: Types.ObjectId;
   @Prop({ required: true, trim: true, maxlength: 500 }) reason!: string;
   @Prop({ type: String, enum: REPORT_REASON_CODES, default: 'other' }) reasonCode!: ReportReasonCode;
   @Prop({ type: Boolean, default: false }) automatic!: boolean;
@@ -43,7 +43,7 @@ export class Report extends Document {
   @Prop({ type: String, enum: REPORT_STATUSES, default: 'pending', index: true }) status!: ReportStatus;
   @Prop({ type: String, enum: REPORT_ACTIONS, default: 'none' }) action!: ReportAction;
   @Prop({ maxlength: 2000 }) resolution?: string;
-  @Prop({ type: Types.ObjectId, ref: 'User' }) resolvedBy?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User' }) resolvedBy?: Types.ObjectId;
   @Prop({ type: Date }) resolvedAt?: Date;
 
   createdAt!: Date;

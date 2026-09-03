@@ -125,6 +125,16 @@ export class OrdersController {
     return this.orders.cancelForShop(id, shopId, user.id);
   }
 
+  @Patch('shop/:shopId/orders/:id/collect-payment')
+  @RequirePermission(Permission.PaymentCollect, 'shopId')
+  @ApiOperation({
+    summary: 'Confirmer l’encaissement d’un paiement à la livraison (contre-remboursement).',
+    description: 'Réservé aux commandes payées à la livraison — un paiement mobile money suit le webhook du fournisseur, jamais cette route.',
+  })
+  collectPayment(@Param('shopId') shopId: string, @Param('id') id: string) {
+    return this.orders.collectPayment(id, shopId);
+  }
+
   @Get('courier/missions')
   @RequirePermission(Permission.DeliveryReadOwn)
   missions(@CurrentUser() user: AuthenticatedUser) { return this.orders.courierMissions(user.id); }

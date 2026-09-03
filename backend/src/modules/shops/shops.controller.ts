@@ -83,6 +83,13 @@ export class ShopsController {
     return this.shops.dashboard(shopId);
   }
 
+  @Get('shop/:shopId/customers')
+  @RequirePermission(Permission.ShopDashboard, 'shopId')
+  @ApiOperation({ summary: 'Clients ayant déjà commandé dans la boutique.' })
+  customers(@Param('shopId') shopId: string) {
+    return this.shops.customers(shopId);
+  }
+
   @Public()
   @Get('shop/:shopId/posts')
   @ApiOperation({ summary: 'Publications d’une boutique — onglet « Publications » de sa fiche.' })

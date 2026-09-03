@@ -9,7 +9,7 @@ export class RequestDetail {
   @Prop({ type: String, enum: ['search', 'need', 'buy'], required: true }) type!: string;
   @Prop({ required: true }) title!: string;
   @Prop() description?: string;
-  @Prop({ type: Types.ObjectId, ref: 'Category' }) categoryId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Category' }) categoryId?: Types.ObjectId;
   @Prop() quantity?: number;
   @Prop({ type: MongooseSchema.Types.Decimal128 }) budget?: unknown;
   @Prop({ type: Date }) desiredDate?: Date;
@@ -34,7 +34,7 @@ export const RequestDetailSchema = SchemaFactory.createForClass(RequestDetail);
  */
 @Schema({ collection: 'posts', timestamps: true })
 export class Post extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) authorId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) authorId!: Types.ObjectId;
 
   /** Instantané d'affichage : le fil se rend sans une seule jointure. */
   @Prop({ type: Object, required: true })
@@ -51,9 +51,9 @@ export class Post extends Document {
   @Prop({ maxlength: 5000 }) content?: string;
   @Prop({ type: [MediaSchema], default: [] }) media!: Media[];
 
-  @Prop({ type: Types.ObjectId, ref: 'Product' }) productId?: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, ref: 'Promotion' }) promotionId?: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, ref: 'Shop' }) shopId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Product' }) productId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Promotion' }) promotionId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Shop' }) shopId?: Types.ObjectId;
   @Prop({ type: Date }) scheduledAt?: Date;
   @Prop({ type: Object }) product?: { name: string; price: unknown; image?: string };
 

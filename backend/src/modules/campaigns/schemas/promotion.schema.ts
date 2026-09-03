@@ -1,9 +1,9 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, HydratedDocument, Types } from 'mongoose';
+import { Document, HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
 
 @Schema({ collection: 'promotions', timestamps: true })
 export class Promotion extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'Shop', required: true }) shopId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Shop', required: true }) shopId!: Types.ObjectId;
   @Prop({ required: true, trim: true }) name!: string;
   @Prop({ type: String, enum: ['percent', 'fixed', 'price'], required: true }) type!: string;
   @Prop({ required: true, min: 0 }) value!: number;
@@ -14,7 +14,7 @@ export class Promotion extends Document {
   @Prop({ default: false }) flash!: boolean;
   @Prop({ default: false }) specialOffer!: boolean;
   @Prop({ type: Object }) location?: { latitude: number; longitude: number; radiusKm: number };
-  @Prop({ type: Types.ObjectId, ref: 'Product' }) productId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Product' }) productId?: Types.ObjectId;
   @Prop({ default: true }) active!: boolean;
 
   /** Nombre de fois où `couponCode` a été rédimé — plafonné par `quantityLimit` (§21). */

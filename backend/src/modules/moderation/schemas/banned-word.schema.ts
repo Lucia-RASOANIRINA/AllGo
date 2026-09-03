@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, HydratedDocument, Types } from 'mongoose';
+import { Document, HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
 
 /**
  * Liste noire de mots — alimente la modération automatique (§29) : toute
@@ -10,7 +10,7 @@ import { Document, HydratedDocument, Types } from 'mongoose';
 @Schema({ collection: 'banned_words', timestamps: { createdAt: true, updatedAt: false } })
 export class BannedWord extends Document {
   @Prop({ required: true, trim: true, lowercase: true, unique: true, maxlength: 100 }) word!: string;
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) addedBy!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) addedBy!: Types.ObjectId;
   createdAt!: Date;
 }
 

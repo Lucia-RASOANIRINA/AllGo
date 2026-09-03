@@ -2,6 +2,8 @@ import 'package:allgo/app/router.dart';
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/shared/widgets/async_view.dart';
+import 'package:allgo/features/merchant/presentation/merchant_customers_screen.dart';
+import 'package:allgo/features/merchant/presentation/merchant_stock_screen.dart';
 import 'package:allgo/features/merchant/presentation/merchant_team_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -43,6 +45,10 @@ class MerchantDashboardScreen extends ConsumerWidget {
             children: <Widget>[
               _MetricGrid(data: data),
               const SizedBox(height: AllGoTokens.space4),
+              _TopProductsCard(
+                analytics: data['analytics'] as Map<String, dynamic>? ?? const {},
+              ),
+              const SizedBox(height: AllGoTokens.space4),
               ListTile(
                 leading: const Icon(Icons.storefront_outlined),
                 title: const Text('Gérer ma boutique'),
@@ -68,6 +74,26 @@ class MerchantDashboardScreen extends ConsumerWidget {
                 title: const Text('Solde et retraits'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => context.push(Routes.merchantWithdrawals, extra: data['shopId']),
+              ),
+              ListTile(
+                leading: const Icon(Icons.people_outline),
+                title: const Text('Clients'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => MerchantCustomersScreen(shopId: data['shopId'] as String),
+                  ),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.inventory_2_outlined),
+                title: const Text('Stock'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => MerchantStockScreen(shopId: data['shopId'] as String),
+                  ),
+                ),
               ),
             ],
           ),
@@ -147,6 +173,56 @@ class _MetricGrid extends StatelessWidget {
                 ),
               ))
           .toList(),
+    );
+  }
+}
+
+/// §31 : les 30 derniers jours calculaient déjà `topProducts` côté serveur
+/// (`ShopsService.dashboard`), mais aucun écran ne les affichait — seuls les
+/// totaux agrégés apparaissaient dans `_MetricGrid`.
+class _TopProductsCard extends StatelessWidget {
+  const _TopProductsCard({required this.analytics});
+
+  final Map<String, dynamic> analytics;
+
+  @override
+  Widget build(BuildContext context) {
+    final topProducts = ((analytics['topProducts'] as List<dynamic>?) ?? const <dynamic>[])
+        .whereType<Map<String, dynamic>>()
+        .toList();
+    if (topProducts.isEmpty) return const SizedBox.shrink();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AllGoTokens.space3),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text('Produits les plus vendus', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: AllGoTokens.space2),
+            for (final entry in topProducts.take(5))
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        (entry['product'] as Map<String, dynamic>?)?['name']?.toString() ??
+                            'Produit supprimé',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Text('${entry['quantity'] ?? 0} vendus'),
+                    const SizedBox(width: AllGoTokens.space2),
+                    Text(
+                      '${entry['revenue'] ?? 0} Ar',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

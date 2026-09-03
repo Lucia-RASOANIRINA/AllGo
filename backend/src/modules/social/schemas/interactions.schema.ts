@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, HydratedDocument, Types } from 'mongoose';
+import { Document, HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
 
 /**
  * Collections séparées — croissance NON BORNÉE.
@@ -11,12 +11,12 @@ import { Document, HydratedDocument, Types } from 'mongoose';
 
 @Schema({ collection: 'comments', timestamps: true })
 export class Comment extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'Post', required: true }) postId!: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Post', required: true }) postId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
   @Prop({ type: Object, required: true }) author!: { name: string; avatar?: string };
   @Prop({ required: true, maxlength: 2000 }) content!: string;
   /** Réponse à un commentaire : un seul niveau d'imbrication. */
-  @Prop({ type: Types.ObjectId, ref: 'Comment', default: null })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Comment', default: null })
   parentId!: Types.ObjectId | null;
   /** Même motif que `Post.reported` (§22) : un drapeau posé par un signalement ou le filtre automatique, jamais une suppression. */
   @Prop({ type: Boolean, default: false, index: true }) reported!: boolean;
@@ -34,8 +34,8 @@ export const REACTION_TYPES = ['like', 'love', 'haha', 'wow', 'sad', 'angry'] as
 export class Reaction extends Document {
   @Prop({ type: String, enum: ['post', 'comment'], required: true })
   targetType!: 'post' | 'comment';
-  @Prop({ type: Types.ObjectId, required: true }) targetId!: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, required: true }) targetId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
   @Prop({ type: String, enum: REACTION_TYPES, required: true }) type!: string;
   createdAt!: Date;
 }
@@ -47,10 +47,10 @@ ReactionSchema.index({ targetId: 1, userId: 1 }, { unique: true });
 
 @Schema({ collection: 'follows', timestamps: { createdAt: true, updatedAt: false } })
 export class Follow extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) followerId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) followerId!: Types.ObjectId;
   @Prop({ type: String, enum: ['user', 'shop'], required: true })
   targetType!: 'user' | 'shop';
-  @Prop({ type: Types.ObjectId, required: true }) targetId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, required: true }) targetId!: Types.ObjectId;
   createdAt!: Date;
 }
 export type FollowDocument = HydratedDocument<Follow>;
@@ -69,9 +69,9 @@ export type FavoriteTargetType = (typeof FAVORITABLE_TYPES)[number];
  */
 @Schema({ collection: 'favorites', timestamps: { createdAt: true, updatedAt: false } })
 export class Favorite extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
   @Prop({ type: String, enum: FAVORITABLE_TYPES, required: true }) targetType!: FavoriteTargetType;
-  @Prop({ type: Types.ObjectId, required: true }) targetId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, required: true }) targetId!: Types.ObjectId;
   createdAt!: Date;
 }
 export type FavoriteDocument = HydratedDocument<Favorite>;

@@ -28,7 +28,7 @@ export const VariantSchema = SchemaFactory.createForClass(Variant);
 
 @Schema({ collection: 'products', timestamps: true })
 export class Product extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'Shop', required: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Shop', required: true })
   shopId!: Types.ObjectId;
 
   /** Instantané d'affichage de la boutique : une fiche produit se rend sans jointure. */
@@ -43,14 +43,14 @@ export class Product extends Document {
   /** Code-barres : permet l'identification par scan (§2.2). */
   @Prop() barcode?: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Category' }) categoryId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Category' }) categoryId?: Types.ObjectId;
 
   /**
    * Ancêtres matérialisés. Récupère en une requête indexée tous les produits
    * d'une catégorie ET de ses sous-catégories — ce qui exige aujourd'hui une
    * jointure récursive en SQL.
    */
-  @Prop({ type: [Types.ObjectId], default: [] }) categoryPath!: Types.ObjectId[];
+  @Prop({ type: [MongooseSchema.Types.ObjectId], default: [] }) categoryPath!: Types.ObjectId[];
 
   /**
    * Montants en `Decimal128`, jamais en `Double` (§15.4).

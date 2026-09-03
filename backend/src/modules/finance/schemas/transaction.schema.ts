@@ -30,10 +30,10 @@ export class Transaction extends Document {
   @Prop({ type: MongooseSchema.Types.Decimal128, required: true })
   amount!: unknown;
 
-  @Prop({ type: Types.ObjectId, ref: 'Order' }) orderId?: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, ref: 'Shop' }) shopId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Order' }) orderId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Shop' }) shopId?: Types.ObjectId;
   /** Bénéficiaire ou demandeur — livreur pour `courier_withdrawal`, propriétaire pour `merchant_withdrawal`. */
-  @Prop({ type: Types.ObjectId, ref: 'User' }) userId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User' }) userId?: Types.ObjectId;
 
   @Prop({ type: String, enum: TRANSACTION_STATUSES, default: 'completed', index: true })
   status!: TransactionStatus;

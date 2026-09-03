@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, HydratedDocument, Types } from 'mongoose';
+import { Document, HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
 
 /**
  * Bonus accordé à un livreur — décision humaine de la modération plateforme,
@@ -10,7 +10,7 @@ import { Document, HydratedDocument, Types } from 'mongoose';
  */
 @Schema({ collection: 'courier_bonuses', timestamps: true })
 export class CourierBonus extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true, index: true })
   courierId!: Types.ObjectId;
 
   @Prop({ required: true, min: 0 })
@@ -19,7 +19,7 @@ export class CourierBonus extends Document {
   @Prop({ required: true, trim: true, maxlength: 300 })
   reason!: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true })
   grantedBy!: Types.ObjectId;
 
   createdAt!: Date;

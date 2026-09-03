@@ -11,9 +11,9 @@ import { OrderItemSchema, type OrderItem } from './order.schema';
 export class Invoice extends Document {
   @Prop({ required: true }) invoiceNumber!: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Order', required: true }) orderId!: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, ref: 'Shop', required: true }) shopId!: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Order', required: true }) orderId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Shop', required: true }) shopId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
 
   /** Instantané du client au moment de l'émission — une facture ne se réécrit jamais. */
   @Prop({ type: Object, required: true })
@@ -29,7 +29,7 @@ export class Invoice extends Document {
 
   @Prop({ required: true }) paymentMethod!: string;
   @Prop({ type: Date }) issuedAt?: Date;
-  @Prop({ type: Types.ObjectId, ref: 'User' }) issuedBy?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User' }) issuedBy?: Types.ObjectId;
 
   createdAt!: Date;
   updatedAt!: Date;
@@ -43,14 +43,14 @@ InvoiceSchema.index({ orderId: 1 });
 
 @Schema({ collection: 'refunds', timestamps: true })
 export class Refund extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'Order', required: true }) orderId!: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, ref: 'Shop', required: true }) shopId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Order', required: true }) orderId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Shop', required: true }) shopId!: Types.ObjectId;
   @Prop({ type: MongooseSchema.Types.Decimal128, required: true }) amount!: unknown;
   @Prop({ required: true }) reason!: string;
   @Prop({ type: String, enum: ['pending', 'completed', 'failed'], default: 'pending' })
   status!: string;
   @Prop() providerRefundId?: string;
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) createdBy!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) createdBy!: Types.ObjectId;
   createdAt!: Date;
 }
 

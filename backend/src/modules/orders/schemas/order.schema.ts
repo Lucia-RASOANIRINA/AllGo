@@ -36,8 +36,8 @@ export const ORDER_TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
  */
 @Schema({ _id: false })
 export class OrderItem {
-  @Prop({ type: Types.ObjectId, ref: 'Product', required: true }) productId!: Types.ObjectId;
-  @Prop({ type: Types.ObjectId }) variantId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Product', required: true }) productId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId }) variantId?: Types.ObjectId;
   @Prop({ required: true }) name!: string;
   @Prop() image?: string;
   @Prop({ type: MongooseSchema.Types.Decimal128, required: true }) unitPrice!: unknown;
@@ -67,7 +67,7 @@ export class Delivery {
   @Prop() phone?: string;
   @Prop() note?: string;
   @Prop({ type: GeoPointSchema }) location?: GeoPoint;
-  @Prop({ type: Types.ObjectId, ref: 'User' }) courierId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User' }) courierId?: Types.ObjectId;
   @Prop({ type: DeliveryProofSchema }) proof?: DeliveryProof;
   /** Pourboire — versé intégralement au livreur, jamais commissionné (§27). */
   @Prop({ type: MongooseSchema.Types.Decimal128 }) tip?: unknown;
@@ -105,7 +105,7 @@ export const PaymentSchema = SchemaFactory.createForClass(Payment);
 export class TimelineEntry {
   @Prop({ type: String, enum: ORDER_STATUSES, required: true }) status!: OrderStatus;
   @Prop({ type: Date, default: () => new Date() }) at!: Date;
-  @Prop({ type: Types.ObjectId, ref: 'User' }) byUserId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User' }) byUserId?: Types.ObjectId;
   @Prop() note?: string;
 }
 export const TimelineEntrySchema = SchemaFactory.createForClass(TimelineEntry);
@@ -120,10 +120,10 @@ export class Order extends Document {
    */
   @Prop({ required: true }) orderNumber!: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
   @Prop({ type: Object, required: true }) customer!: { name: string; phone: string };
 
-  @Prop({ type: Types.ObjectId, ref: 'Shop', required: true }) shopId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Shop', required: true }) shopId!: Types.ObjectId;
   @Prop({ type: Object, required: true })
   shop!: { name: string; slug: string; logo?: string };
 
@@ -148,7 +148,7 @@ export class Order extends Document {
 
   @Prop({ type: [TimelineEntrySchema], default: [] }) timeline!: TimelineEntry[];
 
-  @Prop({ type: Types.ObjectId, ref: 'Invoice' }) invoiceId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Invoice' }) invoiceId?: Types.ObjectId;
 
   createdAt!: Date;
   updatedAt!: Date;

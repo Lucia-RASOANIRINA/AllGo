@@ -134,30 +134,74 @@ class SocialFeedScreen extends ConsumerWidget {
 
   Future<void> _showComposer(BuildContext context, WidgetRef ref) async {
     final contentController = TextEditingController();
+
+    // Boutiques où je détiens un rôle — le composeur propose de publier « en
+    // tant que » l'une d'elles, plutôt qu'en mon nom propre par défaut sans
+    // recours (§22). Le backend seul sait quel rôle autorise réellement à
+    // publier pour une boutique donnée (`SocialService.resolveShopAuthor`) :
+    // un choix refusé se solde par un message d'erreur, pas par un blocage
+    // côté client qui dupliquerait cette règle.
+    List<Map<String, dynamic>> shops = const <Map<String, dynamic>>[];
+    try {
+      final response = await ref.read(apiClientProvider).get<Map<String, dynamic>>('/me/shops');
+      shops = ((response.data?['data'] as List<dynamic>?) ?? const <dynamic>[])
+          .whereType<Map<String, dynamic>>()
+          .toList();
+    } on DioException {
+      // Le composeur reste utilisable en mon nom propre même si la liste des
+      // boutiques n'a pas pu être chargée.
+    }
+    if (!context.mounted) return;
+
+    String? selectedShopId;
     final result = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Nouvelle publication'),
-        content: TextField(
-          controller: contentController,
-          autofocus: true,
-          maxLines: 5,
-          maxLength: 5000,
-          decoration: const InputDecoration(
-            hintText: 'Partagez une nouveauté avec votre communauté…',
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setState) => AlertDialog(
+          title: const Text('Nouvelle publication'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              if (shops.isNotEmpty) ...<Widget>[
+                DropdownButtonFormField<String?>(
+                  initialValue: selectedShopId,
+                  decoration: const InputDecoration(labelText: 'Publier en tant que'),
+                  items: <DropdownMenuItem<String?>>[
+                    const DropdownMenuItem<String?>(value: null, child: Text('Moi-même')),
+                    for (final shop in shops)
+                      DropdownMenuItem<String?>(
+                        value: (shop['id'] ?? shop['_id']).toString(),
+                        child: Text(shop['name']?.toString() ?? 'Boutique'),
+                      ),
+                  ],
+                  onChanged: (value) => setState(() => selectedShopId = value),
+                ),
+                const SizedBox(height: 12),
+              ],
+              TextField(
+                controller: contentController,
+                autofocus: true,
+                maxLines: 5,
+                maxLength: 5000,
+                decoration: const InputDecoration(
+                  hintText: 'Partagez une nouveauté avec votre communauté…',
+                ),
+              ),
+            ],
           ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Annuler'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(contentController.text),
+              child: const Text('Publier'),
+            ),
+          ],
         ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(contentController.text),
-            child: const Text('Publier'),
-          ),
-        ],
       ),
     );
     contentController.dispose();
@@ -166,7 +210,10 @@ class SocialFeedScreen extends ConsumerWidget {
     try {
       await ref.read(apiClientProvider).post<Map<String, dynamic>>(
         '/social/posts',
-        data: <String, dynamic>{'content': result.trim()},
+        data: <String, dynamic>{
+          'content': result.trim(),
+          if (selectedShopId != null) 'shopId': selectedShopId,
+        },
       );
       ref.invalidate(socialPostsProvider);
       if (!context.mounted) return;
@@ -177,7 +224,7 @@ class SocialFeedScreen extends ConsumerWidget {
       if (!context.mounted) return;
       final response = error.response?.data;
       final message = response is Map<String, dynamic>
-          ? response['message'] as String?
+          ? ((response['error'] as Map<String, dynamic>?)?['message'] as String?)
           : null;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

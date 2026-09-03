@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, HydratedDocument, Types } from 'mongoose';
+import { Document, HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
 
 /**
  * Jeton de rafraîchissement **rotatif** — §12.2.
@@ -14,7 +14,7 @@ import { Document, HydratedDocument, Types } from 'mongoose';
  */
 @Schema({ collection: 'refreshTokens', timestamps: { createdAt: true, updatedAt: false } })
 export class RefreshToken extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true })
   userId!: Types.ObjectId;
 
   /** Identifiant de session, reporté dans le JWT sous `sid`. */

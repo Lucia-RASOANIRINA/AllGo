@@ -13,7 +13,7 @@ export class Coupon extends Document {
   @Prop({ required: true, unique: true, uppercase: true, trim: true }) code!: string;
 
   /** Vide = valable sur toutes les boutiques. */
-  @Prop({ type: Types.ObjectId, ref: 'Shop' }) shopId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Shop' }) shopId?: Types.ObjectId;
 
   @Prop({ type: String, enum: ['percent', 'fixed'], required: true })
   discountType!: 'percent' | 'fixed';

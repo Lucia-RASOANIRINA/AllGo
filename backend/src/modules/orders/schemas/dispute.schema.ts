@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, HydratedDocument, Types } from 'mongoose';
+import { Document, HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
 
 export const DISPUTE_STATUSES = ['open', 'resolved', 'rejected'] as const;
 export type DisputeStatus = (typeof DISPUTE_STATUSES)[number];
@@ -12,15 +12,15 @@ export type DisputeStatus = (typeof DISPUTE_STATUSES)[number];
  */
 @Schema({ collection: 'disputes', timestamps: true })
 export class Dispute extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'Order', required: true, index: true }) orderId!: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) raisedBy!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Order', required: true, index: true }) orderId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) raisedBy!: Types.ObjectId;
   @Prop({ required: true, trim: true, maxlength: 2000 }) reason!: string;
 
   @Prop({ type: String, enum: DISPUTE_STATUSES, default: 'open', index: true })
   status!: DisputeStatus;
 
   @Prop({ maxlength: 2000 }) resolution?: string;
-  @Prop({ type: Types.ObjectId, ref: 'User' }) resolvedBy?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User' }) resolvedBy?: Types.ObjectId;
   @Prop({ type: Date }) resolvedAt?: Date;
 
   createdAt!: Date;

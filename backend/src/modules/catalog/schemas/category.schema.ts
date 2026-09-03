@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, HydratedDocument, Types } from 'mongoose';
+import { Document, HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
 
 /**
  * Arborescence de catégories par **ancêtres matérialisés**.
@@ -13,10 +13,10 @@ export class Category extends Document {
   @Prop({ required: true, lowercase: true }) slug!: string;
   @Prop() icon?: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Category', default: null })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Category', default: null })
   parentId!: Types.ObjectId | null;
 
-  @Prop({ type: [Types.ObjectId], default: [] }) ancestors!: Types.ObjectId[];
+  @Prop({ type: [MongooseSchema.Types.ObjectId], default: [] }) ancestors!: Types.ObjectId[];
   @Prop({ default: 0 }) depth!: number;
   @Prop({ default: 0 }) order!: number;
   @Prop({ default: 0 }) productCount!: number;

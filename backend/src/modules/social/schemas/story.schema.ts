@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, HydratedDocument, Types } from 'mongoose';
+import { Document, HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
 
 /**
  * Un viewer par utilisateur (dédoublonné dans `StoriesService.view`), sur une
@@ -10,7 +10,7 @@ import { Document, HydratedDocument, Types } from 'mongoose';
  */
 @Schema({ _id: false })
 export class StoryViewer {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
   @Prop({ required: true }) name!: string;
   @Prop() avatar?: string;
   @Prop({ type: Date, required: true }) viewedAt!: Date;
@@ -19,15 +19,15 @@ export const StoryViewerSchema = SchemaFactory.createForClass(StoryViewer);
 
 @Schema({ collection: 'stories', timestamps: { createdAt: true, updatedAt: false } })
 export class Story extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true }) authorId!: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) authorId!: Types.ObjectId;
   @Prop({ type: Object, required: true }) author!: { name: string; avatar?: string };
   @Prop({ type: Object, required: true }) media!: { url: string; type: 'image' | 'video' };
   @Prop({ default: 0 }) viewCount!: number;
   @Prop({ type: [StoryViewerSchema], default: [] }) viewers!: StoryViewer[];
 
   /** Lien optionnel vers un produit ou une promotion (§12). */
-  @Prop({ type: Types.ObjectId, ref: 'Product' }) productId?: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, ref: 'Promotion' }) promotionId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Product' }) productId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Promotion' }) promotionId?: Types.ObjectId;
 
   /** Date de péremption — pilote l'index TTL ci-dessous. */
   @Prop({ type: Date, required: true }) expiresAt!: Date;
