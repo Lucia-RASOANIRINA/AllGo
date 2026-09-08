@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsArray, IsIn, IsMongoId, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -44,6 +44,10 @@ export class SendMessageDto {
   attachments?: MessageAttachmentDto[];
 }
 
+export class EditMessageDto {
+  @ApiProperty() @IsString() @MaxLength(4000) content!: string;
+}
+
 @ApiTags('Messagerie')
 @Controller('conversations')
 export class MessagingController {
@@ -51,8 +55,8 @@ export class MessagingController {
 
   @Get()
   @RequirePermission(Permission.MessageRead)
-  list(@CurrentUser() user: AuthenticatedUser) {
-    return this.messaging.list(user.id);
+  list(@CurrentUser() user: AuthenticatedUser, @Query('archived') archived?: string) {
+    return this.messaging.list(user.id, archived === 'true');
   }
 
   @Post()
@@ -92,5 +96,49 @@ export class MessagingController {
   @ApiOperation({ summary: 'Signaler une conversation à la modération.' })
   report(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: ReportConversationDto) {
     return this.messaging.report(id, user.id, dto.reason);
+  }
+
+  @Post(':id/read')
+  @RequirePermission(Permission.MessageRead)
+  @ApiOperation({ summary: 'Marquer toute la conversation comme lue.' })
+  markRead(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.messaging.markRead(id, user.id);
+  }
+
+  @Post(':id/archive')
+  @RequirePermission(Permission.MessageRead)
+  @ApiOperation({ summary: 'Archiver la conversation — la retire de ma liste principale.' })
+  archive(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.messaging.setArchived(id, user.id, true);
+  }
+
+  @Delete(':id/archive')
+  @RequirePermission(Permission.MessageRead)
+  @ApiOperation({ summary: 'Désarchiver — ramène la conversation dans ma liste principale.' })
+  unarchive(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.messaging.setArchived(id, user.id, false);
+  }
+
+  @Patch(':id/messages/:messageId')
+  @RequirePermission(Permission.MessageSend)
+  @ApiOperation({ summary: 'Modifier un message déjà envoyé — auteur uniquement.' })
+  editMessage(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Param('messageId') messageId: string,
+    @Body() dto: EditMessageDto,
+  ) {
+    return this.messaging.editMessage(id, messageId, user.id, dto.content);
+  }
+
+  @Delete(':id/messages/:messageId')
+  @RequirePermission(Permission.MessageSend)
+  @ApiOperation({ summary: 'Supprimer un message déjà envoyé — auteur uniquement.' })
+  deleteMessage(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Param('messageId') messageId: string,
+  ) {
+    return this.messaging.deleteMessage(id, messageId, user.id);
   }
 }

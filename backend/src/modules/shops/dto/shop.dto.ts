@@ -31,4 +31,12 @@ export class CreateShopDto {
  * n'est de toute façon jamais modifié après création — changer l'adresse
  * publique d'une boutique casserait tous les liens déjà partagés.
  */
-export class UpdateShopDto extends PartialType(CreateShopDto) {}
+export class UpdateShopDto extends PartialType(CreateShopDto) {
+  /**
+   * Clé retournée par `POST /media/upload-url`, jamais une URL saisie à la
+   * main (`logo` l'exige encore pour compatibilité, mais un commerçant ne
+   * connaît pas l'URL finale de son fichier avant même de l'avoir envoyé).
+   * Prioritaire sur `logo` si les deux sont fournis.
+   */
+  @ApiPropertyOptional() @IsOptional() @IsString() logoKey?: string;
+}

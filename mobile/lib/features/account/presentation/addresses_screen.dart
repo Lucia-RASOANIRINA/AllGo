@@ -25,13 +25,17 @@ class AddressesScreen extends ConsumerWidget {
       ),
       body: addresses.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(child: Text(error is DioException ? 'Impossible de charger les adresses.' : 'Une erreur est survenue.')),
+        error: (error, _) => Center(
+            child: Text(error is DioException
+                ? 'Impossible de charger les adresses.'
+                : 'Une erreur est survenue.')),
         data: (items) => items.isEmpty
             ? const Center(child: Text('Aucune adresse enregistrée.'))
             : ListView.separated(
                 padding: const EdgeInsets.all(AllGoTokens.space4),
                 itemCount: items.length,
-                separatorBuilder: (_, __) => const SizedBox(height: AllGoTokens.space3),
+                separatorBuilder: (_, __) =>
+                    const SizedBox(height: AllGoTokens.space3),
                 itemBuilder: (context, index) {
                   final address = items[index];
                   return Card(
@@ -41,7 +45,8 @@ class AddressesScreen extends ConsumerWidget {
                       subtitle: Text('${address.line}\n${address.city}'),
                       isThreeLine: true,
                       trailing: IconButton(
-                        onPressed: () => _removeAddress(context, ref, address.id),
+                        onPressed: () =>
+                            _removeAddress(context, ref, address.id),
                         icon: const Icon(Icons.delete_outline),
                         tooltip: 'Supprimer cette adresse',
                       ),
@@ -71,24 +76,40 @@ class AddressesScreen extends ConsumerWidget {
         title: const Text('Nouvelle adresse'),
         content: Form(
           key: formKey,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                TextFormField(controller: label, decoration: const InputDecoration(labelText: 'Libellé'), validator: _required),
-                TextFormField(controller: line, decoration: const InputDecoration(labelText: 'Adresse'), validator: _required),
-                TextFormField(controller: district, decoration: const InputDecoration(labelText: 'Quartier (facultatif)')),
-                TextFormField(controller: city, decoration: const InputDecoration(labelText: 'Ville'), validator: _required),
+                TextFormField(
+                    controller: label,
+                    decoration: const InputDecoration(labelText: 'Libellé'),
+                    validator: _required),
+                TextFormField(
+                    controller: line,
+                    decoration: const InputDecoration(labelText: 'Adresse'),
+                    validator: _required),
+                TextFormField(
+                    controller: district,
+                    decoration: const InputDecoration(
+                        labelText: 'Quartier (facultatif)')),
+                TextFormField(
+                    controller: city,
+                    decoration: const InputDecoration(labelText: 'Ville'),
+                    validator: _required),
                 StatefulBuilder(
                   builder: (context, setState) => Align(
                     alignment: Alignment.centerLeft,
                     child: TextButton.icon(
                       onPressed: () async {
-                        final result = await ref.read(currentPositionProvider.future);
+                        final result =
+                            await ref.read(currentPositionProvider.future);
                         setState(() => position = result);
                       },
                       icon: const Icon(Icons.my_location_outlined),
-                      label: Text(position == null ? 'Utiliser ma position' : 'Position ajoutée'),
+                      label: Text(position == null
+                          ? 'Utiliser ma position'
+                          : 'Position ajoutée'),
                     ),
                   ),
                 ),
@@ -97,7 +118,9 @@ class AddressesScreen extends ConsumerWidget {
           ),
         ),
         actions: <Widget>[
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Annuler')),
           FilledButton(
             onPressed: () async {
               if (!formKey.currentState!.validate()) return;
@@ -108,17 +131,23 @@ class AddressesScreen extends ConsumerWidget {
                     'label': label.text.trim(),
                     'line': line.text.trim(),
                     'city': city.text.trim(),
-                    if (district.text.trim().isNotEmpty) 'district': district.text.trim(),
+                    if (district.text.trim().isNotEmpty)
+                      'district': district.text.trim(),
                     if (position != null)
                       'location': <String, dynamic>{
                         'type': 'Point',
-                        'coordinates': <double>[position!.longitude, position!.latitude],
+                        'coordinates': <double>[
+                          position!.longitude,
+                          position!.latitude
+                        ],
                       },
                   },
                 );
                 if (context.mounted) Navigator.pop(context, true);
               } on DioException {
-                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Impossible d’ajouter cette adresse.')));
+                if (context.mounted)
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('Impossible d’ajouter cette adresse.')));
               }
             },
             child: const Text('Ajouter'),
@@ -133,14 +162,18 @@ class AddressesScreen extends ConsumerWidget {
     if (added == true) ref.invalidate(addressesProvider);
   }
 
-  Future<void> _removeAddress(BuildContext context, WidgetRef ref, String id) async {
+  Future<void> _removeAddress(
+      BuildContext context, WidgetRef ref, String id) async {
     try {
       await ref.read(apiClientProvider).delete<void>('/me/addresses/$id');
       ref.invalidate(addressesProvider);
     } on DioException {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Impossible de supprimer cette adresse.')));
+      if (context.mounted)
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Impossible de supprimer cette adresse.')));
     }
   }
 
-  String? _required(String? value) => value == null || value.trim().isEmpty ? 'Champ requis' : null;
+  String? _required(String? value) =>
+      value == null || value.trim().isEmpty ? 'Champ requis' : null;
 }

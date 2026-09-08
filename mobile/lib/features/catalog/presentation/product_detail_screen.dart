@@ -8,9 +8,11 @@ import 'package:allgo/features/cart/presentation/cart_controller.dart';
 import 'package:allgo/features/catalog/domain/entities/product.dart';
 import 'package:allgo/features/catalog/presentation/catalog_providers.dart';
 import 'package:allgo/features/favorites/presentation/favorites_controller.dart';
+import 'package:allgo/features/messaging/presentation/messaging_providers.dart';
 import 'package:allgo/features/moderation/presentation/moderation_actions.dart';
 import 'package:allgo/shared/widgets/async_view.dart';
 import 'package:allgo/shared/widgets/product_image.dart';
+import 'package:allgo/shared/widgets/shop_avatar.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -166,10 +168,20 @@ class _Content extends ConsumerWidget {
                 const SizedBox(height: AllGoTokens.space6),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const CircleAvatar(child: Icon(Icons.storefront_outlined)),
+                  leading: ShopAvatar(name: product.shopName),
                   title: Text(product.shopName),
                   subtitle: const Text('Voir la boutique'),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      _MessageShopButton(
+                        productId: product.id,
+                        shopId: product.shopId,
+                        shopName: product.shopName,
+                      ),
+                      const Icon(Icons.chevron_right),
+                    ],
+                  ),
                   // Un produit mis en cache par une version antérieure peut ne
                   // pas connaître le slug : la ligne devient alors inerte
                   // plutôt que d'ouvrir une page introuvable.
@@ -305,6 +317,18 @@ class _FavoriteButton extends ConsumerWidget {
           await ref.read(favoritesControllerProvider.notifier).toggle(productId);
         } on DioException catch (error) {
           final failure = error.error;
+          // Le jeton de rafraîchissement a lui-même expiré entre l'ouverture
+          // de la fiche et ce tap : un message ne suffit plus, il faut
+          // reconduire vers la connexion, comme pour le cas déjà authentifié
+          // plus haut.
+          if (failure is UnauthenticatedFailure) {
+            if (context.mounted) {
+              await context.push(
+                '${Routes.login}?redirect=${Uri.encodeComponent(Routes.productPath(productId))}',
+              );
+            }
+            return;
+          }
           messenger.showSnackBar(
             SnackBar(
               content: Text(
@@ -317,6 +341,51 @@ class _FavoriteButton extends ConsumerWidget {
       icon: Icon(isFavorite ? Icons.favorite : Icons.favorite_border),
       color: isFavorite ? Theme.of(context).colorScheme.error : null,
       tooltip: isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris',
+    );
+  }
+}
+
+/// Écrire à la boutique directement depuis la fiche produit — jusqu'ici il
+/// fallait ouvrir la page boutique pour trouver ce bouton, alors que c'est en
+/// consultant un produit qu'une question se pose le plus souvent.
+class _MessageShopButton extends ConsumerWidget {
+  const _MessageShopButton({
+    required this.productId,
+    required this.shopId,
+    required this.shopName,
+  });
+
+  final String productId;
+  final String shopId;
+  final String shopName;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final session = ref.watch(sessionControllerProvider);
+
+    return IconButton(
+      onPressed: () async {
+        if (!session.isAuthenticated) {
+          await context.push(
+            '${Routes.login}?redirect=${Uri.encodeComponent(Routes.productPath(productId))}',
+          );
+          return;
+        }
+
+        final messenger = ScaffoldMessenger.of(context);
+        try {
+          final conversationId = await startConversationWithShop(ref, shopId);
+          if (context.mounted) {
+            context.push(Routes.messagePath(conversationId), extra: shopName);
+          }
+        } on DioException {
+          messenger.showSnackBar(
+            const SnackBar(content: Text('Impossible d’ouvrir la conversation.')),
+          );
+        }
+      },
+      icon: const Icon(Icons.chat_bubble_outline),
+      tooltip: 'Envoyer un message à la boutique',
     );
   }
 }
@@ -337,9 +406,32 @@ class _AddToCartBar extends ConsumerWidget {
 
       messenger.showSnackBar(
         SnackBar(
-          content: Text('${product.name} ajouté au panier'),
+          // Flottante, arrondie, avec une icône de confirmation — le
+          // bandeau gris par défaut ne distinguait pas un ajout réussi
+          // d'un message d'erreur (référence design : confirmation
+          // positive des applications marchandes).
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AllGoTokens.brand,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AllGoTokens.radiusField),
+          ),
+          margin: const EdgeInsets.all(AllGoTokens.space4),
+          content: Row(
+            children: <Widget>[
+              const Icon(Icons.check_circle, color: Colors.white, size: 20),
+              const SizedBox(width: AllGoTokens.space3),
+              Expanded(
+                child: Text(
+                  '${product.name} ajouté au panier',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
           action: SnackBarAction(
             label: 'Voir',
+            textColor: Colors.white,
             onPressed: () => context.go(Routes.cart),
           ),
         ),

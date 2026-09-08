@@ -1,13 +1,19 @@
 import 'package:allgo/app/router.dart';
 import 'package:allgo/app/theme.dart';
+import 'package:allgo/core/error/failure.dart';
 import 'package:allgo/core/utils/currency.dart';
 import 'package:allgo/features/catalog/domain/entities/product.dart';
+import 'package:allgo/features/auth/presentation/session_controller.dart';
 import 'package:allgo/features/catalog/presentation/catalog_providers.dart';
+import 'package:allgo/features/favorites/presentation/favorites_controller.dart';
 import 'package:allgo/features/geo/domain/nearby_shop.dart';
 import 'package:allgo/features/home/presentation/home_providers.dart';
+import 'package:allgo/l10n/generated/app_localizations.dart';
 import 'package:allgo/shared/widgets/allgo_logo.dart';
 import 'package:allgo/shared/widgets/product_image.dart';
+import 'package:allgo/shared/widgets/shop_avatar.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -22,20 +28,22 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppL10n.of(context);
+
     return Scaffold(
       appBar: AppBar(
-        title: const Row(
+        title: Row(
           children: <Widget>[
-            AllGoLogo(size: 28, showWordmark: false),
-            SizedBox(width: AllGoTokens.space2),
-            Text('AllGo'),
+            const AllGoLogo(size: 28, showWordmark: false),
+            const SizedBox(width: AllGoTokens.space2),
+            Text(l10n.appName),
           ],
         ),
         actions: <Widget>[
           IconButton(
             onPressed: () => context.push(Routes.map),
             icon: const Icon(Icons.map_outlined),
-            tooltip: 'Commerces à proximité',
+            tooltip: l10n.homeMapTooltip,
           ),
         ],
       ),
@@ -56,16 +64,16 @@ class HomeScreen extends ConsumerWidget {
           children: <Widget>[
             const _CategoryChips(),
             _ProductRail(
-              title: 'Recommandé pour vous',
+              title: l10n.homeRecommended,
               provider: recommendedProductsProvider,
             ),
-            _FlashPromoRail(),
-            _ProductRail(title: 'Promotions', provider: promoProductsProvider),
-            _ProductRail(title: 'Produits populaires', provider: popularProductsProvider),
-            _ShopRailSection(title: 'Boutiques populaires', provider: popularShopsProvider),
+            const _FlashPromoRail(),
+            _ProductRail(title: l10n.homePromotions, provider: promoProductsProvider),
+            _ProductRail(title: l10n.homePopularProducts, provider: popularProductsProvider),
+            _ShopRailSection(title: l10n.homePopularShops, provider: popularShopsProvider),
             const _NearbyShopRailSection(),
-            _ProductRail(title: 'Produits à proximité', provider: nearbyProductsProvider),
-            _ProductRail(title: 'Nouveaux produits', provider: newProductsProvider),
+            _ProductRail(title: l10n.homeNearbyProducts, provider: nearbyProductsProvider),
+            _ProductRail(title: l10n.homeNewProducts, provider: newProductsProvider),
             const _RecentlyViewedSection(),
           ],
         ),
@@ -93,6 +101,29 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
+/// Icônes Material par nom de slug — le serveur envoie `"restaurant"`,
+/// `"checkroom"`, etc. (§ modèle `Category`), jamais un `IconData` : sans
+/// cette table, l'avatar de la puce affichait le nom brut en texte, qui
+/// débordait de la petite pastille prévue pour une icône.
+const Map<String, IconData> _categoryIconBySlug = <String, IconData>{
+  'restaurant': Icons.restaurant_outlined,
+  'shopping_basket': Icons.shopping_basket_outlined,
+  'local_drink': Icons.local_drink_outlined,
+  'checkroom': Icons.checkroom_outlined,
+  'spa': Icons.spa_outlined,
+  'devices': Icons.devices_outlined,
+  'chair': Icons.chair_outlined,
+  'medical_services': Icons.medical_services_outlined,
+  'build': Icons.build_outlined,
+  'sports_soccer': Icons.sports_soccer_outlined,
+  'child_care': Icons.child_care_outlined,
+  'menu_book': Icons.menu_book_outlined,
+  'local_florist': Icons.local_florist_outlined,
+  'directions_car': Icons.directions_car_filled_outlined,
+  'two_wheeler': Icons.two_wheeler_outlined,
+  'handyman': Icons.handyman_outlined,
+};
+
 class _CategoryChips extends ConsumerWidget {
   const _CategoryChips();
 
@@ -111,7 +142,10 @@ class _CategoryChips extends ConsumerWidget {
                 itemCount: list.length,
                 separatorBuilder: (_, __) => const SizedBox(width: AllGoTokens.space2),
                 itemBuilder: (context, i) => ActionChip(
-                  avatar: list[i].icon == null ? null : Text(list[i].icon!),
+                  avatar: Icon(
+                    _categoryIconBySlug[list[i].icon] ?? Icons.category_outlined,
+                    size: 18,
+                  ),
                   label: Text(list[i].name),
                   onPressed: () {
                     ref.read(catalogFilterProvider.notifier).state =
@@ -190,7 +224,7 @@ class _FlashPromoRail extends ConsumerWidget {
                     children: <Widget>[
                       Icon(Icons.bolt, color: theme.colorScheme.error, size: 20),
                       const SizedBox(width: 4),
-                      Text('Promotions flash', style: theme.textTheme.titleMedium),
+                      Text(AppL10n.of(context).homeFlashPromotions, style: theme.textTheme.titleMedium),
                     ],
                   ),
                 ),
@@ -217,11 +251,13 @@ class _ShopCard extends StatelessWidget {
     required this.name,
     required this.onTap,
     this.logo,
+    this.categoryName,
     this.subtitle,
   });
 
   final String name;
   final String? logo;
+  final String? categoryName;
   final String? subtitle;
   final VoidCallback onTap;
 
@@ -236,12 +272,7 @@ class _ShopCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(AllGoTokens.radiusCard),
         child: Column(
           children: <Widget>[
-            CircleAvatar(
-              radius: 32,
-              backgroundColor: theme.colorScheme.surfaceContainerHighest,
-              backgroundImage: logo == null ? null : CachedNetworkImageProvider(logo!),
-              child: logo == null ? const Icon(Icons.storefront_outlined) : null,
-            ),
+            ShopAvatar(name: name, logoUrl: logo, categoryName: categoryName, size: 64),
             const SizedBox(height: AllGoTokens.space2),
             Text(
               name,
@@ -293,6 +324,7 @@ class _ShopRailSection extends ConsumerWidget {
                       return _ShopCard(
                         name: shop.name as String,
                         logo: shop.logo as String?,
+                        categoryName: shop.categoryName as String?,
                         subtitle: shop.city as String?,
                         onTap: () => context.push(Routes.shopPath(shop.slug as String)),
                       );
@@ -319,7 +351,7 @@ class _NearbyShopRailSection extends ConsumerWidget {
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                const _SectionHeader(title: 'Boutiques proches'),
+                _SectionHeader(title: AppL10n.of(context).homeNearbyShops),
                 SizedBox(
                   height: 130,
                   child: ListView.separated(
@@ -332,6 +364,7 @@ class _NearbyShopRailSection extends ConsumerWidget {
                       return _ShopCard(
                         name: shop.name,
                         logo: shop.logo,
+                        categoryName: shop.categoryName,
                         subtitle: DistanceFormat.format(shop.distanceM),
                         onTap: () => context.push(Routes.shopPath(shop.slug)),
                       );
@@ -359,7 +392,7 @@ class _RecentlyViewedSection extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         if (products.isNotEmpty) ...<Widget>[
-          const _SectionHeader(title: 'Produits récemment consultés'),
+          _SectionHeader(title: AppL10n.of(context).homeRecentProducts),
           SizedBox(
             height: 56,
             child: ListView.separated(
@@ -378,7 +411,7 @@ class _RecentlyViewedSection extends ConsumerWidget {
           ),
         ],
         if (shops.isNotEmpty) ...<Widget>[
-          const _SectionHeader(title: 'Boutiques récemment consultées'),
+          _SectionHeader(title: AppL10n.of(context).homeRecentShops),
           SizedBox(
             height: 56,
             child: ListView.separated(
@@ -387,9 +420,7 @@ class _RecentlyViewedSection extends ConsumerWidget {
               itemCount: shops.length,
               separatorBuilder: (_, __) => const SizedBox(width: AllGoTokens.space2),
               itemBuilder: (context, i) => ActionChip(
-                avatar: shops[i].logo == null
-                    ? null
-                    : CircleAvatar(backgroundImage: CachedNetworkImageProvider(shops[i].logo!)),
+                avatar: ShopAvatar(name: shops[i].name, logoUrl: shops[i].logo, size: 24),
                 label: Text(shops[i].name, overflow: TextOverflow.ellipsis),
                 onPressed: () => context.push(Routes.shopPath(shops[i].slug)),
               ),
@@ -402,13 +433,13 @@ class _RecentlyViewedSection extends ConsumerWidget {
   }
 }
 
-class ProductCard extends StatelessWidget {
+class ProductCard extends ConsumerWidget {
   const ProductCard({required this.product, super.key});
 
   final Product product;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final price = Ariary.formatWithPromo(product.price, product.promoPrice);
     final discount = Ariary.discountPercent(product.price, product.promoPrice);
@@ -439,21 +470,27 @@ class ProductCard extends StatelessWidget {
                       top: AllGoTokens.space2,
                       left: AllGoTokens.space2,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
                           color: theme.colorScheme.error,
-                          borderRadius: BorderRadius.circular(4),
+                          borderRadius: BorderRadius.circular(AllGoTokens.radiusPill),
                         ),
                         child: Text(
-                          '-$discount %',
+                          '-$discount%',
                           style: TextStyle(
                             color: theme.colorScheme.onError,
                             fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
                     ),
+
+                  Positioned(
+                    top: AllGoTokens.space2,
+                    right: AllGoTokens.space2,
+                    child: _WishlistButton(productId: product.id),
+                  ),
 
                   if (!product.isAvailable)
                     // L'indisponibilité n'est jamais portée par la couleur
@@ -499,10 +536,94 @@ class ProductCard extends StatelessWidget {
                         color: theme.colorScheme.outline,
                       ),
                     ),
+                  if (product.rating != null) ...<Widget>[
+                    const SizedBox(height: AllGoTokens.space1),
+                    Row(
+                      children: <Widget>[
+                        const Icon(Icons.star_rounded, size: 15, color: AllGoTokens.warning),
+                        const SizedBox(width: 2),
+                        Text(
+                          product.reviewCount > 0
+                              ? '${product.rating!.toStringAsFixed(1)} · ${product.reviewCount} avis'
+                              : product.rating!.toStringAsFixed(1),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Cœur de mise en favori directement sur la vignette — jusqu'ici réservé à
+/// la fiche produit, alors que c'est sur la grille de résultats qu'on
+/// compare et trie le plus vite (référence design : icône superposée à
+/// l'image, jamais un bouton séparé sous la carte).
+class _WishlistButton extends ConsumerWidget {
+  const _WishlistButton({required this.productId});
+
+  final String productId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final session = ref.watch(sessionControllerProvider);
+    final favorites = ref.watch(favoritesControllerProvider);
+    final isFavorite = favorites.valueOrNull?.contains(productId) ?? false;
+
+    return Material(
+      color: Colors.white.withValues(alpha: 0.9),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: () async {
+          if (!session.isAuthenticated) {
+            await context.push(
+              '${Routes.login}?redirect=${Uri.encodeComponent(Routes.productPath(productId))}',
+            );
+            return;
+          }
+          final messenger = ScaffoldMessenger.of(context);
+          try {
+            await ref.read(favoritesControllerProvider.notifier).toggle(productId);
+          } on DioException catch (error) {
+            final failure = error.error;
+            // Le jeton de rafraîchissement a lui-même expiré : contrairement
+            // à un simple refus métier, c'est un signal qu'aucune autre
+            // vignette ne pourra plus honorer tant qu'on ne s'est pas
+            // reconnecté.
+            if (failure is UnauthenticatedFailure) {
+              if (context.mounted) {
+                await context.push(
+                  '${Routes.login}?redirect=${Uri.encodeComponent(Routes.productPath(productId))}',
+                );
+              }
+              return;
+            }
+            // Un cœur qui revient à son état initial sans un mot laisse
+            // croire à une panne (référence : `_FavoriteButton` de la fiche
+            // produit, qui applique déjà cette règle).
+            messenger.showSnackBar(
+              SnackBar(
+                content: Text(failure is Failure ? failure.displayMessage : 'Action impossible.'),
+              ),
+            );
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Icon(
+            isFavorite ? Icons.favorite : Icons.favorite_border,
+            size: 18,
+            color: isFavorite ? AllGoTokens.danger : Colors.black87,
+          ),
         ),
       ),
     );

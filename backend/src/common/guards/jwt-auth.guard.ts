@@ -1,4 +1,4 @@
-import { ExecutionContext, Injectable } from '@nestjs/common';
+import { ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { PUBLIC_KEY } from '../decorators/auth.decorators';
@@ -23,5 +23,23 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     ]);
     if (isPublic) return true;
     return super.canActivate(context);
+  }
+
+  /**
+   * Un jeton absent, malformé ou expiré échoue dans passport-jwt lui-même,
+   * avant même `JwtStrategy.validate()` — ses messages français (§ jeton
+   * invalidé) ne s'appliquent donc pas ici. Sans cette surcharge, le
+   * comportement par défaut de `AuthGuard` renvoie `new UnauthorizedException()`
+   * avec le message anglais générique "Unauthorized", qui fuit tel quel
+   * jusqu'au client mobile (§7.2 : tout message doit être déjà affichable).
+   */
+  handleRequest<TUser = unknown>(err: unknown, user: TUser | false): TUser {
+    if (err || !user) {
+      throw new UnauthorizedException({
+        code: 'UNAUTHENTICATED',
+        message: 'Votre session a expiré. Reconnectez-vous.',
+      });
+    }
+    return user;
   }
 }

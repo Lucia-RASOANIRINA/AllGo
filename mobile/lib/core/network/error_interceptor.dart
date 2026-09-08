@@ -53,6 +53,14 @@ class ErrorInterceptor extends Interceptor {
   }
 
   Failure _failureFrom(Response<dynamic> response) {
+    // Un 401 qui atteint encore ici a survécu au rafraîchissement silencieux
+    // de `AuthInterceptor` (jeton de rafraîchissement lui-même expiré ou
+    // révoqué) : ce n'est plus une erreur métier ordinaire, mais le signal
+    // que l'utilisateur doit se reconnecter — d'où un type dédié plutôt
+    // qu'un `ApiFailure` de plus, que chaque écran devrait réinterpréter lui-
+    // même pour retrouver ce même constat.
+    if (response.statusCode == 401) return const Failure.unauthenticated();
+
     final body = response.data;
     final error = body is Map<String, dynamic> ? body['error'] as Map<String, dynamic>? : null;
 

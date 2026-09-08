@@ -5,6 +5,7 @@ import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/utils/currency.dart';
 import 'package:allgo/features/geo/domain/nearby_shop.dart';
 import 'package:allgo/features/geo/presentation/geo_providers.dart';
+import 'package:allgo/shared/widgets/shop_avatar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -368,9 +369,10 @@ class _ResultsSheet extends StatelessWidget {
 
                   final shop = list[i - 1];
                   return ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                      child: const Icon(Icons.storefront_outlined),
+                    leading: ShopAvatar(
+                      name: shop.name,
+                      logoUrl: shop.logo,
+                      categoryName: shop.categoryName,
                     ),
                     title: Text(shop.name),
                     subtitle: Text(

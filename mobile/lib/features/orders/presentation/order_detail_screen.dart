@@ -3,6 +3,7 @@ import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/core/network/json_parsing.dart';
 import 'package:allgo/core/utils/currency.dart';
 import 'package:allgo/app/router.dart';
+import 'package:allgo/core/network/realtime_client.dart';
 import 'package:allgo/features/orders/presentation/orders_screen.dart';
 import 'package:allgo/shared/utils/receipt_pdf.dart';
 import 'package:allgo/shared/widgets/async_view.dart';
@@ -83,6 +84,19 @@ final AutoDisposeFutureProviderFamily<OrderDetail, String> orderDetailProvider =
   final raw = response.data?['data'];
   if (raw is! Map<String, dynamic>)
     throw const FormatException('Commande invalide.');
+
+  // Le statut se met à jour tout seul dès que la boutique ou le livreur agit
+  // — sans cet abonnement, l'écran resterait figé jusqu'au tirer-pour-
+  // rafraîchir manuel (§7.5).
+  final socket = await ref.read(realtimeClientProvider).connect();
+  void handler(dynamic data) {
+    final payload = Map<String, dynamic>.from(data as Map);
+    if (payload['orderId']?.toString() == id) ref.invalidateSelf();
+  }
+
+  socket.on('order:status', handler);
+  ref.onDispose(() => socket.off('order:status', handler));
+
   return _orderFromJson(raw);
 });
 
@@ -121,7 +135,8 @@ OrderDetail _orderFromJson(Map<String, dynamic> json) {
     tip: moneyFromJson(amounts['tip']),
     customerName: customer['name'] as String? ?? '',
     customerPhone: customer['phone'] as String? ?? '',
-    createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
+    createdAt:
+        DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
     status: OrderStatus.parse(json['status'] as String?),
     deliveryAddress: delivery['address'] as String?,
     deliveryMethod: delivery['method'] as String?,
@@ -189,7 +204,7 @@ class _OrderDetailContent extends StatelessWidget {
         _StatusHeader(status: order.status),
         const SizedBox(height: AllGoTokens.space3),
         OutlinedButton.icon(
-          onPressed: () => _printReceipt(order),
+          onPressed: () => _printReceipt(context, order),
           icon: const Icon(Icons.receipt_long_outlined),
           label: const Text('Reçu / imprimer'),
         ),
@@ -257,13 +272,18 @@ class _OrderDetailContent extends StatelessWidget {
 
   String _formatDate(DateTime date) => '${date.day}/${date.month}/${date.year}';
 
-  Future<void> _printReceipt(OrderDetail order) => printReceipt(
+  Future<void> _printReceipt(BuildContext context, OrderDetail order) =>
+      printReceipt(
+        context: context,
         orderNumber: order.orderNumber,
         shopName: order.shopName,
         customerName: order.customerName,
         customerPhone: order.customerPhone,
         lines: order.items
-            .map((item) => ReceiptLine(name: item.name, quantity: item.quantity, subtotal: item.subtotal))
+            .map((item) => ReceiptLine(
+                name: item.name,
+                quantity: item.quantity,
+                subtotal: item.subtotal))
             .toList(),
         subtotal: order.subtotal,
         shippingFee: order.shippingFee,

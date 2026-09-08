@@ -38,17 +38,24 @@ class GeoRepositoryImpl implements GeoRepository {
       return null;
     }
 
-    final position = await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        // `medium` suffit à trouver les commerces d'un quartier, et consomme
-        // nettement moins de batterie que `best` — décisif sur un terminal
-        // d'entrée de gamme en fin de journée.
-        accuracy: LocationAccuracy.medium,
-        timeLimit: Duration(seconds: 15),
-      ),
-    );
-
-    return (latitude: position.latitude, longitude: position.longitude);
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          // `medium` suffit à trouver les commerces d'un quartier, et consomme
+          // nettement moins de batterie que `best` — décisif sur un terminal
+          // d'entrée de gamme en fin de journée.
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 15),
+        ),
+      );
+      return (latitude: position.latitude, longitude: position.longitude);
+    } on Exception {
+      // Délai dépassé, service coupé entre-temps, capteur indisponible sur un
+      // émulateur sans position simulée : aucun de ces cas ne doit transformer
+      // un rail de découverte optionnel en écran d'erreur générique — voir le
+      // contrat documenté sur `currentPositionProvider`.
+      return null;
+    }
   }
 
   NearbyShop _fromJson(Map<String, dynamic> json) {

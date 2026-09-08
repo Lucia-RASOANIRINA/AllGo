@@ -1,6 +1,6 @@
 import 'package:allgo/app/router.dart';
 import 'package:allgo/app/theme.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:allgo/shared/widgets/shop_avatar.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -12,6 +12,7 @@ class ShopCard extends StatelessWidget {
     required this.slug,
     required this.name,
     this.logo,
+    this.categoryName,
     this.city,
     this.rating,
     this.distanceM,
@@ -21,6 +22,7 @@ class ShopCard extends StatelessWidget {
   final String slug;
   final String name;
   final String? logo;
+  final String? categoryName;
   final String? city;
   final double? rating;
   final int? distanceM;
@@ -38,12 +40,7 @@ class ShopCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              CircleAvatar(
-                radius: 28,
-                backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                backgroundImage: logo != null ? CachedNetworkImageProvider(logo!) : null,
-                child: logo == null ? const Icon(Icons.storefront_outlined) : null,
-              ),
+              ShopAvatar(name: name, logoUrl: logo, categoryName: categoryName, size: 56),
               const SizedBox(height: AllGoTokens.space2),
               Text(
                 name,

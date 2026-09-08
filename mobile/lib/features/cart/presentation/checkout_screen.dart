@@ -1,5 +1,7 @@
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/network/api_client.dart';
+import 'package:allgo/features/account/presentation/addresses_providers.dart';
+import 'package:allgo/features/auth/presentation/session_controller.dart';
 import 'package:allgo/features/cart/presentation/cart_controller.dart';
 import 'package:allgo/features/geo/presentation/geo_providers.dart';
 import 'package:dio/dio.dart';
@@ -29,6 +31,32 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   String? _couponMessage;
   bool _couponValid = false;
 
+  // Le formulaire se pré-remplit une seule fois, dès que les données
+  // sont disponibles : sans ce garde, chaque reconstruction (frappe dans
+  // un autre champ, minuteur du coupon...) écraserait une modification
+  // que le client vient de faire.
+  bool _addressPrefilled = false;
+  bool _phonePrefilled = false;
+
+  void _prefillFromSession() {
+    if (_phonePrefilled) return;
+    final phone = ref.read(sessionControllerProvider).phone;
+    if (phone == null || phone.isEmpty) return;
+    _phoneController.text = phone;
+    _phonePrefilled = true;
+  }
+
+  void _prefillFromAddresses(List<SavedAddress> addresses) {
+    if (_addressPrefilled || addresses.isEmpty) return;
+    final address = addresses.firstWhere(
+      (a) => a.isDefault,
+      orElse: () => addresses.first,
+    );
+    _addressController.text = address.line;
+    _cityController.text = address.city.isEmpty ? _cityController.text : address.city;
+    _addressPrefilled = true;
+  }
+
   static const List<_PaymentMethodOption> _paymentOptions =
       <_PaymentMethodOption>[
     _PaymentMethodOption('cod', 'Paiement à la livraison'),
@@ -56,14 +84,16 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       _couponMessage = null;
     });
     try {
-      final response = await ref.read(apiClientProvider).get<Map<String, dynamic>>(
+      final response =
+          await ref.read(apiClientProvider).get<Map<String, dynamic>>(
         '/cart/coupon',
         queryParameters: <String, dynamic>{'code': code},
       );
       final data = response.data?['data'] as Map<String, dynamic>?;
       final totalDiscount = data?['totalDiscount'] as num? ?? 0;
       final shops = (data?['shops'] as List<dynamic>?) ?? const <dynamic>[];
-      final anyValid = shops.any((s) => (s as Map<String, dynamic>)['valid'] == true);
+      final anyValid =
+          shops.any((s) => (s as Map<String, dynamic>)['valid'] == true);
       setState(() {
         _couponValid = anyValid && totalDiscount > 0;
         _couponMessage = _couponValid
@@ -72,7 +102,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       });
     } on DioException catch (error) {
       final message = error.response?.data is Map<String, dynamic>
-          ? ((error.response!.data as Map<String, dynamic>)['message'] as String?)
+          ? ((error.response!.data as Map<String, dynamic>)['message']
+              as String?)
           : null;
       setState(() {
         _couponValid = false;
@@ -117,7 +148,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                   'shippingFee': _deliveryMethod == 'pickup' ? 0 : 0,
                   if (_couponValid && _couponController.text.trim().isNotEmpty)
                     'couponCode': _couponController.text.trim(),
-                  if (_deliveryMethod == 'delivery' && _tipController.text.trim().isNotEmpty)
+                  if (_deliveryMethod == 'delivery' &&
+                      _tipController.text.trim().isNotEmpty)
                     'tip': int.tryParse(_tipController.text.trim()) ?? 0,
                 },
                 options: Options(
@@ -205,6 +237,13 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   Widget build(BuildContext context) {
     final cart = ref.watch(cartControllerProvider).valueOrNull;
 
+    // Le client a déjà donné son numéro et ses adresses ailleurs dans
+    // l'application : les redemander à chaque commande est une friction
+    // évitable. Pré-rempli, mais jamais verrouillé (§ demande explicite).
+    ref.watch(sessionControllerProvider);
+    _prefillFromSession();
+    ref.watch(addressesProvider).whenData(_prefillFromAddresses);
+
     if (cart == null || cart.isEmpty) {
       return Scaffold(
         appBar: AppBar(title: const Text('Livraison et paiement')),
@@ -216,6 +255,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       appBar: AppBar(title: const Text('Livraison et paiement')),
       body: Form(
         key: _formKey,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
         child: ListView(
           padding: const EdgeInsets.all(AllGoTokens.space4),
           children: <Widget>[
@@ -304,7 +344,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               ),
             ],
             const SizedBox(height: AllGoTokens.space6),
-            Text('Code promotionnel', style: Theme.of(context).textTheme.titleMedium),
+            Text('Code promotionnel',
+                style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: AllGoTokens.space2),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -327,7 +368,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                     onPressed: _checkingCoupon ? null : _checkCoupon,
                     child: _checkingCoupon
                         ? const SizedBox.square(
-                            dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                            dimension: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2))
                         : const Text('Appliquer'),
                   ),
                 ),

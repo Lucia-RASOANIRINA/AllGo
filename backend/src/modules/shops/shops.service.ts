@@ -16,6 +16,7 @@ import { Follow, type FollowDocument } from '../social/schemas/interactions.sche
 import { Promotion, type PromotionDocument } from '../campaigns/schemas/promotion.schema';
 import { User, type UserDocument } from '../users/schemas/user.schema';
 import type { AddTeamMemberDto, UpdateTeamMemberDto } from './dto/team.dto';
+import { MediaService } from '../media/media.service';
 
 @Injectable()
 export class ShopsService {
@@ -27,6 +28,7 @@ export class ShopsService {
     @InjectModel(Follow.name) private readonly follows: Model<FollowDocument>,
     @InjectModel(Promotion.name) private readonly promotions: Model<PromotionDocument>,
     @InjectModel(User.name) private readonly users: Model<UserDocument>,
+    private readonly media: MediaService,
   ) {}
 
   async list(
@@ -189,6 +191,14 @@ export class ShopsService {
     const shop = await this.shops.findOne({ _id: shopId, ownerId });
     if (!shop) throw AppError.notFound('Boutique');
 
+    // Une clé de téléversement se résout en URL ici, jamais côté mobile :
+    // le format des variantes générées (taille, extension) reste un détail
+    // d'implémentation du service média, pas un contrat que chaque écran
+    // devrait reconstruire à la main.
+    if (dto.logoKey) {
+      shop.logo = this.media.publicUrls(dto.logoKey).thumbUrl;
+    }
+
     // `UpdateShopDto` est partielle (§17) : un champ absent doit rester
     // inchangé, jamais être écrasé par `undefined` — `Object.assign` ou un
     // spread naïf le ferait pour peu qu'une classe TypeScript matérialise ses
@@ -198,6 +208,9 @@ export class ShopsService {
       'deliveryRadiusKm', 'deliveryAvailable', 'pickupAvailable', 'deliveryFee',
       'closedDays', 'openingHours',
     ] as const) {
+      // `logo` déjà posé ci-dessus depuis `logoKey` : ne pas laisser une
+      // valeur simultanée du champ brut l'écraser.
+      if (field === 'logo' && dto.logoKey) continue;
       if (dto[field] !== undefined) (shop as unknown as Record<string, unknown>)[field] = dto[field];
     }
     shop.contact = {

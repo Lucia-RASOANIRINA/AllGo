@@ -1,7 +1,9 @@
+import 'package:allgo/app/router.dart';
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/utils/currency.dart';
 import 'package:allgo/features/cart/domain/cart.dart';
 import 'package:allgo/features/cart/presentation/cart_controller.dart';
+import 'package:allgo/l10n/generated/app_localizations.dart';
 import 'package:allgo/shared/widgets/async_view.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -14,17 +16,18 @@ class CartScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cart = ref.watch(cartControllerProvider);
+    final l10n = AppL10n.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Panier')),
+      appBar: AppBar(title: Text(l10n.cartTitle)),
       body: AsyncView<Cart>(
         value: cart,
         isEmpty: (c) => c.isEmpty,
-        emptyTitle: 'Votre panier est vide',
-        emptyMessage: 'Parcourez le catalogue et ajoutez ce dont vous avez besoin.',
+        emptyTitle: l10n.cartEmptyTitle,
+        emptyMessage: l10n.cartEmptyMessage,
         emptyAction: FilledButton(
           onPressed: () => context.go('/'),
-          child: const Text('Voir le catalogue'),
+          child: Text(l10n.actionViewCatalog),
         ),
         onRetry: () => ref.invalidate(cartControllerProvider),
         data: (c) => _CartContent(cart: c),
@@ -61,8 +64,7 @@ class _CartContent extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.only(bottom: AllGoTokens.space4),
             child: Text(
-              '${groups.length} boutiques — ${groups.length} commandes distinctes, '
-              'chacune avec sa livraison et son suivi.',
+              AppL10n.of(context).cartMultiShopNotice(groups.length),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -83,6 +85,15 @@ class _CartContent extends ConsumerWidget {
           ...group.value.map((line) => _CartLineTile(line: line)),
           const SizedBox(height: AllGoTokens.space4),
         ],
+
+        // Un panier non vide n'a nulle part où repartir vers le catalogue :
+        // sans ce lien, la seule sortie de l'écran est le paiement ou la
+        // suppression d'un article (§8.1).
+        OutlinedButton.icon(
+          onPressed: () => context.go(Routes.explore),
+          icon: const Icon(Icons.add_shopping_cart_outlined),
+          label: Text(AppL10n.of(context).actionContinueShopping),
+        ),
       ],
     );
   }
@@ -140,7 +151,7 @@ class _CartLineTile extends ConsumerWidget {
                   ),
                   if (line.isPending)
                     Text(
-                      'En attente d’envoi',
+                      AppL10n.of(context).cartLinePending,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.tertiary,
                       ),
@@ -179,7 +190,7 @@ class _QuantityStepper extends StatelessWidget {
             minWidth: AllGoTokens.minTouchTarget,
             minHeight: AllGoTokens.minTouchTarget,
           ),
-          tooltip: 'Diminuer la quantité',
+          tooltip: AppL10n.of(context).actionDecreaseQuantity,
         ),
         Text('$quantity', style: Theme.of(context).textTheme.titleMedium),
         IconButton(
@@ -189,7 +200,7 @@ class _QuantityStepper extends StatelessWidget {
             minWidth: AllGoTokens.minTouchTarget,
             minHeight: AllGoTokens.minTouchTarget,
           ),
-          tooltip: 'Augmenter la quantité',
+          tooltip: AppL10n.of(context).actionIncreaseQuantity,
         ),
       ],
     );
@@ -215,8 +226,7 @@ class _PendingNotice extends StatelessWidget {
           const SizedBox(width: AllGoTokens.space2),
           Expanded(
             child: Text(
-              'Certains articles seront envoyés dès le retour de la connexion. '
-              'Leur disponibilité sera revérifiée à ce moment-là.',
+              AppL10n.of(context).cartPendingItemNotice,
               style: TextStyle(color: scheme.onTertiaryContainer, fontSize: 14),
             ),
           ),
@@ -234,6 +244,7 @@ class _CheckoutBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppL10n.of(context);
 
     return SafeArea(
       child: Padding(
@@ -244,7 +255,7 @@ class _CheckoutBar extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: <Widget>[
-                Text('Sous-total', style: theme.textTheme.bodyLarge),
+                Text(l10n.cartSubtotal, style: theme.textTheme.bodyLarge),
                 Text(
                   Ariary.format(cart.subtotal),
                   style: theme.textTheme.titleLarge?.copyWith(color: AllGoTokens.brand),
@@ -255,7 +266,7 @@ class _CheckoutBar extends StatelessWidget {
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Frais de livraison calculés à l’étape suivante.',
+                l10n.cartShippingNotice,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -264,8 +275,7 @@ class _CheckoutBar extends StatelessWidget {
             const SizedBox(height: AllGoTokens.space3),
             FilledButton(
               onPressed: () => context.push('/panier/livraison'),
-              child: Text('Commander · ${cart.itemCount} article'
-                  '${cart.itemCount > 1 ? 's' : ''}'),
+              child: Text(l10n.actionOrderWithCount(cart.itemCount)),
             ),
           ],
         ),

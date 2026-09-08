@@ -1,4 +1,7 @@
 import 'package:allgo/features/account/presentation/account_screen.dart';
+import 'package:allgo/features/account/presentation/addresses_screen.dart';
+import 'package:allgo/features/account/presentation/privacy_policy_screen.dart';
+import 'package:allgo/features/account/presentation/profile_screen.dart';
 import 'package:allgo/features/auth/presentation/forgot_password_screen.dart';
 import 'package:allgo/features/auth/presentation/login_screen.dart';
 import 'package:allgo/features/auth/presentation/otp_screen.dart';
@@ -34,7 +37,6 @@ import 'package:allgo/features/orders/presentation/orders_screen.dart';
 import 'package:allgo/features/shops/presentation/shop_screen.dart';
 import 'package:allgo/features/social/presentation/social_feed_screen.dart';
 import 'package:allgo/features/stories/presentation/stories_screen.dart';
-import 'package:allgo/shared/widgets/coming_soon_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -55,6 +57,7 @@ abstract final class Routes {
   static const String cart = '/panier';
   static const String orders = '/commandes';
   static const String account = '/compte';
+  static const String profile = '/compte/profil';
 
   // --- Écrans empilés ---
   static const String login = '/connexion';
@@ -67,6 +70,7 @@ abstract final class Routes {
   static const String map = '/carte';
   static const String tracking = '/suivi';
   static const String checkout = '/panier/livraison';
+  static const String addresses = '/compte/adresses';
   static const String favorites = '/compte/favoris';
   static const String sanctions = '/compte/sanctions';
   static const String blockedUsers = '/compte/comptes-bloques';
@@ -86,6 +90,7 @@ abstract final class Routes {
 
   // --- Onglets livreur (lot L6) ---
   static const String round = '/tournee';
+  static const String courierMap = '/tournee/carte';
   static const String courier = '/livreur';
   static const String courierEarnings = '/livreur/revenus';
   static const String admin = '/admin';
@@ -111,6 +116,8 @@ abstract final class Routes {
     cart,
     orders,
     account,
+    profile,
+    addresses,
     login,
     register,
     otp,
@@ -136,6 +143,7 @@ abstract final class Routes {
     shopPromotions,
     shopTeam,
     round,
+    courierMap,
     courier,
     courierEarnings,
     admin,
@@ -234,6 +242,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const CheckoutScreen(),
       ),
       GoRoute(
+        path: Routes.profile,
+        parentNavigatorKey: rootKey,
+        builder: (context, state) => const ProfileScreen(),
+      ),
+      GoRoute(
+        path: Routes.addresses,
+        parentNavigatorKey: rootKey,
+        builder: (context, state) => const AddressesScreen(),
+      ),
+      GoRoute(
         path: Routes.favorites,
         parentNavigatorKey: rootKey,
         builder: (context, state) => const FavoritesScreen(),
@@ -265,11 +283,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const StoriesScreen(),
       ),
       GoRoute(
-        path: Routes.messages,
-        parentNavigatorKey: rootKey,
-        builder: (context, state) => const MessagesListScreen(),
-      ),
-      GoRoute(
         path: Routes.message,
         parentNavigatorKey: rootKey,
         builder: (context, state) => ChatScreen(
@@ -285,11 +298,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: Routes.privacy,
         parentNavigatorKey: rootKey,
-        builder: (context, state) => const ComingSoonScreen(
-          title: 'Confidentialité',
-          lot: 'L0 — Socle',
-          detail: 'Texte embarqué dans l’application, consultable hors ligne.',
-        ),
+        builder: (context, state) => const PrivacyPolicyScreen(),
       ),
       GoRoute(
         path: Routes.merchantWithdrawals,
@@ -323,6 +332,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
               path: Routes.account, builder: (_, __) => const AccountScreen()),
 
+          // Messagerie — onglet pour commerçant et livreur (§11.2), mais
+          // accessible par simple `push` pour le client depuis son compte :
+          // rester dans la coquille garde la barre de navigation ET le
+          // bouton de retour standard, dans les deux cas.
+          GoRoute(
+              path: Routes.messages,
+              builder: (_, __) => const MessagesListScreen()),
+
           // Onglets commerçant — lot L5.
           GoRoute(
             path: Routes.dashboard,
@@ -349,6 +366,13 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.round,
             builder: (_, __) => const CourierDashboardScreen(),
+          ),
+          // Onglet « Carte » du livreur — `Routes.map` reste hors coquille
+          // pour son usage client (recherche ponctuelle plein écran) ; un
+          // onglet persistant a besoin, lui, de la barre de navigation.
+          GoRoute(
+            path: Routes.courierMap,
+            builder: (_, __) => const MapScreen(),
           ),
           GoRoute(
             path: Routes.admin,

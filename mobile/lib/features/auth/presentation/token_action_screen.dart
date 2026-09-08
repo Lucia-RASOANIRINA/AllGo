@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/network/api_client.dart';
+import 'package:allgo/shared/widgets/auth_form_fields.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -73,6 +74,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   final _password = TextEditingController();
   bool _loading = false;
+  bool _obscure = true;
 
   @override
   void dispose() {
@@ -101,13 +103,25 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
         appBar: AppBar(title: const Text('Nouveau mot de passe')),
         body: Form(
           key: _formKey,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
           child: ListView(
             padding: const EdgeInsets.all(AllGoTokens.space6),
             children: <Widget>[
               TextFormField(
                 controller: _password,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'Nouveau mot de passe', prefixIcon: Icon(Icons.lock_outline)),
+                obscureText: _obscure,
+                autofillHints: const <String>[AutofillHints.newPassword],
+                decoration: InputDecoration(
+                  labelText: 'Nouveau mot de passe',
+                  helperText: '10 caractères minimum, dont une lettre et un chiffre',
+                  helperMaxLines: 2,
+                  prefixIcon: const FieldIcon(Icons.lock_outline),
+                  suffixIcon: IconButton(
+                    onPressed: () => setState(() => _obscure = !_obscure),
+                    icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                    tooltip: _obscure ? 'Afficher' : 'Masquer',
+                  ),
+                ),
                 validator: (value) => RegExp(r'^(?=.*[A-Za-zÀ-ÿ])(?=.*\d).{10,128}$').hasMatch(value ?? '') ? null : '10 caractères minimum, avec une lettre et un chiffre.',
               ),
               const SizedBox(height: AllGoTokens.space6),

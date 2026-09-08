@@ -14,6 +14,7 @@ import { Coupon, type CouponDocument } from './schemas/coupon.schema';
 import { Dispute, type DisputeDocument } from './schemas/dispute.schema';
 import { Promotion, type PromotionDocument } from '../campaigns/schemas/promotion.schema';
 import { FinanceService } from '../finance/finance.service';
+import { EventsGateway, RealtimeEvent } from '../realtime/events.gateway';
 import {
   ORDER_TRANSITIONS,
   Order,
@@ -45,6 +46,7 @@ export class OrdersService {
     @InjectModel(Promotion.name) private readonly promotions: Model<PromotionDocument>,
     @InjectModel(Dispute.name) private readonly disputes: Model<DisputeDocument>,
     private readonly finance: FinanceService,
+    private readonly realtime: EventsGateway,
   ) {}
 
   /**
@@ -144,6 +146,14 @@ export class OrdersService {
       // Les effets externes (Socket.IO, FCM) sont émis APRÈS validation de la
       // transaction : notifier une commande qui vient d'être annulée serait pire
       // que ne pas notifier du tout.
+      for (const order of created) {
+        this.realtime.emitToShop(String(order.shopId), RealtimeEvent.OrderNew, {
+          orderId: String(order._id),
+          orderNumber: order.orderNumber,
+          at: new Date().toISOString(),
+        });
+      }
+
       return { orders: created.map((o) => o.toJSON()) };
     } finally {
       await session.endSession();
@@ -397,6 +407,16 @@ export class OrdersService {
     await order.save();
     if (next === 'delivered') await this.finance.recordDeliveryRevenue(order);
 
+    // Sans cet événement, le client doit tirer manuellement l'écran de
+    // commande pour voir un changement de statut décidé par la boutique ou
+    // le livreur — un délai qui n'a aucune raison d'exister (§7.5).
+    const payload = { orderId: String(order._id), status: next, at: new Date().toISOString() };
+    this.realtime.emitToUser(String(order.userId), RealtimeEvent.OrderStatus, payload);
+    this.realtime.emitToShop(String(order.shopId), RealtimeEvent.OrderStatus, payload);
+    if (order.delivery?.courierId) {
+      this.realtime.emitToUser(String(order.delivery.courierId), RealtimeEvent.OrderStatus, payload);
+    }
+
     return order.toJSON();
   }
 
@@ -430,6 +450,15 @@ export class OrdersService {
       note: 'Annulée par le client.',
     });
     await order.save();
+
+    // La boutique voit l'annulation en direct plutôt que de la découvrir en
+    // rafraîchissant sa liste de commandes (§7.5).
+    this.realtime.emitToShop(String(order.shopId), RealtimeEvent.OrderStatus, {
+      orderId: String(order._id),
+      status: 'cancelled',
+      at: new Date().toISOString(),
+    });
+
     return order.toJSON();
   }
 

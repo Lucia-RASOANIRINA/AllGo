@@ -30,6 +30,13 @@ export class Conversation extends Document {
   @Prop({ default: false, index: true }) reported!: boolean;
   @Prop() reportReason?: string;
 
+  /**
+   * Archivage — par participant, comme `blockedBy` : archiver une
+   * conversation ne la ferme pas (l'autre peut toujours écrire), ça la
+   * retire seulement de MA liste principale.
+   */
+  @Prop({ type: [MongooseSchema.Types.ObjectId], default: [] }) archivedBy!: Types.ObjectId[];
+
   createdAt!: Date;
   updatedAt!: Date;
 }
@@ -54,6 +61,19 @@ export class Message extends Document {
   attachments!: Array<{ url: string; type: string; name?: string; size?: number }>;
 
   @Prop({ type: [MongooseSchema.Types.ObjectId], default: [] }) readBy!: Types.ObjectId[];
+
+  /** Édition — horodatée plutôt qu'un simple drapeau : elle doit rester
+   * visible comme un fait daté (« modifié à 14h02 »), pas seulement comme un
+   * état binaire. */
+  @Prop() editedAt?: Date;
+
+  /**
+   * Suppression « pour moi » — même motif que `archivedBy`/`blockedBy` :
+   * un tableau de participants plutôt qu'un drapeau partagé. Supprimer un
+   * message ne le retire que de MA vue ; l'autre participant continue de le
+   * voir tel quel, comme sur les messageries grand public.
+   */
+  @Prop({ type: [MongooseSchema.Types.ObjectId], default: [] }) deletedFor!: Types.ObjectId[];
 
   createdAt!: Date;
 }

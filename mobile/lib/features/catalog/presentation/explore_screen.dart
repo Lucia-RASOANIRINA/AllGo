@@ -332,17 +332,107 @@ class _BarcodeScannerPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Scanner un code-barres')),
-      body: MobileScanner(
-        onDetect: (capture) {
-          final code = capture.barcodes.firstOrNull?.rawValue;
-          // Un seul résultat est retourné : sans ce garde, la caméra
-          // dépilerait l'écran plusieurs fois de suite.
-          if (code != null && Navigator.of(context).canPop()) {
-            Navigator.of(context).pop(code);
-          }
-        },
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        title: const Text('Scanner un code-barres'),
+      ),
+      extendBodyBehindAppBar: true,
+      body: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          MobileScanner(
+            onDetect: (capture) {
+              final code = capture.barcodes.firstOrNull?.rawValue;
+              // Un seul résultat est retourné : sans ce garde, la caméra
+              // dépilerait l'écran plusieurs fois de suite.
+              if (code != null && Navigator.of(context).canPop()) {
+                Navigator.of(context).pop(code);
+              }
+            },
+          ),
+          const IgnorePointer(child: _ScannerOverlay()),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: AllGoTokens.space8,
+            child: Text(
+              'Placez le code-barres dans le cadre',
+              textAlign: TextAlign.center,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: Colors.white),
+            ),
+          ),
+        ],
       ),
     );
   }
+}
+
+/// Cadre carré aux coins accentués — le style « scanner » attendu, plutôt
+/// qu'un simple flux caméra plein écran sans repère visuel.
+class _ScannerOverlay extends StatelessWidget {
+  const _ScannerOverlay();
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+        painter: _ScannerOverlayPainter(color: AllGoTokens.brand),
+        child: const SizedBox.expand(),
+      );
+}
+
+class _ScannerOverlayPainter extends CustomPainter {
+  const _ScannerOverlayPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final side = size.shortestSide * 0.7;
+    final cutout = Rect.fromCenter(
+      center: Offset(size.width / 2, size.height / 2),
+      width: side,
+      height: side,
+    );
+    final cutoutPath = RRect.fromRectAndRadius(cutout, const Radius.circular(24));
+
+    final scrim = Path.combine(
+      PathOperation.difference,
+      Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height)),
+      Path()..addRRect(cutoutPath),
+    );
+    canvas.drawPath(scrim, Paint()..color = Colors.black.withValues(alpha: 0.55));
+
+    final border = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    canvas.drawRRect(cutoutPath, border);
+
+    const bracketLength = 28.0;
+    const bracketWidth = 5.0;
+    final bracket = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = bracketWidth
+      ..strokeCap = StrokeCap.round;
+
+    void corner(Offset origin, Offset dx, Offset dy) {
+      canvas.drawLine(origin, origin + dx * bracketLength, bracket);
+      canvas.drawLine(origin, origin + dy * bracketLength, bracket);
+    }
+
+    corner(cutout.topLeft, const Offset(1, 0), const Offset(0, 1));
+    corner(cutout.topRight, const Offset(-1, 0), const Offset(0, 1));
+    corner(cutout.bottomLeft, const Offset(1, 0), const Offset(0, -1));
+    corner(cutout.bottomRight, const Offset(-1, 0), const Offset(0, -1));
+  }
+
+  @override
+  bool shouldRepaint(covariant _ScannerOverlayPainter oldDelegate) =>
+      oldDelegate.color != color;
 }

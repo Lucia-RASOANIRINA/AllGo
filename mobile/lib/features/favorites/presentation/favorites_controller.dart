@@ -50,7 +50,7 @@ class FavoritesController extends AsyncNotifier<Set<String>> {
       } else {
         await api.post<void>(
           '/me/favorites',
-          data: <String, String>{'productId': productId},
+          data: <String, String>{'targetId': productId},
         );
       }
     } on DioException {

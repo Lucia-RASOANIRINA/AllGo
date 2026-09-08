@@ -44,7 +44,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   Future<void> _load() async {
     try {
-      final response = await ref.read(apiClientProvider).get<Map<String, dynamic>>('/me');
+      final response =
+          await ref.read(apiClientProvider).get<Map<String, dynamic>>('/me');
       final data = response.data?['data'];
       if (data is Map<String, dynamic>) {
         _firstName.text = data['firstName'] as String? ?? '';
@@ -74,7 +75,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         },
       );
       await ref.read(sessionControllerProvider.notifier).refresh();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profil enregistré.')));
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Profil enregistré.')));
     } on DioException catch (error) {
       if (mounted) _showError(error);
     } finally {
@@ -83,7 +86,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Future<void> _pickPhoto() async {
-    final image = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 82);
+    final image = await ImagePicker()
+        .pickImage(source: ImageSource.gallery, imageQuality: 82);
     if (image == null) return;
     setState(() => _uploadingPhoto = true);
     try {
@@ -94,7 +98,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         data: <String, dynamic>{'type': 'image/jpeg', 'size': bytes.length},
       );
       final data = upload.data?['data'];
-      if (data is! Map<String, dynamic>) throw const FormatException('Réponse média invalide.');
+      if (data is! Map<String, dynamic>)
+        throw const FormatException('Réponse média invalide.');
       await api.put<void>(
         data['uploadUrl'] as String,
         data: bytes,
@@ -105,8 +110,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           },
         ),
       );
-      await api.patch<void>('/me', data: <String, String>{'avatarKey': data['key'] as String});
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Photo mise à jour.')));
+      await api.patch<void>('/me',
+          data: <String, String>{'avatarKey': data['key'] as String});
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Photo mise à jour.')));
     } on DioException catch (error) {
       if (mounted) _showError(error);
     } finally {
@@ -120,7 +128,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       await ref.read(apiClientProvider).post<void>('/auth/email/verify/send');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Lien de vérification envoyé par email.')),
+          const SnackBar(
+              content: Text('Lien de vérification envoyé par email.')),
         );
       }
     } on DioException catch (error) {
@@ -132,8 +141,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   void _showError(DioException error) {
     final body = error.response?.data;
-    final message = body is Map<String, dynamic> ? body['message'] as String? : null;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message ?? 'Impossible de charger le profil.')));
+    final message =
+        body is Map<String, dynamic> ? body['message'] as String? : null;
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message ?? 'Impossible de charger le profil.')));
   }
 
   @override
@@ -144,6 +155,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Form(
               key: _formKey,
+              autovalidateMode: AutovalidateMode.onUserInteraction,
               child: ListView(
                 padding: const EdgeInsets.all(AllGoTokens.space4),
                 children: <Widget>[
@@ -151,11 +163,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     child: Stack(
                       alignment: Alignment.bottomRight,
                       children: <Widget>[
-                        const CircleAvatar(radius: 42, child: Icon(Icons.person, size: 42)),
+                        const CircleAvatar(
+                            radius: 42, child: Icon(Icons.person, size: 42)),
                         IconButton.filled(
                           onPressed: _uploadingPhoto ? null : _pickPhoto,
                           icon: _uploadingPhoto
-                              ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                              ? const SizedBox.square(
+                                  dimension: 16,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2))
                               : const Icon(Icons.camera_alt_outlined),
                           tooltip: 'Modifier la photo de profil',
                         ),
@@ -163,31 +179,61 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     ),
                   ),
                   const SizedBox(height: AllGoTokens.space6),
-                  TextFormField(controller: _firstName, decoration: const InputDecoration(labelText: 'Prénom'), validator: _required),
+                  TextFormField(
+                      controller: _firstName,
+                      decoration: const InputDecoration(labelText: 'Prénom'),
+                      validator: _required),
                   const SizedBox(height: AllGoTokens.space3),
-                  TextFormField(controller: _lastName, decoration: const InputDecoration(labelText: 'Nom'), validator: _required),
+                  TextFormField(
+                      controller: _lastName,
+                      decoration: const InputDecoration(labelText: 'Nom'),
+                      validator: _required),
                   const SizedBox(height: AllGoTokens.space3),
-                  TextFormField(controller: _email, decoration: const InputDecoration(labelText: 'Email'), keyboardType: TextInputType.emailAddress),
-                  if (_email.text.trim().isNotEmpty && !_emailVerified) ...<Widget>[
+                  TextFormField(
+                      controller: _email,
+                      decoration: const InputDecoration(labelText: 'Email'),
+                      keyboardType: TextInputType.emailAddress,
+                      validator: (value) {
+                        final text = (value ?? '').trim();
+                        if (text.isEmpty) return null;
+                        return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(text)
+                            ? null
+                            : 'Adresse email invalide.';
+                      }),
+                  if (_email.text.trim().isNotEmpty &&
+                      !_emailVerified) ...<Widget>[
                     const SizedBox(height: AllGoTokens.space2),
                     Row(
                       children: <Widget>[
-                        Icon(Icons.error_outline, size: 18, color: Theme.of(context).colorScheme.error),
+                        Icon(Icons.error_outline,
+                            size: 18,
+                            color: Theme.of(context).colorScheme.error),
                         const SizedBox(width: AllGoTokens.space1),
                         const Expanded(child: Text('Adresse non vérifiée')),
                         TextButton(
-                          onPressed: _sendingVerification ? null : _sendVerification,
-                          child: Text(_sendingVerification ? 'Envoi...' : 'Vérifier'),
+                          onPressed:
+                              _sendingVerification ? null : _sendVerification,
+                          child: Text(
+                              _sendingVerification ? 'Envoi...' : 'Vérifier'),
                         ),
                       ],
                     ),
                   ],
                   const SizedBox(height: AllGoTokens.space3),
-                  TextFormField(controller: _bio, decoration: const InputDecoration(labelText: 'Présentation'), maxLength: 500, maxLines: 3),
+                  TextFormField(
+                      controller: _bio,
+                      decoration:
+                          const InputDecoration(labelText: 'Présentation'),
+                      maxLength: 500,
+                      maxLines: 3),
                   const SizedBox(height: AllGoTokens.space4),
                   FilledButton.icon(
                     onPressed: _saving ? null : _save,
-                    icon: _saving ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_outlined),
+                    icon: _saving
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.save_outlined),
                     label: Text(_saving ? 'Enregistrement...' : 'Enregistrer'),
                   ),
                 ],
@@ -196,5 +242,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 
-  String? _required(String? value) => value == null || value.trim().isEmpty ? 'Champ requis' : null;
+  String? _required(String? value) =>
+      value == null || value.trim().isEmpty ? 'Champ requis' : null;
 }

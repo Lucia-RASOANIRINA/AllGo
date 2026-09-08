@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -17,7 +18,15 @@ class ReceiptLine {
 /// et côté commerçant (commandes reçues), à partir des mêmes données déjà
 /// chargées par l'écran appelant. Pas de nouvel appel réseau : tout ce dont un
 /// reçu a besoin est déjà dans la fiche de commande.
+///
+/// Le sélecteur d'imprimante système (`Printing.layoutPdf`) échoue
+/// silencieusement sur un appareil sans service d'impression configuré — sans
+/// alternative, le reçu devenait alors inaccessible. Le choix « Enregistrer /
+/// partager » (`Printing.sharePdf`) passe par le partage natif, qui fonctionne
+/// toujours et produit un vrai fichier `.pdf` que l'utilisateur choisit où
+/// ranger.
 Future<void> printReceipt({
+  required BuildContext context,
   required String orderNumber,
   required String shopName,
   required String customerName,
@@ -105,7 +114,35 @@ Future<void> printReceipt({
     ),
   );
 
-  await Printing.layoutPdf(onLayout: (format) => doc.save());
+  final bytes = await doc.save();
+  if (!context.mounted) return;
+
+  final choice = await showModalBottomSheet<String>(
+    context: context,
+    builder: (sheetContext) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          ListTile(
+            leading: const Icon(Icons.print_outlined),
+            title: const Text('Imprimer'),
+            onTap: () => Navigator.of(sheetContext).pop('print'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.picture_as_pdf_outlined),
+            title: const Text('Enregistrer / partager le PDF'),
+            onTap: () => Navigator.of(sheetContext).pop('save'),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  if (choice == 'print') {
+    await Printing.layoutPdf(onLayout: (format) async => bytes);
+  } else if (choice == 'save') {
+    await Printing.sharePdf(bytes: bytes, filename: 'recu-$orderNumber.pdf');
+  }
 }
 
 pw.Widget _totalRow(String label, String value, {bool bold = false}) => pw.Row(

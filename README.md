@@ -156,7 +156,7 @@ Le dossier `ios/` n'est pas généré (poste Windows) :
 
 ```bash
 cd mobile
-flutter build apk --release \
+flutter build apk --release --no-tree-shake-icons \
   --dart-define=API_BASE_URL=http://<IP-DU-POSTE>:3000/v1 \
   --dart-define=SOCKET_URL=http://<IP-DU-POSTE>:3000
 # Sortie : mobile/build/app/outputs/flutter-apk/app-release.apk
@@ -166,6 +166,17 @@ Sans `--dart-define`, l'APK vise `10.0.2.2` (émulateur uniquement — voir
 `lib/core/env/environment.dart`). L'IP est figée au moment de la compilation :
 une IP locale qui change (nouveau réseau, bail DHCP renouvelé) exige de
 reconstruire l'APK.
+
+> **`--no-tree-shake-icons` est obligatoire, pas optionnel.** De nombreuses
+> icônes de l'application sont choisies dynamiquement (table de correspondance
+> catégorie→icône, `switch` selon un statut, onglet actif de la barre de
+> navigation…). L'outil de tree-shaking de Flutter ne détecte que les icônes
+> référencées comme constante littérale (`Icons.xxx` en dur) : toute icône
+> choisie dynamiquement est supprimée de la police embarquée en `--release`,
+> et s'affiche comme un simple carré vide au lieu du glyphe attendu — un bogue
+> invisible en `--debug` (où le tree-shaking est désactivé), qui n'apparaît
+> qu'à l'installation réelle. Omettre ce drapeau réintroduit silencieusement
+> des icônes cassées dans toute l'application.
 
 ### Correspondance avec le cahier des charges mobile
 

@@ -43,6 +43,13 @@ export class CreateProductDto {
   @ApiPropertyOptional({ type: [ProductMediaDto] })
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ProductMediaDto)
   media?: ProductMediaDto[];
+  /**
+   * Clé retournée par `POST /media/upload-url` pour la photo principale —
+   * le commerçant ne connaît pas l'URL finale de son fichier avant même de
+   * l'avoir envoyé. Prioritaire sur `media` si les deux sont fournis (même
+   * convention que `ShopsService.update` pour le logo).
+   */
+  @ApiPropertyOptional() @IsOptional() @IsString() mediaKey?: string;
   @ApiPropertyOptional({ type: [ProductVariantDto] })
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ProductVariantDto)
   variants?: ProductVariantDto[];

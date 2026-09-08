@@ -14,6 +14,7 @@ class SessionState {
   const SessionState({
     this.userId,
     this.displayName,
+    this.phone,
     this.roles = const <String>[],
     this.activeProfile = ActiveProfile.client,
     this.isRestoring = true,
@@ -21,6 +22,7 @@ class SessionState {
 
   final String? userId;
   final String? displayName;
+  final String? phone;
   final List<String> roles;
   final ActiveProfile activeProfile;
 
@@ -56,6 +58,7 @@ class SessionController extends Notifier<SessionState> {
       state = SessionState(
         userId: me['id'] as String,
         displayName: '${me['firstName']} ${me['lastName']}',
+        phone: me['phone'] as String?,
         roles: ((me['roles'] as List<dynamic>?) ?? const <dynamic>[])
             .map((r) => (r as Map<String, dynamic>)['role'] as String)
             .toList(),
@@ -159,6 +162,7 @@ class SessionController extends Notifier<SessionState> {
     state = SessionState(
       userId: state.userId,
       displayName: state.displayName,
+      phone: state.phone,
       roles: state.roles,
       activeProfile: profile,
       isRestoring: false,

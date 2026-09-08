@@ -130,6 +130,8 @@ class ProductRepositoryImpl implements ProductRepository {
     } on DioException catch (error) {
       // Un rail de vitrine hors ligne reste vide plutôt que de faire échouer
       // tout l'accueil : le catalogue complet, lui, reste servi par le cache.
+      // `RetryInterceptor` a déjà retenté la requête (§9.3) — si elle échoue
+      // encore ici, c'est une coupure réelle, pas un raté isolé.
       if (error.error is NetworkFailure) return const <Product>[];
       rethrow;
     }

@@ -1,6 +1,7 @@
 import 'package:allgo/app/router.dart';
 import 'package:allgo/features/auth/presentation/session_controller.dart';
 import 'package:allgo/features/home/presentation/shell_scaffold.dart';
+import 'package:allgo/l10n/generated/app_localizations_fr.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -72,10 +73,11 @@ void main() {
     test('chaque destination d’onglet pointe vers un chemin enregistré', () {
       final registered = collectPaths(buildRouter().configuration.routes);
 
+      final l10n = AppL10nFr();
       final destinations = <NavDestination>[
-        ...ShellDestinations.client,
-        ...ShellDestinations.merchant,
-        ...ShellDestinations.courier,
+        ...ShellDestinations.client(l10n),
+        ...ShellDestinations.merchant(l10n),
+        ...ShellDestinations.courier(l10n),
       ];
 
       final broken = destinations
@@ -89,14 +91,16 @@ void main() {
     test('la barre de navigation ne dépasse jamais 5 onglets', () {
       // Material 3 dégrade au-delà de 5 : les libellés se tronquent et les
       // zones tactiles passent sous 48 dp sur un écran de 320 dp (§11.1).
+      final l10n = AppL10nFr();
       for (final profile in ActiveProfile.values) {
-        expect(ShellDestinations.forProfile(profile).length, lessThanOrEqualTo(5));
+        expect(ShellDestinations.forProfile(profile, l10n).length, lessThanOrEqualTo(5));
       }
     });
 
     test('chaque profil propose l’accès au compte', () {
+      final l10n = AppL10nFr();
       for (final profile in ActiveProfile.values) {
-        final routes = ShellDestinations.forProfile(profile).map((d) => d.route);
+        final routes = ShellDestinations.forProfile(profile, l10n).map((d) => d.route);
         expect(routes, contains(Routes.account));
       }
     });

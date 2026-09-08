@@ -5,6 +5,7 @@ import { CatalogService } from './catalog.service';
 import { Category, CategorySchema } from './schemas/category.schema';
 import { Product, ProductSchema } from './schemas/product.schema';
 import { Shop, ShopSchema } from '../shops/schemas/shop.schema';
+import { MediaModule } from '../media/media.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { Shop, ShopSchema } from '../shops/schemas/shop.schema';
       { name: Category.name, schema: CategorySchema },
       { name: Shop.name, schema: ShopSchema },
     ]),
+    MediaModule,
   ],
   controllers: [CatalogController],
   providers: [CatalogService],

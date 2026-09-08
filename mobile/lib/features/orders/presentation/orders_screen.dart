@@ -4,6 +4,7 @@ import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/core/network/json_parsing.dart';
 import 'package:allgo/core/storage/app_database.dart';
 import 'package:allgo/core/utils/currency.dart';
+import 'package:allgo/core/network/realtime_client.dart';
 import 'package:allgo/features/catalog/presentation/catalog_providers.dart';
 import 'package:allgo/shared/widgets/async_view.dart';
 import 'package:dio/dio.dart';
@@ -26,8 +27,8 @@ enum OrderStatus {
   final String label;
   final IconData icon;
 
-  static OrderStatus parse(String? raw) =>
-      OrderStatus.values.firstWhere((s) => s.name == raw, orElse: () => OrderStatus.pending);
+  static OrderStatus parse(String? raw) => OrderStatus.values
+      .firstWhere((s) => s.name == raw, orElse: () => OrderStatus.pending);
 }
 
 class OrderSummary {
@@ -54,8 +55,17 @@ class OrderSummary {
 final AutoDisposeFutureProvider<List<OrderSummary>> myOrdersProvider =
     FutureProvider.autoDispose<List<OrderSummary>>((ref) async {
   final database = ref.watch(appDatabaseProvider);
+
+  // Une commande passée « confirmée » côté boutique doit se voir dans la
+  // liste sans que le client ait à tirer l'écran (§7.5).
+  final socket = await ref.read(realtimeClientProvider).connect();
+  void handler(dynamic _) => ref.invalidateSelf();
+  socket.on('order:status', handler);
+  ref.onDispose(() => socket.off('order:status', handler));
+
   try {
-    final response = await ref.watch(apiClientProvider).get<Map<String, dynamic>>(
+    final response =
+        await ref.watch(apiClientProvider).get<Map<String, dynamic>>(
       '/orders',
       queryParameters: <String, dynamic>{'limit': 20},
     );
@@ -76,8 +86,10 @@ final AutoDisposeFutureProvider<List<OrderSummary>> myOrdersProvider =
 });
 
 OrderSummary _summaryFromJson(Map<String, dynamic> json) {
-  final amounts = json['amounts'] as Map<String, dynamic>? ?? const <String, dynamic>{};
-  final shop = json['shop'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+  final amounts =
+      json['amounts'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+  final shop =
+      json['shop'] as Map<String, dynamic>? ?? const <String, dynamic>{};
   return OrderSummary(
     id: idFromJson(json),
     orderNumber: json['orderNumber'] as String? ?? '',
@@ -89,7 +101,8 @@ OrderSummary _summaryFromJson(Map<String, dynamic> json) {
   );
 }
 
-CachedOrdersCompanion _toCachedOrder(OrderSummary order) => CachedOrdersCompanion.insert(
+CachedOrdersCompanion _toCachedOrder(OrderSummary order) =>
+    CachedOrdersCompanion.insert(
       id: order.id,
       orderNumber: order.orderNumber,
       shopName: order.shopName,
@@ -125,7 +138,8 @@ class OrdersScreen extends ConsumerWidget {
           value: orders,
           isEmpty: (list) => list.isEmpty,
           emptyTitle: 'Aucune commande',
-          emptyMessage: 'Vos achats apparaîtront ici, avec leur suivi de livraison.',
+          emptyMessage:
+              'Vos achats apparaîtront ici, avec leur suivi de livraison.',
           emptyAction: FilledButton(
             onPressed: () => context.go('/'),
             child: const Text('Découvrir le catalogue'),
@@ -134,7 +148,8 @@ class OrdersScreen extends ConsumerWidget {
           data: (list) => ListView.separated(
             padding: const EdgeInsets.all(AllGoTokens.space4),
             itemCount: list.length,
-            separatorBuilder: (_, __) => const SizedBox(height: AllGoTokens.space3),
+            separatorBuilder: (_, __) =>
+                const SizedBox(height: AllGoTokens.space3),
             itemBuilder: (context, i) => _OrderCard(order: list[i]),
           ),
         ),
@@ -204,13 +219,17 @@ class _StatusChip extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
 
     final (background, foreground) = switch (status) {
-      OrderStatus.delivered => (scheme.primaryContainer, scheme.onPrimaryContainer),
+      OrderStatus.delivered => (
+          scheme.primaryContainer,
+          scheme.onPrimaryContainer
+        ),
       OrderStatus.cancelled => (scheme.errorContainer, scheme.onErrorContainer),
       _ => (scheme.secondaryContainer, scheme.onSecondaryContainer),
     };
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space2, vertical: 4),
+      padding: const EdgeInsets.symmetric(
+          horizontal: AllGoTokens.space2, vertical: 4),
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(AllGoTokens.radiusField),

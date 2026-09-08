@@ -27,9 +27,13 @@ export class MessagingService {
     private readonly moderation: ModerationService,
   ) {}
 
-  list(userId: string): Promise<unknown[]> {
+  list(userId: string, archived = false): Promise<unknown[]> {
+    const id = new Types.ObjectId(userId);
     return this.conversations
-      .find({ 'participants.userId': new Types.ObjectId(userId) })
+      .find({
+        'participants.userId': id,
+        archivedBy: archived ? id : { $ne: id },
+      })
       .sort({ updatedAt: -1 })
       .limit(50)
       .lean();
@@ -95,7 +99,14 @@ export class MessagingService {
 
   async listMessages(conversationId: string, userId: string, limit: number): Promise<unknown[]> {
     await this.member(conversationId, userId);
-    return this.messages.find({ conversationId }).sort({ createdAt: 1 }).limit(limit).lean();
+    // Un message supprimé « pour moi » ne doit pas réapparaître dans ma
+    // propre liste — l'autre participant, qui n'a rien supprimé, le voit
+    // toujours : ce filtre est donc par lecteur, jamais un `deletedAt` partagé.
+    return this.messages
+      .find({ conversationId, deletedFor: { $ne: new Types.ObjectId(userId) } })
+      .sort({ createdAt: 1 })
+      .limit(limit)
+      .lean();
   }
 
   async send(
@@ -182,5 +193,113 @@ export class MessagingService {
       { $set: { reported: true, reportReason: reason } },
     );
     return { reported: true };
+  }
+
+  /**
+   * Marque tout comme lu d'un coup, pas message par message : un accusé de
+   * lecture par ligne exigerait un aller-retour réseau par message affiché,
+   * pour un gain imperceptible côté utilisateur.
+   */
+  async markRead(conversationId: string, userId: string): Promise<{ read: true }> {
+    const id = new Types.ObjectId(userId);
+    await this.member(conversationId, userId);
+    await Promise.all([
+      this.messages.updateMany(
+        { conversationId: new Types.ObjectId(conversationId), readBy: { $ne: id } },
+        { $addToSet: { readBy: id } },
+      ),
+      this.conversations.updateOne(
+        { _id: conversationId },
+        { $set: { [`unread.${userId}`]: 0 } },
+      ),
+    ]);
+    return { read: true };
+  }
+
+  async setArchived(conversationId: string, userId: string, archived: boolean): Promise<{ archived: boolean }> {
+    const id = new Types.ObjectId(userId);
+    await this.member(conversationId, userId);
+    await this.conversations.updateOne(
+      { _id: conversationId },
+      archived ? { $addToSet: { archivedBy: id } } : { $pull: { archivedBy: id } },
+    );
+    return { archived };
+  }
+
+  /** Message d'une conversation dont je suis membre — sans restriction sur
+   * l'auteur : supprimer « pour moi » s'applique à n'importe quel message,
+   * envoyé ou reçu, comme sur les messageries grand public. */
+  private async messageIn(conversationId: string, messageId: string, userId: string): Promise<MessageDocument> {
+    await this.member(conversationId, userId);
+    const message = await this.messages.findOne({
+      _id: messageId,
+      conversationId: new Types.ObjectId(conversationId),
+    });
+    if (!message) throw AppError.notFound('Message');
+    return message;
+  }
+
+  /** Idem, réservé à l'auteur — seule l'édition l'exige, jamais la
+   * suppression « pour moi ». */
+  private async ownMessage(conversationId: string, messageId: string, userId: string): Promise<MessageDocument> {
+    const message = await this.messageIn(conversationId, messageId, userId);
+    if (String(message.senderId) !== userId) {
+      throw new AppError('FORBIDDEN', 'Seul l’auteur peut modifier ce message.', 403);
+    }
+    if (message.deletedFor.some((id) => String(id) === userId)) {
+      throw new AppError('MESSAGE_DELETED', 'Ce message a été supprimé.', 409);
+    }
+    return message;
+  }
+
+  async editMessage(
+    conversationId: string,
+    messageId: string,
+    userId: string,
+    content: string,
+  ): Promise<unknown> {
+    if (!content.trim()) throw new AppError('MESSAGE_EMPTY', 'Le message ne peut pas être vide.', 400);
+    const message = await this.ownMessage(conversationId, messageId, userId);
+    message.content = content.trim();
+    message.editedAt = new Date();
+    await message.save();
+
+    const conversation = await this.conversations.findById(conversationId);
+    // Le dernier message affiché dans la liste des conversations est un
+    // instantané : s'il s'agit de celui qu'on vient d'éditer, il doit
+    // refléter le nouveau texte, sinon la liste ment sur ce qui a été dit.
+    if (conversation?.lastMessage && String(conversation.lastMessage.senderId) === String(message.senderId)) {
+      const last = await this.messages.findOne({ conversationId: message.conversationId }).sort({ createdAt: -1 });
+      if (last && String(last._id) === messageId) {
+        conversation.lastMessage.content = message.content;
+        await conversation.save();
+      }
+    }
+
+    for (const participant of conversation?.participants ?? []) {
+      const participantId = String(participant.userId);
+      if (participantId !== userId) {
+        this.realtime.emitToUser(participantId, RealtimeEvent.MessageNew, {
+          conversationId,
+          message: message.toJSON(),
+          edited: true,
+        });
+      }
+    }
+    return message.toJSON();
+  }
+
+  /**
+   * Suppression « pour moi » uniquement — le contenu et les pièces jointes
+   * restent intacts pour l'autre participant, qui ne voit donc passer aucun
+   * événement temps réel : rien n'a changé de son côté.
+   */
+  async deleteMessage(conversationId: string, messageId: string, userId: string): Promise<{ deleted: true }> {
+    const message = await this.messageIn(conversationId, messageId, userId);
+    await this.messages.updateOne(
+      { _id: message._id },
+      { $addToSet: { deletedFor: new Types.ObjectId(userId) } },
+    );
+    return { deleted: true };
   }
 }

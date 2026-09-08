@@ -4,6 +4,8 @@ import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/core/sync/sync_providers.dart';
 import 'package:allgo/features/auth/presentation/session_controller.dart';
 import 'package:allgo/features/settings/presentation/settings_controller.dart';
+import 'package:allgo/l10n/generated/app_localizations.dart';
+import 'package:allgo/shared/widgets/confirm_dialog.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,68 +19,69 @@ class AccountScreen extends ConsumerWidget {
     final session = ref.watch(sessionControllerProvider);
     final settings = ref.watch(settingsControllerProvider);
     final pending = ref.watch(pendingActionCountProvider);
+    final l10n = AppL10n.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Compte')),
+      appBar: AppBar(title: Text(l10n.navAccount)),
       body: ListView(
         children: <Widget>[
           ListTile(
             leading: const CircleAvatar(child: Icon(Icons.person_outline)),
             title: Text(session.displayName ?? 'Utilisateur'),
-            subtitle: const Text('Voir et modifier mon profil'),
+            subtitle: Text(l10n.accountViewProfile),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.push('/compte/profil'),
+            onTap: () => context.push(Routes.profile),
           ),
 
           // Sélecteur de profil — un commerçant reste un client sur AllGo (§11.2).
           if (session.canSwitchProfile) ...<Widget>[
             const Divider(),
-            const _SectionTitle('Changer de profil'),
+            _SectionTitle(l10n.accountSwitchProfile),
             _ProfileSwitcher(
                 active: session.activeProfile, roles: session.roles),
           ],
 
           const Divider(),
-          const _SectionTitle('Mes achats'),
+          _SectionTitle(l10n.sectionMyPurchases),
           ListTile(
             leading: const Icon(Icons.receipt_long_outlined),
-            title: const Text('Commandes'),
+            title: Text(l10n.navOrders),
             onTap: () => context.push('/commandes'),
           ),
           ListTile(
             leading: const Icon(Icons.location_on_outlined),
-            title: const Text('Adresses de livraison'),
-            onTap: () => context.push('/compte/adresses'),
+            title: Text(l10n.menuAddresses),
+            onTap: () => context.push(Routes.addresses),
           ),
           ListTile(
             leading: const Icon(Icons.favorite_border),
-            title: const Text('Favoris'),
-            onTap: () => context.push('/compte/favoris'),
+            title: Text(l10n.menuFavorites),
+            onTap: () => context.push(Routes.favorites),
           ),
           ListTile(
             leading: const Icon(Icons.block_outlined),
-            title: const Text('Comptes bloqués'),
+            title: Text(l10n.menuBlockedAccounts),
             onTap: () => context.push(Routes.blockedUsers),
           ),
           ListTile(
             leading: const Icon(Icons.gavel_outlined),
-            title: const Text('Mes sanctions'),
+            title: Text(l10n.menuMySanctions),
             onTap: () => context.push(Routes.sanctions),
           ),
           ListTile(
             leading: const Icon(Icons.groups_outlined),
-            title: const Text('Réseau social'),
-            subtitle: const Text('Publications, stories et communauté AllGo'),
+            title: Text(l10n.menuSocialNetwork),
+            subtitle: Text(l10n.menuSocialNetworkSubtitle),
             onTap: () => context.push(Routes.publish),
           ),
           ListTile(
             leading: const Icon(Icons.chat_bubble_outline),
-            title: const Text('Messages'),
+            title: Text(l10n.navMessages),
             onTap: () => context.push(Routes.messages),
           ),
           ListTile(
             leading: const Icon(Icons.notifications_outlined),
-            title: const Text('Notifications'),
+            title: Text(l10n.menuNotifications),
             onTap: () => context.push(Routes.notifications),
           ),
 
@@ -111,16 +114,15 @@ class AccountScreen extends ConsumerWidget {
           ],
 
           const Divider(),
-          const _SectionTitle('Application'),
+          _SectionTitle(l10n.sectionApplication),
 
           // Le mode économie de données est en évidence, pas enfoui dans un
           // sous-menu : c'est la mesure de maîtrise du risque R7 (§20), et elle
           // ne sert à rien si personne ne la trouve.
           SwitchListTile(
             secondary: const Icon(Icons.data_saver_on),
-            title: const Text('Économie de données'),
-            subtitle:
-                const Text('Images en basse résolution, aucun préchargement'),
+            title: Text(l10n.dataSaverTitle),
+            subtitle: Text(l10n.dataSaverSubtitle),
             value: settings.dataSaver,
             onChanged: (value) => ref
                 .read(settingsControllerProvider.notifier)
@@ -128,21 +130,21 @@ class AccountScreen extends ConsumerWidget {
           ),
 
           const Divider(),
-          const _SectionTitle('Notifications'),
+          _SectionTitle(l10n.sectionNotifications),
           SwitchListTile(
             secondary: const Icon(Icons.notifications_outlined),
-            title: const Text('Activer les notifications'),
+            title: Text(l10n.toggleEnableNotifications),
             value: settings.pushEnabled,
             onChanged: (value) => ref
                 .read(settingsControllerProvider.notifier)
                 .setPushEnabled(enabled: value),
           ),
-          for (final entry in const <(String, String)>[
-            ('orders', 'Notifications commandes'),
-            ('promotions', 'Notifications promotions'),
-            ('social', 'Notifications sociales'),
-            ('messages', 'Notifications messages'),
-            ('delivery', 'Notifications livraison'),
+          for (final entry in <(String, String)>[
+            ('orders', l10n.toggleOrderNotifications),
+            ('promotions', l10n.togglePromoNotifications),
+            ('social', l10n.toggleSocialNotifications),
+            ('messages', l10n.toggleMessageNotifications),
+            ('delivery', l10n.toggleDeliveryNotifications),
           ])
             SwitchListTile(
               title: Text(entry.$2),
@@ -157,7 +159,7 @@ class AccountScreen extends ConsumerWidget {
 
           ListTile(
             leading: const Icon(Icons.language),
-            title: const Text('Langue'),
+            title: Text(l10n.fieldLanguage),
             subtitle: Text(
                 settings.locale.languageCode == 'mg' ? 'Malagasy' : 'Français'),
             onTap: () => _chooseLocale(context, ref),
@@ -165,12 +167,12 @@ class AccountScreen extends ConsumerWidget {
 
           ListTile(
             leading: const Icon(Icons.brightness_6_outlined),
-            title: const Text('Thème'),
+            title: Text(l10n.fieldTheme),
             subtitle: Text(
               switch (settings.themeMode) {
-                ThemeMode.light => 'Clair',
-                ThemeMode.dark => 'Sombre',
-                ThemeMode.system => 'Selon le système',
+                ThemeMode.light => l10n.themeLight,
+                ThemeMode.dark => l10n.themeDark,
+                ThemeMode.system => l10n.themeSystem,
               },
             ),
             onTap: () => _chooseTheme(context, ref),
@@ -189,7 +191,7 @@ class AccountScreen extends ConsumerWidget {
           const Divider(),
           ListTile(
             leading: const Icon(Icons.privacy_tip_outlined),
-            title: const Text('Politique de confidentialité'),
+            title: Text(l10n.menuPrivacyPolicy),
             // Accessible hors ligne (§12.3) : embarquée dans l'application,
             // jamais chargée depuis le réseau.
             onTap: () => context.push('/confidentialite'),
@@ -201,7 +203,7 @@ class AccountScreen extends ConsumerWidget {
             child: OutlinedButton.icon(
               onPressed: () => _confirmSignOut(context, ref),
               icon: const Icon(Icons.logout),
-              label: const Text('Se déconnecter'),
+              label: Text(l10n.actionSignOut),
             ),
           ),
           const SizedBox(height: AllGoTokens.space3),
@@ -214,7 +216,7 @@ class AccountScreen extends ConsumerWidget {
                 side: BorderSide(color: Theme.of(context).colorScheme.error),
               ),
               icon: const Icon(Icons.delete_forever_outlined),
-              label: const Text('Supprimer mon compte'),
+              label: Text(l10n.actionDeleteAccount),
             ),
           ),
           const SizedBox(height: AllGoTokens.space8),
@@ -247,16 +249,17 @@ class AccountScreen extends ConsumerWidget {
   }
 
   Future<void> _chooseTheme(BuildContext context, WidgetRef ref) async {
+    final l10n = AppL10n.of(context);
     final mode = await showModalBottomSheet<ThemeMode>(
       context: context,
       showDragHandle: true,
       builder: (context) => Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          for (final entry in const <(ThemeMode, String)>[
-            (ThemeMode.system, 'Selon le système'),
-            (ThemeMode.light, 'Clair'),
-            (ThemeMode.dark, 'Sombre'),
+          for (final entry in <(ThemeMode, String)>[
+            (ThemeMode.system, l10n.themeSystem),
+            (ThemeMode.light, l10n.themeLight),
+            (ThemeMode.dark, l10n.themeDark),
           ])
             ListTile(
               title: Text(entry.$2),
@@ -273,30 +276,18 @@ class AccountScreen extends ConsumerWidget {
   Future<void> _confirmSignOut(BuildContext context, WidgetRef ref) async {
     final pending = ref.read(pendingActionCountProvider);
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Se déconnecter ?'),
-        content: Text(
-          pending > 0
-              // La déconnexion purge le cache et les jetons (§12.2) : les
-              // actions en attente seraient perdues. L'utilisateur doit le
-              // savoir avant, pas le découvrir après.
-              ? '$pending action${pending > 1 ? 's' : ''} n’a pas encore été envoyée '
-                  'et sera définitivement perdue.'
-              : 'Vos données enregistrées sur cet appareil seront effacées.',
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Se déconnecter'),
-          ),
-        ],
-      ),
+    final confirmed = await ConfirmDialog.show(
+      context,
+      icon: Icons.logout,
+      title: 'Se déconnecter ?',
+      message: pending > 0
+          // La déconnexion purge le cache et les jetons (§12.2) : les
+          // actions en attente seraient perdues. L'utilisateur doit le
+          // savoir avant, pas le découvrir après.
+          ? '$pending action${pending > 1 ? 's' : ''} n’a pas encore été envoyée '
+              'et sera définitivement perdue.'
+          : 'Vos données enregistrées sur cet appareil seront effacées.',
+      confirmLabel: 'Se déconnecter',
     );
 
     if (confirmed ?? false) {
@@ -306,29 +297,15 @@ class AccountScreen extends ConsumerWidget {
   }
 
   Future<void> _confirmDeleteAccount(BuildContext context, WidgetRef ref) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Supprimer mon compte ?'),
-        content: const Text(
-          'Cette action est irréversible. Votre profil sera anonymisé et vous '
+    final confirmed = await ConfirmDialog.show(
+      context,
+      icon: Icons.delete_forever_outlined,
+      title: 'Supprimer mon compte ?',
+      message: 'Cette action est irréversible. Votre profil sera anonymisé et vous '
           'serez déconnecté de tous vos appareils. Vos commandes passées restent '
           'visibles par les boutiques concernées, sans vos coordonnées.',
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Supprimer définitivement'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Supprimer définitivement',
+      isDestructive: true,
     );
 
     if (confirmed != true) return;

@@ -6,6 +6,7 @@ import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/core/network/json_parsing.dart';
 import 'package:allgo/features/auth/presentation/session_controller.dart';
 import 'package:allgo/features/moderation/presentation/moderation_actions.dart';
+import 'package:allgo/shared/widgets/shop_avatar.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -398,10 +399,10 @@ class _PostCardState extends ConsumerState<_PostCard> {
             padding: const EdgeInsets.all(AllGoTokens.space3),
             child: Row(
               children: <Widget>[
-                CircleAvatar(
-                  radius: 18,
-                  backgroundImage: post.avatar.isEmpty ? null : CachedNetworkImageProvider(post.avatar),
-                  child: post.avatar.isEmpty ? const Icon(Icons.storefront_outlined) : null,
+                ShopAvatar(
+                  name: post.author,
+                  logoUrl: post.avatar.isEmpty ? null : post.avatar,
+                  size: 36,
                 ),
                 const SizedBox(width: AllGoTokens.space2),
                 Expanded(

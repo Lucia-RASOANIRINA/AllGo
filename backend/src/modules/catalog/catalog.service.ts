@@ -8,6 +8,7 @@ import { cursorFilter, decodeCursor, encodeCursor } from '../../common/paginatio
 import { Category, type CategoryDocument } from './schemas/category.schema';
 import { Product, type ProductDocument } from './schemas/product.schema';
 import { Shop, type ShopDocument } from '../shops/schemas/shop.schema';
+import { MediaService } from '../media/media.service';
 import type { CreateProductDto, UpdateProductDto } from './dto/product.dto';
 
 const SIMILAR_PRODUCTS_PROJECTION = 'name slug price promoPrice currency media stock shop shopId stats';
@@ -33,7 +34,18 @@ export class CatalogService {
     @InjectModel(Product.name) private readonly products: Model<ProductDocument>,
     @InjectModel(Category.name) private readonly categories: Model<CategoryDocument>,
     @InjectModel(Shop.name) private readonly shops: Model<ShopDocument>,
+    private readonly media: MediaService,
   ) {}
+
+  /** `mediaKey` prioritaire sur `media` — même convention que le logo boutique. */
+  private resolveMedia<T extends { mediaKey?: string; media?: unknown }>(
+    dto: T,
+  ): Omit<T, 'mediaKey'> {
+    const { mediaKey, ...rest } = dto;
+    if (!mediaKey) return rest;
+    const urls = this.media.publicUrls(mediaKey);
+    return { ...rest, media: [{ ...urls, isMain: true }] };
+  }
 
   async listProducts(query: ProductQuery): Promise<Paginated<unknown>> {
     const filter: Record<string, unknown> = { status: 'published', isHidden: { $ne: true }, isAvailable: { $ne: false } };
@@ -42,7 +54,17 @@ export class CatalogService {
     // ramène la catégorie ET toutes ses sous-catégories, en une requête indexée.
     if (query.categoryId) filter.categoryPath = new Types.ObjectId(query.categoryId);
     if (query.shopId) filter.shopId = new Types.ObjectId(query.shopId);
-    if (query.q) filter.$text = { $search: query.q };
+    // `$text` exige un mot complet (avec racinisation) : taper « r » ou « ri »
+    // ne renvoie rien tant que « riz » n'est pas achevé. Une recherche en
+    // temps réel doit matcher dès la première lettre — un regex insensible à
+    // la casse, sans ancrage, le permet.
+    if (query.q) {
+      const escaped = query.q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.$or = [
+        { name: { $regex: escaped, $options: 'i' } },
+        { description: { $regex: escaped, $options: 'i' } },
+      ];
+    }
     if (query.inStock) filter.stock = { $gt: 0 };
     if (query.onSale) filter.promoPrice = { $exists: true };
 
@@ -90,7 +112,7 @@ export class CatalogService {
     const shop = await this.shops.findById(shopId).lean();
     if (!shop) throw AppError.notFound('Boutique');
     const product = await this.products.create({
-      ...dto,
+      ...this.resolveMedia(dto),
       shopId: new Types.ObjectId(shopId),
       shop: { name: shop.name, slug: shop.slug, logo: shop.logo, city: shop.address?.city },
       // Recopiée depuis la boutique : permet un `$geoNear` direct sur les
@@ -104,7 +126,12 @@ export class CatalogService {
   async updateProduct(shopId: string, id: string, dto: UpdateProductDto): Promise<unknown> {
     const product = await this.products.findOneAndUpdate(
       { _id: id, shopId: new Types.ObjectId(shopId) },
-      { $set: { ...dto, ...(dto.isHidden !== undefined ? { status: dto.isHidden ? 'draft' : 'published' } : {}) } },
+      {
+        $set: {
+          ...this.resolveMedia(dto),
+          ...(dto.isHidden !== undefined ? { status: dto.isHidden ? 'draft' : 'published' } : {}),
+        },
+      },
       { new: true, runValidators: true },
     );
     if (!product) throw AppError.notFound('Produit');
