@@ -3,16 +3,18 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
 import * as argon2 from 'argon2';
+import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
-import { Model, Types } from 'mongoose';
+import { Model } from 'mongoose';
 import type Redis from 'ioredis';
+import type { users as MysqlUser } from '@prisma/client';
 
 import { REDIS_CLIENT } from '../../infrastructure/redis/redis.constants';
 import { AppError } from '../../common/http/app-error';
-import { Role } from '../../common/rbac/roles';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { buildRoleAssignments } from '../users/mysql-role-mapper';
 import { User, type UserDocument } from '../users/schemas/user.schema';
-import { RefreshToken, type RefreshTokenDocument } from './schemas/refresh-token.schema';
 import { EmailService } from './email.service';
 import type { LoginDto, RegisterDto } from './dto/auth.dto';
 
@@ -23,11 +25,10 @@ export interface TokenPair {
 }
 
 /**
- * Paramètres Argon2id — §5.1.
- *
- * Argon2id remplace bcrypt : résistant au calcul GPU, lauréat du concours de
- * hachage de mots de passe. 19 Mio et 2 passes correspondent à la
- * recommandation OWASP, tenable sur un VPS modeste.
+ * Paramètres Argon2id — utilisés UNIQUEMENT pour le hash placebo du miroir
+ * Mongo (§ ci-dessous, `mirrorUser`) : ce hash n'est jamais vérifié, l'unique
+ * source de vérité pour l'authentification est désormais `users.password`
+ * (MySQL, bcrypt — écrit par le site web comme par l'inscription mobile).
  */
 const ARGON2_OPTIONS: argon2.Options = {
   type: argon2.argon2id,
@@ -46,8 +47,8 @@ export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
   constructor(
-    @InjectModel(User.name) private readonly users: Model<UserDocument>,
-    @InjectModel(RefreshToken.name) private readonly refreshTokens: Model<RefreshTokenDocument>,
+    @InjectModel(User.name) private readonly mirror: Model<UserDocument>,
+    private readonly prisma: PrismaService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
@@ -57,27 +58,37 @@ export class AuthService {
   // ─────────────────────────────────────────────────────────── Inscription ──
 
   async register(dto: RegisterDto): Promise<{ user: unknown } & TokenPair> {
-    const phone = AuthService.normalisePhone(dto.phone);
+    const localPhone = AuthService.toLocalPhoneFormat(AuthService.normalisePhone(dto.phone));
+    const last9 = AuthService.last9Digits(localPhone);
 
-    if (await this.users.exists({ phone })) {
+    const existing = await this.prisma.users.findMany({ where: { phone: { endsWith: last9 } } });
+    if (existing.length > 0) {
       throw new AppError('PHONE_ALREADY_USED', 'Ce numéro est déjà associé à un compte.', 409);
     }
-    if (dto.email && (await this.users.exists({ email: dto.email.toLowerCase() }))) {
+
+    // La colonne partagée `email` est `UNIQUE NOT NULL` côté web : une
+    // inscription mobile sans email reçoit une adresse de substitution
+    // déterministe, invisible pour l'utilisateur (§ décision confirmée).
+    const email = dto.email?.toLowerCase() ?? `m${last9}@mobile.allgo.local`;
+    if (await this.prisma.users.findUnique({ where: { email } })) {
       throw new AppError('EMAIL_ALREADY_USED', 'Cette adresse email est déjà utilisée.', 409);
     }
 
-    const user = await this.users.create({
-      phone,
-      email: dto.email?.toLowerCase(),
-      passwordHash: await argon2.hash(dto.password, ARGON2_OPTIONS),
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-      roles: [{ role: Role.Client }],
-      status: 'active',
+    const mysqlUser = await this.prisma.users.create({
+      data: {
+        role_id: 3,
+        firstname: dto.firstName,
+        lastname: dto.lastName,
+        email,
+        phone: localPhone,
+        password: await bcrypt.hash(dto.password, 12),
+        status: 'active',
+      },
     });
 
-    const tokens = await this.issueTokens(user);
-    return { user: user.toJSON(), ...tokens };
+    const tokens = await this.issueTokens(mysqlUser);
+    const mirrored = await this.mirror.findOne({ mysqlId: mysqlUser.id });
+    return { user: mirrored?.toJSON(), ...tokens };
   }
 
   // ───────────────────────────────────────────────────────────── Connexion ──
@@ -86,32 +97,36 @@ export class AuthService {
     const phone = AuthService.normalisePhone(dto.phone);
     await this.assertNotLockedOut(phone, context.ip);
 
-    const user = await this.users.findOne({ phone }).select('+passwordHash');
+    // Plusieurs comptes réels partagent le même suffixe de téléphone (doublons
+    // constatés en base) : on essaie chaque candidat plutôt que de supposer
+    // l'unicité — `findFirst`/`findUnique` masqueraient silencieusement les
+    // autres comptes valides.
+    const candidates = await this.prisma.users.findMany({
+      where: { phone: { endsWith: AuthService.last9Digits(phone) } },
+    });
 
-    // Vérification à durée constante même si le compte n'existe pas : sans ce
-    // leurre, le temps de réponse révèle quels numéros sont enregistrés.
-    const hash =
-      user?.passwordHash ??
-      '$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-    const valid = await argon2.verify(hash, dto.password).catch(() => false);
+    let matched: MysqlUser | undefined;
+    for (const candidate of candidates) {
+      if (await AuthService.bcryptCompare(dto.password, candidate.password)) {
+        matched = candidate;
+        break;
+      }
+    }
 
-    if (!user || !valid) {
+    if (!matched) {
+      // Vérification à durée constante même si aucun compte ne correspond :
+      // sans ce leurre, le temps de réponse révèle quels numéros existent.
+      await AuthService.bcryptCompare(dto.password, await bcrypt.hash('decoy', 10));
       await this.recordFailedAttempt(phone, context.ip);
       throw AppError.invalidCredentials();
     }
-    if (user.status !== 'active') {
+    if (matched.status !== 'active') {
       throw new AppError('ACCOUNT_SUSPENDED', 'Ce compte est suspendu.', 403);
     }
 
     await this.clearFailedAttempts(phone, context.ip);
 
-    // Ré-empreinte transparente si les paramètres Argon2 ont durci depuis.
-    if (argon2.needsRehash(user.passwordHash, ARGON2_OPTIONS)) {
-      user.passwordHash = await argon2.hash(dto.password, ARGON2_OPTIONS);
-      await user.save();
-    }
-
-    return this.issueTokens(user, { ...context, deviceId: dto.deviceId });
+    return this.issueTokens(matched, { ...context, deviceId: dto.deviceId });
   }
 
   // ──────────────────────────────────────────────────────── Rafraîchissement ──
@@ -132,17 +147,17 @@ export class AuthService {
       throw new AppError('INVALID_REFRESH_TOKEN', 'Votre session a expiré. Reconnectez-vous.', 401);
     }
 
-    const stored = await this.refreshTokens.findOne({ sid: payload.sid });
-    if (!stored || stored.tokenHash !== AuthService.hashToken(rawToken)) {
+    const stored = await this.prisma.refresh_tokens.findUnique({ where: { sid: payload.sid } });
+    if (!stored || stored.token_hash !== AuthService.hashToken(rawToken)) {
       throw new AppError('INVALID_REFRESH_TOKEN', 'Votre session a expiré. Reconnectez-vous.', 401);
     }
 
-    if (stored.revokedAt) {
+    if (stored.revoked_at) {
       this.logger.warn(
-        { userId: String(stored.userId), sid: stored.sid },
+        { userId: stored.user_id, sid: stored.sid },
         'Jeton de rafraîchissement réutilisé — révocation de toutes les sessions',
       );
-      await this.revokeAllSessions(stored.userId);
+      await this.revokeAllSessions(stored.user_id);
       throw new AppError(
         'TOKEN_REUSE_DETECTED',
         'Une anomalie de sécurité a été détectée. Reconnectez-vous.',
@@ -150,33 +165,40 @@ export class AuthService {
       );
     }
 
-    const user = await this.users.findById(stored.userId);
-    if (!user || user.status !== 'active') {
+    const mysqlUser = await this.prisma.users.findUnique({ where: { id: stored.user_id } });
+    if (!mysqlUser || mysqlUser.status !== 'active') {
       throw new AppError('INVALID_REFRESH_TOKEN', 'Votre session a expiré. Reconnectez-vous.', 401);
     }
 
-    const tokens = await this.issueTokens(user, {
-      deviceId: stored.deviceId,
-      ip: stored.ip,
-      userAgent: stored.userAgent,
+    const tokens = await this.issueTokens(mysqlUser, {
+      deviceId: stored.device_id ?? undefined,
+      ip: stored.ip ?? undefined,
+      userAgent: stored.user_agent ?? undefined,
     });
 
-    stored.revokedAt = new Date();
-    stored.replacedBy = this.jwt.decode<{ sid: string }>(tokens.refreshToken)?.sid;
-    await stored.save();
+    await this.prisma.refresh_tokens.update({
+      where: { id: stored.id },
+      data: {
+        revoked_at: new Date(),
+        replaced_by: this.jwt.decode<{ sid: string }>(tokens.refreshToken)?.sid,
+      },
+    });
 
     return tokens;
   }
 
   async logout(sid: string): Promise<void> {
-    await this.refreshTokens.updateOne({ sid }, { $set: { revokedAt: new Date() } });
+    await this.prisma.refresh_tokens.updateMany({
+      where: { sid },
+      data: { revoked_at: new Date() },
+    });
   }
 
-  async revokeAllSessions(userId: Types.ObjectId | string): Promise<void> {
-    await this.refreshTokens.updateMany(
-      { userId, revokedAt: { $exists: false } },
-      { $set: { revokedAt: new Date() } },
-    );
+  async revokeAllSessions(userId: number): Promise<void> {
+    await this.prisma.refresh_tokens.updateMany({
+      where: { user_id: userId, revoked_at: null },
+      data: { revoked_at: new Date() },
+    });
   }
 
   // ───────────────────────────────────────────────────────────────── OTP ──
@@ -238,12 +260,14 @@ export class AuthService {
 
     await this.redis.del(key);
 
-    const user = await this.users.findOne({ phone });
+    const candidates = await this.prisma.users.findMany({
+      where: { phone: { endsWith: AuthService.last9Digits(phone) } },
+    });
+    const user = candidates[0];
     if (!user) throw AppError.notFound('Compte');
 
-    if (!user.phoneVerifiedAt) {
-      user.phoneVerifiedAt = new Date();
-      await user.save();
+    if (!user.phone_verified_at) {
+      await this.prisma.users.update({ where: { id: user.id }, data: { phone_verified_at: new Date() } });
     }
 
     return this.issueTokens(user);
@@ -257,16 +281,14 @@ export class AuthService {
    */
   async forgotPassword(rawPhone: string): Promise<void> {
     const phone = AuthService.normalisePhone(rawPhone);
-    const user = await this.users.findOne({ phone });
+    const candidates = await this.prisma.users.findMany({
+      where: { phone: { endsWith: AuthService.last9Digits(phone) } },
+    });
+    const user = candidates[0];
     if (!user) return;
 
     const token = randomBytes(32).toString('base64url');
-    await this.redis.set(
-      `pwreset:${AuthService.hashToken(token)}`,
-      String(user._id),
-      'EX',
-      30 * 60,
-    );
+    await this.redis.set(`pwreset:${AuthService.hashToken(token)}`, String(user.id), 'EX', 30 * 60);
 
     if (this.config.get('env') !== 'production') {
       this.logger.debug(`Jeton de réinitialisation pour ${phone} : ${token}`);
@@ -275,24 +297,22 @@ export class AuthService {
 
   async resetPassword(token: string, password: string): Promise<void> {
     const key = `pwreset:${AuthService.hashToken(token)}`;
-    const userId = await this.redis.get(key);
+    const rawId = await this.redis.get(key);
 
-    if (!userId) {
+    if (!rawId) {
       throw new AppError('RESET_TOKEN_INVALID', 'Ce lien a expiré. Refaites une demande.', 410);
     }
-
     await this.redis.del(key);
 
-    await this.users.updateOne(
-      { _id: userId },
-      {
-        $set: {
-          passwordHash: await argon2.hash(password, ARGON2_OPTIONS),
-          // Invalide immédiatement tous les jetons d'accès déjà émis.
-          sessionsInvalidBefore: new Date(),
-        },
+    const userId = Number(rawId);
+    await this.prisma.users.update({
+      where: { id: userId },
+      data: {
+        password: await bcrypt.hash(password, 12),
+        // Invalide immédiatement tous les jetons d'accès déjà émis.
+        sessions_invalid_before: new Date(),
       },
-    );
+    });
 
     // Réinitialiser un mot de passe déconnecte partout : si le compte était
     // compromis, l'attaquant perd son accès au même instant.
@@ -306,20 +326,22 @@ export class AuthService {
    * aucune route (code mort) : ces deux méthodes referment la boucle, sur le
    * même schéma jeton-Redis à usage unique que `forgotPassword`.
    */
-  async sendEmailVerification(userId: string): Promise<void> {
-    const user = await this.users.findById(userId);
+  async sendEmailVerification(mysqlId: number): Promise<void> {
+    const user = await this.prisma.users.findUnique({ where: { id: mysqlId } });
     if (!user) throw AppError.notFound('Utilisateur');
-    if (!user.email) {
+    // `email` est NOT NULL côté MySQL (une adresse de substitution est toujours
+    // présente) : « pas d'email » signifie ici « jamais remplacée par une vraie ».
+    if (user.email.endsWith('@mobile.allgo.local')) {
       throw new AppError(
         'EMAIL_MISSING',
         'Ajoutez une adresse email à votre profil avant de la vérifier.',
         400,
       );
     }
-    if (user.emailVerifiedAt) return;
+    if (user.email_verified_at) return;
 
     const token = randomBytes(32).toString('base64url');
-    await this.redis.set(`emailverify:${AuthService.hashToken(token)}`, String(user._id), 'EX', 30 * 60);
+    await this.redis.set(`emailverify:${AuthService.hashToken(token)}`, String(user.id), 'EX', 30 * 60);
 
     if (this.config.get('env') !== 'production') {
       this.logger.debug(`Jeton de vérification email pour ${user.email} : ${token}`);
@@ -329,8 +351,8 @@ export class AuthService {
 
   async verifyEmail(token: string): Promise<void> {
     const key = `emailverify:${AuthService.hashToken(token)}`;
-    const userId = await this.redis.get(key);
-    if (!userId) {
+    const rawId = await this.redis.get(key);
+    if (!rawId) {
       throw new AppError(
         'EMAIL_VERIFICATION_TOKEN_INVALID',
         'Ce lien a expiré. Redemandez une vérification.',
@@ -338,25 +360,49 @@ export class AuthService {
       );
     }
     await this.redis.del(key);
-    await this.users.updateOne({ _id: userId }, { $set: { emailVerifiedAt: new Date() } });
+    await this.prisma.users.update({
+      where: { id: Number(rawId) },
+      data: { email_verified_at: new Date() },
+    });
   }
 
   // ──────────────────────────────────────────────────────────── Internes ──
 
+  /**
+   * Construit `AuthenticatedUser`, tient à jour le miroir Mongo (§ décision du
+   * 2026-09-09) et émet la paire de jetons.
+   *
+   * Le miroir existe pour les modules pas encore migrés qui font
+   * `new Types.ObjectId(user.id)`/`.populate('userId')` et attendent un vrai
+   * document `User` (nom, avatar, rôles...) — sans lui, tout module encore sur
+   * Mongo verrait des profils vides dès la première connexion post-bascule.
+   */
   private async issueTokens(
-    user: UserDocument,
+    mysqlUser: MysqlUser,
     context: { deviceId?: string; ip?: string; userAgent?: string } = {},
   ): Promise<TokenPair> {
+    const [ownedShops, teamMembership] = await Promise.all([
+      this.prisma.shops.findMany({ where: { user_id: mysqlUser.id }, select: { id: true } }),
+      this.prisma.shop_team_members.findUnique({ where: { user_id: mysqlUser.id } }),
+    ]);
+    const roles = buildRoleAssignments({
+      roleId: mysqlUser.role_id,
+      adminLevel: mysqlUser.admin_level,
+      ownedShopIds: ownedShops.map((s) => s.id),
+      teamMembership: teamMembership
+        ? { shopId: teamMembership.shop_id, teamRole: teamMembership.team_role, status: teamMembership.status }
+        : null,
+    });
+
+    const mirrored = await this.mirrorUser(mysqlUser, roles);
     const sid = randomBytes(16).toString('base64url');
 
     const claims: AuthenticatedUser & { sub: string } = {
-      sub: String(user._id),
-      id: String(user._id),
-      phone: user.phone,
-      roles: user.roles.map((r) => ({
-        role: r.role,
-        ...(r.shopId ? { shopId: String(r.shopId) } : {}),
-      })),
+      sub: String(mirrored._id),
+      id: String(mirrored._id),
+      mysqlId: mysqlUser.id,
+      phone: mysqlUser.phone ?? '',
+      roles,
       sid,
     };
 
@@ -369,18 +415,20 @@ export class AuthService {
     });
 
     const refreshToken = await this.jwt.signAsync(
-      { sub: String(user._id), sid },
+      { sub: claims.id, sid },
       { secret: this.config.getOrThrow<string>('jwt.refreshSecret'), expiresIn: refreshTtl },
     );
 
-    await this.refreshTokens.create({
-      userId: user._id,
-      sid,
-      tokenHash: AuthService.hashToken(refreshToken),
-      deviceId: context.deviceId,
-      ip: context.ip,
-      userAgent: context.userAgent,
-      expiresAt: new Date(Date.now() + AuthService.parseTtlMs(refreshTtl)),
+    await this.prisma.refresh_tokens.create({
+      data: {
+        user_id: mysqlUser.id,
+        sid,
+        token_hash: AuthService.hashToken(refreshToken),
+        device_id: context.deviceId,
+        ip: context.ip,
+        user_agent: context.userAgent,
+        expires_at: new Date(Date.now() + AuthService.parseTtlMs(refreshTtl)),
+      },
     });
 
     return {
@@ -388,6 +436,35 @@ export class AuthService {
       refreshToken,
       expiresIn: Math.floor(AuthService.parseTtlMs(accessTtl) / 1000),
     };
+  }
+
+  /**
+   * Upsert du miroir Mongo par `mysqlId`, avec les champs affichés en direct
+   * ailleurs dans l'app (nom, rôles) synchronisés à chaque émission de jetons.
+   * Le hash placebo n'est écrit qu'à la création — jamais lu, jamais comparé.
+   */
+  private async mirrorUser(mysqlUser: MysqlUser, roles: AuthenticatedUser['roles']): Promise<UserDocument> {
+    const doc = await this.mirror.findOneAndUpdate(
+      { mysqlId: mysqlUser.id },
+      {
+        $set: {
+          phone: mysqlUser.phone ?? `mysql-${mysqlUser.id}`,
+          email: mysqlUser.email,
+          firstName: mysqlUser.firstname,
+          lastName: mysqlUser.lastname,
+          avatar: mysqlUser.avatar ?? undefined,
+          bio: mysqlUser.bio ?? undefined,
+          status: mysqlUser.status ?? 'active',
+          roles,
+        },
+        $setOnInsert: {
+          mysqlId: mysqlUser.id,
+          passwordHash: await argon2.hash(randomBytes(32).toString('hex'), ARGON2_OPTIONS),
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+    return doc;
   }
 
   /** Limitation de débit sur l'authentification — 5 tentatives / 15 min (§12.1). */
@@ -423,6 +500,29 @@ export class AuthService {
     if (digits.startsWith('261')) return `+${digits}`;
     if (digits.startsWith('0')) return `+261${digits.slice(1)}`;
     return digits;
+  }
+
+  /**
+   * `+261XXXXXXXXX` → `0XXXXXXXXX` — format conservé par les lignes existantes
+   * de la colonne partagée `users.phone`, écrites par le site PHP.
+   */
+  static toLocalPhoneFormat(normalised: string): string {
+    return normalised.startsWith('+261') ? `0${normalised.slice(4)}` : normalised;
+  }
+
+  /** Les 9 derniers chiffres — seule portion fiable entre les deux formats de téléphone. */
+  static last9Digits(phone: string): string {
+    return phone.replace(/\D/g, '').slice(-9);
+  }
+
+  /**
+   * `bcryptjs` attend le préfixe `$2a$`/`$2b$` ; les hash réels du site web
+   * (Laravel/PHP) portent `$2y$`, une variante strictement équivalente mais
+   * non reconnue telle quelle par toutes les versions de la librairie.
+   */
+  static async bcryptCompare(plain: string, hash: string): Promise<boolean> {
+    const normalised = hash.replace(/^\$2y\$/, '$2b$');
+    return bcrypt.compare(plain, normalised).catch(() => false);
   }
 
   private static hashToken(value: string): string {

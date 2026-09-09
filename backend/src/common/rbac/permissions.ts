@@ -26,8 +26,20 @@ import { Role } from './roles';
  * v4 : ajout de `WithdrawalRequest` — administration financière (§30) : un
  * commerçant demande le retrait de son solde, portée par boutique comme
  * `ShopDashboard`. Aucune permission existante retirée ni renommée.
+ *
+ * v5 : ajout de `KycSubmit`, `KycReview` — vérification d'identité (table
+ * MySQL réelle `kyc_documents`, jusqu'ici sans équivalent mobile). Les tables
+ * réelles `shop_followers` et `saved_posts` sont déjà couvertes sans code
+ * nouveau : `FollowsService`/`FollowsController` (`targetType: 'shop'`) et
+ * `FavoritesService`/`FavoritesController` (`targetType: 'post'`) portent déjà
+ * ce geste sous `FollowToggle`/`ProfileUpdate` — même mécanisme générique que
+ * suivre un compte ou mettre un produit en favori, pas une action distincte.
+ * Seule `story_reactions` était un vrai manque : `Reaction.targetType` (déjà
+ * générique pour `post`/`comment`) gagne la valeur `story`, réutilisant
+ * `ReactionToggle` — voir `StoriesService.toggleReaction`. Aucune permission
+ * existante retirée ni renommée.
  */
-export const PERMISSIONS_VERSION = 4;
+export const PERMISSIONS_VERSION = 5;
 
 export const Permission = {
   // --- Session ---
@@ -135,6 +147,10 @@ export const Permission = {
   PlatformModerate: 'platform:moderate',
   PlatformSettings: 'platform:settings',
   AuditRead: 'audit:read',
+
+  // --- Vérification d'identité (KYC) ---
+  KycSubmit: 'kyc:submit',
+  KycReview: 'kyc:review',
 } as const;
 
 export type PermissionValue = (typeof Permission)[keyof typeof Permission];
@@ -181,6 +197,7 @@ const CLIENT_PERMISSIONS: PermissionValue[] = [
   Permission.ReviewDelete,
   Permission.ReviewReport,
   Permission.MediaUpload,
+  Permission.KycSubmit,
 ];
 
 const SHOP_BASE: PermissionValue[] = [
@@ -289,6 +306,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly PermissionValue[]> = {
     Permission.AuditRead,
     Permission.ShopUpdate,
     Permission.ShopDashboard,
+    Permission.KycReview,
   ],
 };
 

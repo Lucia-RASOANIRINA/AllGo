@@ -25,6 +25,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _firstName = TextEditingController();
   final _lastName = TextEditingController();
   final _phone = TextEditingController();
+  final _email = TextEditingController();
   final _password = TextEditingController();
 
   bool _submitting = false;
@@ -36,6 +37,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     _firstName.dispose();
     _lastName.dispose();
     _phone.dispose();
+    _email.dispose();
     _password.dispose();
     super.dispose();
   }
@@ -54,6 +56,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             password: _password.text,
             firstName: _firstName.text.trim(),
             lastName: _lastName.text.trim(),
+            email: _email.text.trim().isEmpty ? null : _email.text.trim(),
           );
       if (mounted) context.go(Routes.home);
     } on DioException catch (error) {
@@ -106,6 +109,22 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             ),
             const SizedBox(height: AllGoTokens.space4),
             PhoneField(controller: _phone),
+            const SizedBox(height: AllGoTokens.space4),
+            TextFormField(
+              controller: _email,
+              keyboardType: TextInputType.emailAddress,
+              autofillHints: const <String>[AutofillHints.email],
+              decoration: InputDecoration(
+                labelText: l10n.fieldEmailOptional,
+                prefixIcon: const FieldIcon(Icons.email_outlined),
+              ),
+              validator: (value) {
+                final trimmed = (value ?? '').trim();
+                if (trimmed.isEmpty) return null;
+                final rule = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+                return rule.hasMatch(trimmed) ? null : l10n.validationEmailInvalid;
+              },
+            ),
             const SizedBox(height: AllGoTokens.space4),
             TextFormField(
               controller: _password,

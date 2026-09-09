@@ -7,10 +7,12 @@
   "scripts": {
     "build": "tsc",
     "migrate": "ts-node src/cli.ts",
+    "check-db": "ts-node src/check-connection.ts",
     "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
     "test": "jest"
   },
   "dependencies": {
+    "dotenv": "^16.4.5",
     "mongodb": "^6.11.0",
     "mysql2": "^3.11.4"
   },

@@ -87,12 +87,14 @@ class SessionController extends Notifier<SessionState> {
     required String password,
     required String firstName,
     required String lastName,
+    String? email,
   }) async {
     await _authenticate('/auth/register', <String, String>{
       'phone': phone,
       'password': password,
       'firstName': firstName,
       'lastName': lastName,
+      if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
     });
   }
 

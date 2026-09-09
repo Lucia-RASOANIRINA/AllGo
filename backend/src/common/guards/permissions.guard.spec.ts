@@ -41,12 +41,14 @@ describe('PermissionsGuard', () => {
 
   const client: AuthenticatedUser = {
     id: 'u1',
+    mysqlId: 1,
     phone: '+261340000002',
     roles: [{ role: Role.Client }],
   };
 
   const cashierOfA: AuthenticatedUser = {
     id: 'u2',
+    mysqlId: 2,
     phone: '+261340000003',
     roles: [{ role: Role.Client }, { role: Role.ShopCashier, shopId: SHOP_A }],
   };
@@ -122,6 +124,7 @@ describe('PermissionsGuard', () => {
     // consulter ses propres revenus ou missions (§4.2).
     const courierOfA: AuthenticatedUser = {
       id: 'u4',
+      mysqlId: 4,
       phone: '+261340000005',
       roles: [{ role: Role.Client }, { role: Role.ShopCourier, shopId: SHOP_A }],
     };
@@ -148,6 +151,7 @@ describe('PermissionsGuard', () => {
     // Impossible sur le web : `shop_team_members.user_id` est en contrainte UNIQUE.
     const polyvalent: AuthenticatedUser = {
       id: 'u3',
+      mysqlId: 3,
       phone: '+261340000004',
       roles: [
         { role: Role.ShopCashier, shopId: SHOP_A },

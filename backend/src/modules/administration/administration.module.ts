@@ -9,6 +9,7 @@ import { CourierEarningsModule } from '../courier-earnings/courier-earnings.modu
 import { FinanceModule } from '../finance/finance.module';
 import { Review, ReviewSchema } from '../reviews/schemas/review.schema';
 import { Post, PostSchema } from '../social/schemas/post.schema';
+import { AdminLogsModule } from '../admin-logs/admin-logs.module';
 import { AdministrationController } from './administration.controller';
 import { AdministrationService } from './administration.service';
 
@@ -16,6 +17,7 @@ import { AdministrationService } from './administration.service';
   imports: [
     CourierEarningsModule,
     FinanceModule,
+    AdminLogsModule,
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
       { name: Shop.name, schema: ShopSchema },

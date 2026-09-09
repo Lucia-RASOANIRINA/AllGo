@@ -6,11 +6,13 @@ import { AppError } from '../../common/http/app-error';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { MediaService } from '../media/media.service';
 import { Story, type StoryDocument } from './schemas/story.schema';
+import { Reaction, type ReactionDocument } from './schemas/interactions.schema';
 
 @Injectable()
 export class StoriesService {
   constructor(
     @InjectModel(Story.name) private readonly stories: Model<StoryDocument>,
+    @InjectModel(Reaction.name) private readonly reactions: Model<ReactionDocument>,
     private readonly media: MediaService,
   ) {}
 
@@ -77,5 +79,20 @@ export class StoriesService {
       .lean();
     if (!story) throw AppError.notFound('Story');
     return { viewCount: story.viewCount, viewers: story.viewers };
+  }
+
+  /** Bascule idempotente, même motif que `SocialService.toggleReaction` sur les publications. */
+  async toggleReaction(userId: string, storyId: string, type = 'like'): Promise<{ reacted: boolean }> {
+    const targetId = new Types.ObjectId(storyId);
+    const filter = { targetType: 'story' as const, targetId, userId: new Types.ObjectId(userId) };
+    const existing = await this.reactions.findOne(filter);
+    if (existing) {
+      await this.reactions.deleteOne({ _id: existing._id });
+      await this.stories.updateOne({ _id: targetId }, { $inc: { reactionCount: -1 } });
+      return { reacted: false };
+    }
+    await this.reactions.create({ ...filter, type });
+    await this.stories.updateOne({ _id: targetId }, { $inc: { reactionCount: 1 } });
+    return { reacted: true };
   }
 }

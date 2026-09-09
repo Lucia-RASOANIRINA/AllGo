@@ -8,7 +8,7 @@ Référence normative : [`docs/CAHIER_DES_CHARGES_MOBILE_FLUTTER.md`](docs/CAHIE
 ## Contenu du dépôt
 
 | Dossier | Rôle |
-|---|---|
+
 | `mobile/` | Application Flutter (Android / iOS) — architecture en couches §4.3 |
 | `backend/` | API NestJS + Mongoose (MongoDB) — §5.1, §7 |
 | `migration/` | Outillage de migration MariaDB → MongoDB — §15.3 |
@@ -71,7 +71,7 @@ fonctionnalité livrée depuis le lot L0. Le script affiche les identifiants exa
 **Comptes** (mot de passe unique : `MotDePasse2026`) :
 
 | Rôle | Téléphone | Nom | Détail |
-|---|---|---|---|
+
 | Client | `+261340000002` | Soa Randria | Adresse enregistrée, avis déposés, litige ouvert |
 | Client | `+261340000006` | Fara Ravelo | Second compte client, sans historique |
 | Commerçant | `+261340000001` | Hery Rakoto | Propriétaire d'Épicerie Mahavoky |
@@ -82,7 +82,7 @@ fonctionnalité livrée depuis le lot L0. Le script affiche les identifiants exa
 **Catalogue et commerce** :
 
 | Type | Valeur | Détail |
-|---|---|---|
+
 | Boutique | `epicerie-mahavoky` | Épicerie, catégorie Alimentation, ouverte tous les jours sauf dimanche |
 | Boutique | `sahaza-mode` | Mode et vêtements, avec variantes de taille |
 | Produit | `6001234567890` | Riz Makalioka 5 kg, 22 000 Ar, promo 19 500 Ar |
@@ -112,7 +112,7 @@ Sur l'émulateur Android, l'application doit viser `10.0.2.2` et non `localhost`
 Sous Windows PowerShell, utiliser `npm.cmd run ...` si la politique d'exécution bloque
 `npm.ps1`.
 
-**Tests**
+Tests**
 
 ```bash
 npm test              # unitaires — aucune infrastructure requise
@@ -186,7 +186,7 @@ données chargé, chaque fonctionnalité appelée par au moins une requête), pa
 seulement une relecture du code :
 
 | Lot | État dans ce dépôt | Reste à livrer |
-|---|---|---|
+
 | L0 — Socle | Livré | Durcissement final (SQLCipher, CI/CD complète) et publication sur les stores |
 | L1 — Découverte | Livré | Tests d'intégration supplémentaires sur la synchronisation hors ligne |
 | L2 — Achat | Partiellement livré | **Fournisseurs mobile money réels** — l'architecture est prête, mais MVola/Orange Money/Airtel Money tournent en mode démo faute d'identifiants marchands réels ; ni carte bancaire ni portefeuille AllGo (les deux étaient optionnels) |
@@ -216,7 +216,7 @@ node tool/generate_icons.js      # 5 densités + icône adaptative + logo applic
 **Contraintes de version à ne pas relâcher sans vérifier :**
 
 | Paquet | Contrainte | Motif |
-|---|---|---|
+
 | `intl` | `^0.20.3` | imposée par `flutter_localizations` du SDK |
 | `build_runner` | `>=2.15.1 <2.15.2` | 2.15.2+ exige `analyzer` ≥ 13, que `freezed 3.2.5` refuse |
 | `freezed` | `^3.2.5` | la 2.x embarque un `analyzer` en langage 3.9 qui plante sur la syntaxe Dart 3.13 |
@@ -238,7 +238,7 @@ Les décisions qui s'écartent de la spécification sont consignées en ADR, jam
 laissées implicites dans le code :
 
 | ADR | Sujet | Écart |
-|---|---|---|
+
 | [0001](docs/adr/0001-serveur-api-et-trajectoire-de-migration.md) | Serveur d'API et trajectoire | Le cahier des charges ne nomme pas le serveur d'API ; NestJS est retenu, trajectoire C |
 | [0002](docs/adr/0002-stockmovements-series-temporelles-vs-transactions.md) | `stockMovements` | Le §6.2 (série temporelle) et le §6.3 (transaction) sont **incompatibles** sous MongoDB ; l'intégrité l'emporte, la collection redevient ordinaire |
 
@@ -263,7 +263,7 @@ contre l'API en exécution, pas seulement relue dans le code : voir « Vérifié
 exécution » pour la liste des défauts que cette vérification a trouvés et corrigés.
 
 | Domaine | État |
-|---|---|
+
 | Rôles, permissions, gardes | Complet, avec test d'ossature bloquant en CI |
 | Authentification (mot de passe, OTP, mot de passe oublié, rotation de jetons, **vérification email**, **suppression de compte**) | Complet |
 | Catalogue, boutiques, recherche géographique `$geoNear`, **recherche globale**, **produits similaires** | Complet |
@@ -291,7 +291,7 @@ Une seule route affiche encore `ComingSoonScreen` (`/confidentialite`) ;
 Contre la pile Docker réelle, avec le jeu de données de Mahajanga :
 
 | Comportement | Résultat |
-|---|---|
+
 | `$geoNear` sur index `2dsphere` | 8–9 ms à chaud (cible §13.1 : < 150 ms) |
 | Route protégée sans jeton | 401 `UNAUTHENTICATED` + `requestId` |
 | Création de commande transactionnelle | stock décrémenté, mouvement journalisé, panier vidé |
@@ -355,7 +355,7 @@ supplémentaires**, tous invisibles à l'exécution des tests automatisés parce
 qu'ils ne se manifestent que sous un vrai moteur de rendu Flutter ou un vrai
 client HTTP mobile :
 
-8. **Le client annonçait `Accept-Encoding: br, gzip`** — l'intergiciel de
+8.**Le client annonçait `Accept-Encoding: br, gzip`** — l'intergiciel de
    compression du serveur répond alors en Brotli dès qu'une réponse dépasse son
    seuil de taille, or l'adaptateur HTTP par défaut de Dio (`dart:io`) ne sait
    décompresser que le gzip. Toute réponse volumineuse (catalogue, catégories,

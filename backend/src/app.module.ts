@@ -12,6 +12,7 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { RedisModule } from './infrastructure/redis/redis.module';
+import { PrismaModule } from './infrastructure/prisma/prisma.module';
 
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -35,6 +36,8 @@ import { AdministrationModule } from './modules/administration/administration.mo
 import { SearchModule } from './modules/search/search.module';
 import { ModerationModule } from './modules/moderation/moderation.module';
 import { FinanceModule } from './modules/finance/finance.module';
+import { KycModule } from './modules/kyc/kyc.module';
+import { SettingsModule } from './modules/settings/settings.module';
 
 @Module({
   imports: [
@@ -83,6 +86,7 @@ import { FinanceModule } from './modules/finance/finance.module';
 
     ScheduleModule.forRoot(),
     RedisModule,
+    PrismaModule,
 
     AuthModule,
     UsersModule,
@@ -106,6 +110,8 @@ import { FinanceModule } from './modules/finance/finance.module';
     SearchModule,
     ModerationModule,
     FinanceModule,
+    KycModule,
+    SettingsModule,
   ],
   providers: [
     // Ordre significatif : authentification, puis permissions, puis débit.

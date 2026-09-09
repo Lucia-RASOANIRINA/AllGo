@@ -38,6 +38,8 @@
   "fieldPassword": "Mot de passe",
   "fieldFirstName": "Prénom",
   "fieldLastName": "Nom",
+  "fieldEmailOptional": "Email (facultatif)",
+  "validationEmailInvalid": "L’adresse email n’est pas valide.",
   "fieldLanguage": "Langue",
   "fieldTheme": "Thème",
   "hintPhone": "034 12 345 67",

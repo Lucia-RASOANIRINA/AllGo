@@ -1,16 +1,16 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectModel } from '@nestjs/mongoose';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { Model } from 'mongoose';
-import { User, type UserDocument } from '../../users/schemas/user.schema';
-import type { AuthenticatedUser, RoleAssignment } from '../../../common/types/authenticated-user';
+
+import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { buildRoleAssignments } from '../../users/mysql-role-mapper';
+import type { AuthenticatedUser } from '../../../common/types/authenticated-user';
 
 interface AccessTokenClaims {
   sub: string;
+  mysqlId: number;
   phone: string;
-  roles: RoleAssignment[];
   sid: string;
   iat: number;
 }
@@ -19,7 +19,7 @@ interface AccessTokenClaims {
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
     config: ConfigService,
-    @InjectModel(User.name) private readonly users: Model<UserDocument>,
+    private readonly prisma: PrismaService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -28,11 +28,14 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     });
   }
 
+  /**
+   * Les rôles et le statut proviennent de MySQL à chaque requête, jamais du
+   * jeton : une révocation de rôle ou une suspension prend effet à la requête
+   * suivante, pas à l'expiration du jeton (comportement inchangé de l'ancienne
+   * implémentation Mongo).
+   */
   async validate(claims: AccessTokenClaims): Promise<AuthenticatedUser> {
-    const user = await this.users
-      .findById(claims.sub)
-      .select('status roles phone sessionsInvalidBefore')
-      .lean();
+    const user = await this.prisma.users.findUnique({ where: { id: claims.mysqlId } });
 
     if (!user || user.status !== 'active') {
       throw new UnauthorizedException({
@@ -43,22 +46,31 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
 
     // Un jeton d'accès émis avant une réinitialisation de mot de passe est
     // rejeté immédiatement, sans attendre ses 15 minutes de validité.
-    if (user.sessionsInvalidBefore && claims.iat * 1000 < user.sessionsInvalidBefore.getTime()) {
+    if (user.sessions_invalid_before && claims.iat * 1000 < user.sessions_invalid_before.getTime()) {
       throw new UnauthorizedException({
         code: 'SESSION_INVALIDATED',
         message: 'Votre session n’est plus valide. Reconnectez-vous.',
       });
     }
 
-    // Les rôles proviennent de la base, jamais du jeton : une révocation de
-    // rôle prend effet à la requête suivante, et non à l'expiration du jeton.
+    const [ownedShops, teamMembership] = await Promise.all([
+      this.prisma.shops.findMany({ where: { user_id: user.id }, select: { id: true } }),
+      this.prisma.shop_team_members.findUnique({ where: { user_id: user.id } }),
+    ]);
+    const roles = buildRoleAssignments({
+      roleId: user.role_id,
+      adminLevel: user.admin_level,
+      ownedShopIds: ownedShops.map((s) => s.id),
+      teamMembership: teamMembership
+        ? { shopId: teamMembership.shop_id, teamRole: teamMembership.team_role, status: teamMembership.status }
+        : null,
+    });
+
     return {
-      id: String(user._id),
-      phone: user.phone,
-      roles: user.roles.map((r) => ({
-        role: r.role,
-        ...(r.shopId ? { shopId: String(r.shopId) } : {}),
-      })),
+      id: claims.sub,
+      mysqlId: user.id,
+      phone: user.phone ?? claims.phone,
+      roles,
       sid: claims.sid,
     };
   }

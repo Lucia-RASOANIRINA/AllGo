@@ -47,6 +47,10 @@ docker/data/
 migration/reports/
 migration/snapshots/
 
+# --- Exports réels de la base en ligne : données personnelles + hashs de
+#     mot de passe, jamais dans le dépôt (§12.1). Seul le README reste. ---
+migration/dumps/*.sql
+
 # --- Artefacts générés ---
 # Contrat OpenAPI : reconstruit par `npm run openapi:export`, jamais édité à la main.
 backend/openapi.json

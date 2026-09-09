@@ -32,8 +32,8 @@ export const REACTION_TYPES = ['like', 'love', 'haha', 'wow', 'sad', 'angry'] as
 
 @Schema({ collection: 'reactions', timestamps: { createdAt: true, updatedAt: false } })
 export class Reaction extends Document {
-  @Prop({ type: String, enum: ['post', 'comment'], required: true })
-  targetType!: 'post' | 'comment';
+  @Prop({ type: String, enum: ['post', 'comment', 'story'], required: true })
+  targetType!: 'post' | 'comment' | 'story';
   @Prop({ type: MongooseSchema.Types.ObjectId, required: true }) targetId!: Types.ObjectId;
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
   @Prop({ type: String, enum: REACTION_TYPES, required: true }) type!: string;

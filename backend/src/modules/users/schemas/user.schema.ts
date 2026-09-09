@@ -61,6 +61,19 @@ export const PreferencesSchema = SchemaFactory.createForClass(Preferences);
 
 @Schema({ collection: 'users', timestamps: true })
 export class User extends Document {
+  /**
+   * Pont d'identité transitoire — migration Mongo → MySQL (§ décision du
+   * 2026-09-09). L'authentification et le profil canonique vivent désormais
+   * dans `users` (MySQL, `PrismaService`) ; ce document Mongo devient un
+   * MIROIR tenu à jour à la connexion/l'inscription/la modification de
+   * profil, conservé pour les 169 sites d'appel des modules pas encore
+   * migrés qui font `new Types.ObjectId(user.id)`/`.populate('userId')` et
+   * attendent un vrai document `User` (nom, avatar, rôles...) à cette
+   * référence. Disparaît avec le dernier module migré.
+   */
+  @Prop({ type: Number })
+  mysqlId?: number;
+
   // L'unicité est portée par les index déclarés en bas de fichier, jamais par
   // `unique: true` sur le champ : les deux ensemble créent l'index deux fois.
   @Prop({ required: true, trim: true })
@@ -125,6 +138,7 @@ export const UserSchema = SchemaFactory.createForClass(User);
 
 UserSchema.index({ phone: 1 }, { unique: true });
 UserSchema.index({ email: 1 }, { unique: true, sparse: true });
+UserSchema.index({ mysqlId: 1 }, { unique: true, sparse: true });
 UserSchema.index({ 'roles.shopId': 1, 'roles.role': 1 });
 UserSchema.index({ 'addresses.location': '2dsphere' });
 

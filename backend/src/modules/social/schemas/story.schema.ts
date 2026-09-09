@@ -23,6 +23,7 @@ export class Story extends Document {
   @Prop({ type: Object, required: true }) author!: { name: string; avatar?: string };
   @Prop({ type: Object, required: true }) media!: { url: string; type: 'image' | 'video' };
   @Prop({ default: 0 }) viewCount!: number;
+  @Prop({ default: 0 }) reactionCount!: number;
   @Prop({ type: [StoryViewerSchema], default: [] }) viewers!: StoryViewer[];
 
   /** Lien optionnel vers un produit ou une promotion (§12). */

@@ -11,6 +11,8 @@ import { CourierEarningsService } from '../courier-earnings/courier-earnings.ser
 import { FinanceService } from '../finance/finance.service';
 import { Review, type ReviewDocument } from '../reviews/schemas/review.schema';
 import { Post, type PostDocument } from '../social/schemas/post.schema';
+import { AdminLogsService } from '../admin-logs/admin-logs.service';
+import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 
 @Injectable()
 export class AdministrationService {
@@ -24,41 +26,51 @@ export class AdministrationService {
     @InjectModel(Post.name) private readonly posts: Model<PostDocument>,
     private readonly courierEarnings: CourierEarningsService,
     private readonly finance: FinanceService,
+    private readonly adminLogs: AdminLogsService,
   ) {}
 
   usersList(status?: string) {
     return this.users.find(status ? { status } : {}).select('phone email firstName lastName avatar status roles courierProfile createdAt').sort({ createdAt: -1 }).limit(200).lean();
   }
-  async updateUser(id: string, patch: { status?: 'active' | 'suspended' | 'pending'; roles?: unknown[] }) {
+  async updateUser(
+    id: string,
+    patch: { status?: 'active' | 'suspended' | 'pending'; roles?: unknown[] },
+    admin: AuthenticatedUser,
+  ) {
     if (!Types.ObjectId.isValid(id)) throw AppError.notFound('Utilisateur');
     const user = await this.users.findByIdAndUpdate(id, { $set: patch }, { new: true }).select('phone firstName lastName status roles');
     if (!user) throw AppError.notFound('Utilisateur');
+    await this.adminLogs.log(admin, `updateUser(user=${id}, patch=${JSON.stringify(patch)})`, 'user');
     return user;
   }
-  async removeUser(id: string) {
+  async removeUser(id: string, admin: AuthenticatedUser) {
     const result = await this.users.updateOne({ _id: id }, { $set: { status: 'suspended' } });
     if (!result.modifiedCount) throw AppError.notFound('Utilisateur');
+    await this.adminLogs.log(admin, `removeUser(user=${id})`, 'user');
     return { deleted: true, suspended: true };
   }
   shopsList(status?: string) {
     return this.shops.find(status ? { status } : {}).sort({ createdAt: -1 }).limit(200).lean();
   }
-  async updateShop(id: string, status: 'pending' | 'approved' | 'rejected' | 'suspended') {
+  async updateShop(id: string, status: 'pending' | 'approved' | 'rejected' | 'suspended', admin: AuthenticatedUser) {
     const shop = await this.shops.findByIdAndUpdate(id, { $set: { status } }, { new: true });
     if (!shop) throw AppError.notFound('Boutique');
+    await this.adminLogs.log(admin, `updateShop(shop=${id}, status=${status})`, 'shop');
     return shop;
   }
   productsList(status?: string) {
     return this.products.find(status ? { status } : {}).select('name shopId categoryId price promoPrice stock status isHidden createdAt').sort({ createdAt: -1 }).limit(200).lean();
   }
-  async moderateProduct(id: string, status: 'draft' | 'published' | 'archived', isHidden?: boolean) {
+  async moderateProduct(id: string, status: 'draft' | 'published' | 'archived', isHidden: boolean | undefined, admin: AuthenticatedUser) {
     const product = await this.products.findByIdAndUpdate(id, { $set: { status, ...(isHidden === undefined ? {} : { isHidden }) } }, { new: true });
     if (!product) throw AppError.notFound('Produit');
+    await this.adminLogs.log(admin, `moderateProduct(product=${id}, status=${status})`, 'product');
     return product;
   }
-  async removeProduct(id: string) {
+  async removeProduct(id: string, admin: AuthenticatedUser) {
     const result = await this.products.updateOne({ _id: id }, { $set: { status: 'archived', isHidden: true } });
     if (!result.modifiedCount) throw AppError.notFound('Produit');
+    await this.adminLogs.log(admin, `removeProduct(product=${id})`, 'product');
     return { deleted: true, archived: true };
   }
   reportedProducts() {
@@ -68,26 +80,31 @@ export class AdministrationService {
     return this.orders.find(status ? { status } : {}).select('orderNumber userId shopId amounts payment status delivery createdAt updatedAt').sort({ createdAt: -1 }).limit(300).lean();
   }
   /** Délègue à `FinanceService` (§30) : un remboursement dépose désormais un `Refund` qualifié et une ligne de grand livre, jamais une simple bascule de statut. */
-  refundOrder(id: string, resolvedBy: string) {
-    return this.finance.createRefund(id, undefined, 'Remboursement administratif', resolvedBy);
+  async refundOrder(id: string, admin: AuthenticatedUser) {
+    const result = await this.finance.createRefund(id, undefined, 'Remboursement administratif', admin.id);
+    await this.adminLogs.log(admin, `refundOrder(order=${id})`, 'order');
+    return result;
   }
 
   disputesList(status?: string) {
     return this.disputes.find(status ? { status } : {}).sort({ createdAt: -1 }).limit(200).lean();
   }
 
-  async resolveDispute(id: string, status: DisputeStatus, resolution: string | undefined, resolvedBy: string) {
+  async resolveDispute(id: string, status: DisputeStatus, resolution: string | undefined, admin: AuthenticatedUser) {
     const dispute = await this.disputes.findByIdAndUpdate(
       id,
-      { $set: { status, resolution, resolvedBy: new Types.ObjectId(resolvedBy), resolvedAt: new Date() } },
+      { $set: { status, resolution, resolvedBy: new Types.ObjectId(admin.id), resolvedAt: new Date() } },
       { new: true },
     );
     if (!dispute) throw AppError.notFound('Litige');
+    await this.adminLogs.log(admin, `resolveDispute(dispute=${id}, status=${status})`, 'dispute');
     return dispute;
   }
 
-  grantCourierBonus(courierId: string, amount: number, reason: string, grantedBy: string) {
-    return this.courierEarnings.grantBonus(courierId, amount, reason, grantedBy);
+  async grantCourierBonus(courierId: string, amount: number, reason: string, admin: AuthenticatedUser) {
+    const result = await this.courierEarnings.grantBonus(courierId, amount, reason, admin.id);
+    await this.adminLogs.log(admin, `grantCourierBonus(courier=${courierId}, amount=${amount})`, 'courier');
+    return result;
   }
 
   /**

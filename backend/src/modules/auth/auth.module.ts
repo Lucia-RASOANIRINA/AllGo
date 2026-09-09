@@ -7,7 +7,6 @@ import { User, UserSchema } from '../users/schemas/user.schema';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { EmailService } from './email.service';
-import { RefreshToken, RefreshTokenSchema } from './schemas/refresh-token.schema';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
 @Module({
@@ -17,10 +16,12 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     // utilisent deux clés distinctes, ce qui interdit d'employer un jeton de
     // rafraîchissement comme jeton d'accès.
     JwtModule.register({}),
-    MongooseModule.forFeature([
-      { name: User.name, schema: UserSchema },
-      { name: RefreshToken.name, schema: RefreshTokenSchema },
-    ]),
+    // `User` reste enregistré : ce module tient à jour le miroir Mongo
+    // (`AuthService.mirrorUser`) pour les modules pas encore migrés sur
+    // MySQL (`PrismaModule`, `@Global()`, fournit `PrismaService` sans
+    // import explicite). `RefreshToken` (Mongo) a été remplacé par la table
+    // MySQL réelle `refresh_tokens` — son schéma Mongo n'est plus utilisé.
+    MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, EmailService],

@@ -44,4 +44,10 @@ export class StoriesController {
   viewers(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.stories.viewers(id, user.id);
   }
+
+  @Post(':id/reactions')
+  @RequirePermission(Permission.ReactionToggle)
+  react(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.stories.toggleReaction(user.id, id);
+  }
 }

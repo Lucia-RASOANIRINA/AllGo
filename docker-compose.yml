@@ -4,6 +4,33 @@
 # sur une instance isolée.
 
 services:
+  # Clone local de la base MariaDB du site web (arur4976_janga_market) — même
+  # version majeure que la base en ligne (11.4) pour éviter les écarts de
+  # comportement SQL entre local et production. Alimenté par un export
+  # phpMyAdmin des 48 tables, jamais par une connexion directe à la base
+  # hébergée : ce conteneur ne doit JAMAIS écrire vers la base en ligne.
+  mariadb:
+    image: mariadb:11.4
+    container_name: allgo-mariadb
+    environment:
+      MARIADB_ROOT_PASSWORD: allgo_dev_root
+      MARIADB_DATABASE: arur4976_janga_market
+      MARIADB_USER: allgo_dev
+      MARIADB_PASSWORD: allgo_dev
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb-data:/var/lib/mysql
+      # Tout fichier .sql déposé ici est importé automatiquement au premier
+      # démarrage (dumps phpMyAdmin des 48 tables, un fichier par table).
+      - ./migration/dumps:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
   mongo:
     image: mongo:7
     container_name: allgo-mongo
@@ -99,6 +126,7 @@ services:
       - "8081:8081"
 
 volumes:
+  mariadb-data:
   mongo-data:
   redis-data:
   minio-data:

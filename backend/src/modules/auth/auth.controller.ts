@@ -107,7 +107,7 @@ export class AuthController {
   @RequirePermission(Permission.ProfileUpdate)
   @ApiOperation({ summary: 'Envoyer un lien de vérification à mon adresse email.' })
   async sendEmailVerification(@CurrentUser() user: AuthenticatedUser) {
-    await this.auth.sendEmailVerification(user.id);
+    await this.auth.sendEmailVerification(user.mysqlId);
     return { message: 'Un lien de vérification a été envoyé à votre adresse email.' };
   }
 
