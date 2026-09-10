@@ -23,6 +23,16 @@ abstract final class Environment {
 
   static bool get isProduction => name == 'production';
 
+  /// Contournement **temporaire** de la validation TLS — le temps qu'AutoSSL
+  /// soit activé côté o2switch (le certificat servi aujourd'hui est
+  /// auto-signé, donc refusé par défaut sur un vrai terminal). `false` par
+  /// défaut : n'accepter un certificat non fiable QUE si ce drapeau est
+  /// explicitement passé au build (`--dart-define=ALLOW_INSECURE_CERT=true`).
+  /// **Ne JAMAIS l'activer sur un build envoyé au Play Store** — un certificat
+  /// non vérifié ouvre la porte à une interception du trafic (mots de passe,
+  /// jetons de session) par quiconque contrôle le réseau emprunté.
+  static const bool allowInsecureCert = bool.fromEnvironment('ALLOW_INSECURE_CERT');
+
   /// Empreintes SHA-256 des certificats de l'API — épinglage (§12.2).
   ///
   /// Deux empreintes : celle en service et celle de secours. Sans certificat de

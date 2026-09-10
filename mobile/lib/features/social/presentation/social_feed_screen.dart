@@ -6,6 +6,7 @@ import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/core/network/json_parsing.dart';
 import 'package:allgo/features/auth/presentation/session_controller.dart';
 import 'package:allgo/features/moderation/presentation/moderation_actions.dart';
+import 'package:allgo/shared/widgets/shimmer.dart';
 import 'package:allgo/shared/widgets/shop_avatar.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
@@ -61,7 +62,7 @@ class SocialFeedScreen extends ConsumerWidget {
         child: RefreshIndicator(
           onRefresh: () async => ref.invalidate(socialPostsProvider),
           child: posts.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
+            loading: () => const FeedPostSkeletonList(),
             error: (_, __) => ListView(
               children: const <Widget>[
                 Padding(
@@ -595,7 +596,7 @@ class _CommentsSheetState extends ConsumerState<_CommentsSheet> {
             const SizedBox(height: AllGoTokens.space2),
             Expanded(
               child: comments.when(
-                loading: () => const Center(child: CircularProgressIndicator()),
+                loading: () => const AvatarLineSkeletonList(itemCount: 4),
                 error: (_, __) => const Center(child: Text('Commentaires indisponibles hors ligne.')),
                 data: (items) => items.isEmpty
                     ? const Center(child: Text('Aucun commentaire pour l’instant.'))

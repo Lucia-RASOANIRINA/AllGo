@@ -5,6 +5,7 @@ import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/utils/currency.dart';
 import 'package:allgo/features/geo/domain/nearby_shop.dart';
 import 'package:allgo/features/geo/presentation/geo_providers.dart';
+import 'package:allgo/shared/widgets/shimmer.dart';
 import 'package:allgo/shared/widgets/shop_avatar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -324,12 +325,7 @@ class _ResultsSheet extends StatelessWidget {
       elevation: 8,
       borderRadius: const BorderRadius.vertical(top: Radius.circular(AllGoTokens.radiusSheet)),
       child: shops.when(
-        loading: () => const Center(
-          child: Padding(
-            padding: EdgeInsets.all(AllGoTokens.space6),
-            child: CircularProgressIndicator(),
-          ),
-        ),
+        loading: () => const AvatarLineSkeletonList(itemCount: 5),
         error: (_, __) => const Center(
           child: Padding(
             padding: EdgeInsets.all(AllGoTokens.space6),

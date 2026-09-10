@@ -5,6 +5,7 @@ import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/shared/widgets/async_view.dart';
 import 'package:allgo/shared/widgets/field_icon.dart';
+import 'package:allgo/shared/widgets/shimmer.dart';
 import 'package:allgo/shared/widgets/shop_avatar.dart';
 import 'package:allgo/features/merchant/presentation/merchant_customers_screen.dart';
 import 'package:allgo/features/merchant/presentation/merchant_stock_screen.dart';
@@ -476,7 +477,7 @@ class _MerchantShopScreenState extends ConsumerState<MerchantShopScreen> {
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Gestion de boutique')),
         body: _loading
-            ? const Center(child: CircularProgressIndicator())
+            ? const FormSkeleton()
             : Form(
                 key: _formKey,
                 autovalidateMode: AutovalidateMode.onUserInteraction,

@@ -7,6 +7,7 @@ import 'package:allgo/features/catalog/domain/repositories/product_repository.da
 import 'package:allgo/features/catalog/presentation/catalog_providers.dart';
 import 'package:allgo/features/home/presentation/home_screen.dart';
 import 'package:allgo/shared/widgets/async_view.dart';
+import 'package:allgo/shared/widgets/shimmer.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -117,6 +118,7 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
                   ? 'Tapez le nom d’un produit, ou scannez son code-barres.'
                   : 'Essayez un autre terme, ou élargissez les filtres.',
               onRetry: () => ref.invalidate(catalogProvider),
+              skeleton: const CardGridSkeleton(itemCount: 6),
               data: (list) => GridView.builder(
                 padding: const EdgeInsets.all(AllGoTokens.space4),
                 gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(

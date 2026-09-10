@@ -7,6 +7,7 @@ import 'package:allgo/features/messaging/presentation/messaging_providers.dart';
 import 'package:allgo/features/shops/domain/shop_summary.dart';
 import 'package:allgo/features/shops/presentation/shops_providers.dart';
 import 'package:allgo/shared/widgets/async_view.dart';
+import 'package:allgo/shared/widgets/shimmer.dart';
 import 'package:allgo/shared/widgets/shop_avatar.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -168,7 +169,11 @@ class _ShopPickerSheetState extends ConsumerState<_ShopPickerSheet> {
               ),
             ),
             if (_loading && _results == null)
-              const Expanded(child: Center(child: CircularProgressIndicator()))
+              // Squelette à la forme des lignes réelles (avatar + nom +
+              // ville) plutôt qu'un cercle plein écran (§11.3) — cette
+              // feuille modale affiche systématiquement les boutiques
+              // populaires à l'ouverture, jamais une liste vide au repos.
+              const Expanded(child: AvatarLineSkeletonList(itemCount: 5))
             else ...<Widget>[
               if (_loading) const LinearProgressIndicator(),
               if (_isDefaultList && (_results?.isNotEmpty ?? false))
@@ -227,6 +232,9 @@ class _ConversationList extends ConsumerWidget {
       value: conversations,
       onRetry: () => ref.invalidate(conversationsProvider(archived)),
       isEmpty: (list) => list.isEmpty,
+      // Chaque ligne réelle est un avatar + deux lignes de texte : le
+      // squelette générique (blocs pleine largeur) ne le laissait pas deviner.
+      skeleton: const AvatarLineSkeletonList(),
       emptyTitle: archived
           ? 'Aucune conversation archivée'
           : 'Aucune conversation pour l’instant',

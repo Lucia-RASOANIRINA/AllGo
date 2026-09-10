@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/features/auth/presentation/session_controller.dart';
+import 'package:allgo/shared/widgets/shimmer.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -152,7 +153,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Mon profil')),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const FormSkeleton()
           : Form(
               key: _formKey,
               autovalidateMode: AutovalidateMode.onUserInteraction,

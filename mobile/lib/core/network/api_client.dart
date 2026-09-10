@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:allgo/core/env/environment.dart';
 import 'package:allgo/core/network/auth_interceptor.dart';
 import 'package:allgo/core/network/error_interceptor.dart';
 import 'package:allgo/core/network/retry_interceptor.dart';
 import 'package:allgo/core/storage/token_store.dart';
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 final apiClientProvider = Provider<Dio>((ref) {
@@ -34,6 +37,17 @@ final apiClientProvider = Provider<Dio>((ref) {
     RetryInterceptor(dio),
     ErrorInterceptor(),
   ]);
+
+  // Contournement TEMPORAIRE, désactivé par défaut — voir le commentaire sur
+  // `Environment.allowInsecureCert`. Limité au seul hôte de l'API : même
+  // activé, une requête vers un hôte tiers reste normalement vérifiée.
+  if (Environment.allowInsecureCert) {
+    final apiHost = Uri.parse(Environment.apiBaseUrl).host;
+    (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
+      return HttpClient()
+        ..badCertificateCallback = (cert, host, port) => host == apiHost;
+    };
+  }
 
   return dio;
 });

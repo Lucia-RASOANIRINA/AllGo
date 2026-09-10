@@ -11,6 +11,7 @@ import 'package:allgo/features/home/presentation/home_providers.dart';
 import 'package:allgo/l10n/generated/app_localizations.dart';
 import 'package:allgo/shared/widgets/allgo_logo.dart';
 import 'package:allgo/shared/widgets/product_image.dart';
+import 'package:allgo/shared/widgets/shimmer.dart';
 import 'package:allgo/shared/widgets/shop_avatar.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
@@ -59,23 +60,124 @@ class HomeScreen extends ConsumerWidget {
             ..invalidate(nearbyShopsHomeProvider)
             ..invalidate(nearbyProductsProvider);
         },
-        child: ListView(
-          padding: const EdgeInsets.symmetric(vertical: AllGoTokens.space4),
-          children: <Widget>[
-            const _CategoryChips(),
-            _ProductRail(
-              title: l10n.homeRecommended,
-              provider: recommendedProductsProvider,
+        child: _HomeContent(l10n: l10n),
+      ),
+    );
+  }
+}
+
+/// Rails à charge commerciale (produits/boutiques) — hors puces de catégorie
+/// et « récemment consultés », qui restent utiles même sans catalogue.
+final List<AutoDisposeFutureProvider<List<Product>>> _commerceProductProviders =
+    <AutoDisposeFutureProvider<List<Product>>>[
+  recommendedProductsProvider,
+  promoProductsProvider,
+  popularProductsProvider,
+  nearbyProductsProvider,
+  newProductsProvider,
+];
+
+/// Bascule entre le fil habituel et une présentation de bienvenue tant que
+/// le catalogue ne contient encore aucune boutique ni aucun produit —
+/// l'accueil ne doit jamais rester une page blanche pour autant (§1.B), une
+/// vitrine vide inspire moins confiance qu'une vitrine qui annonce son
+/// ouverture prochaine.
+class _HomeContent extends ConsumerWidget {
+  const _HomeContent({required this.l10n});
+
+  final AppL10n l10n;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final productLists = _commerceProductProviders.map(ref.watch).toList();
+    final popularShops = ref.watch(popularShopsProvider);
+    final flashPromos = ref.watch(flashPromoProductsProvider);
+
+    final allSettled = productLists.every((p) => !p.isLoading || p.hasValue) &&
+        !popularShops.isLoading &&
+        !flashPromos.isLoading;
+    final hasAnyContent = productLists.any((p) => (p.valueOrNull ?? const []).isNotEmpty) ||
+        (popularShops.valueOrNull ?? const []).isNotEmpty ||
+        (flashPromos.valueOrNull ?? const []).isNotEmpty;
+
+    if (allSettled && !hasAnyContent) {
+      return const _EmptyHomePlaceholder();
+    }
+
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: AllGoTokens.space4),
+      children: <Widget>[
+        const _CategoryChips(),
+        _ProductRail(title: l10n.homeRecommended, provider: recommendedProductsProvider),
+        const _FlashPromoRail(),
+        _ProductRail(title: l10n.homePromotions, provider: promoProductsProvider),
+        _ProductRail(title: l10n.homePopularProducts, provider: popularProductsProvider),
+        _ShopRailSection(title: l10n.homePopularShops, provider: popularShopsProvider),
+        const _NearbyShopRailSection(),
+        _ProductRail(title: l10n.homeNearbyProducts, provider: nearbyProductsProvider),
+        _ProductRail(title: l10n.homeNewProducts, provider: newProductsProvider),
+        const _RecentlyViewedSection(),
+      ],
+    );
+  }
+}
+
+/// Présentation affichée tant qu'aucune boutique ni aucun produit n'est
+/// encore en ligne — remplacée automatiquement par le fil habituel dès que
+/// la base contient du contenu réel, sans aucun changement de code.
+class _EmptyHomePlaceholder extends StatelessWidget {
+  const _EmptyHomePlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppL10n.of(context);
+    final theme = Theme.of(context);
+
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(AllGoTokens.space6),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Container(
+                    width: 96,
+                    height: 96,
+                    decoration: BoxDecoration(
+                      color: AllGoTokens.brand.withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Padding(
+                      padding: EdgeInsets.all(AllGoTokens.space4),
+                      child: AllGoLogo(size: 64, showWordmark: false),
+                    ),
+                  ),
+                  const SizedBox(height: AllGoTokens.space4),
+                  Text(
+                    l10n.homeEmptyTitle,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: AllGoTokens.space2),
+                  Text(
+                    l10n.homeEmptyMessage,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.outline),
+                  ),
+                  const SizedBox(height: AllGoTokens.space4),
+                  OutlinedButton.icon(
+                    onPressed: () => context.push(Routes.explore),
+                    icon: const Icon(Icons.storefront_outlined),
+                    label: Text(l10n.homeEmptyCta),
+                  ),
+                ],
+              ),
             ),
-            const _FlashPromoRail(),
-            _ProductRail(title: l10n.homePromotions, provider: promoProductsProvider),
-            _ProductRail(title: l10n.homePopularProducts, provider: popularProductsProvider),
-            _ShopRailSection(title: l10n.homePopularShops, provider: popularShopsProvider),
-            const _NearbyShopRailSection(),
-            _ProductRail(title: l10n.homeNearbyProducts, provider: nearbyProductsProvider),
-            _ProductRail(title: l10n.homeNewProducts, provider: newProductsProvider),
-            const _RecentlyViewedSection(),
-          ],
+          ),
         ),
       ),
     );
@@ -155,6 +257,7 @@ class _CategoryChips extends ConsumerWidget {
                 ),
               ),
             ),
+      loading: () => const ChipRailSkeleton(),
       orElse: () => const SizedBox.shrink(),
     );
   }
@@ -193,6 +296,13 @@ class _ProductRail extends ConsumerWidget {
                 ),
               ],
             ),
+      loading: () => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _SectionHeader(title: title),
+          const CardRailSkeleton(),
+        ],
+      ),
       orElse: () => const SizedBox.shrink(),
     );
   }
@@ -241,6 +351,28 @@ class _FlashPromoRail extends ConsumerWidget {
                 ),
               ],
             ),
+      loading: () => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AllGoTokens.space4,
+              AllGoTokens.space4,
+              AllGoTokens.space4,
+              AllGoTokens.space2,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(Icons.bolt, color: theme.colorScheme.error, size: 20),
+                const SizedBox(width: 4),
+                Text(AppL10n.of(context).homeFlashPromotions, style: theme.textTheme.titleMedium),
+              ],
+            ),
+          ),
+          const CardRailSkeleton(),
+        ],
+      ),
       orElse: () => const SizedBox.shrink(),
     );
   }
@@ -333,6 +465,13 @@ class _ShopRailSection extends ConsumerWidget {
                 ),
               ],
             ),
+      loading: () => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _SectionHeader(title: title),
+          const CircleRailSkeleton(),
+        ],
+      ),
       orElse: () => const SizedBox.shrink(),
     );
   }
@@ -373,6 +512,13 @@ class _NearbyShopRailSection extends ConsumerWidget {
                 ),
               ],
             ),
+      loading: () => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _SectionHeader(title: AppL10n.of(context).homeNearbyShops),
+          const CircleRailSkeleton(),
+        ],
+      ),
       orElse: () => const SizedBox.shrink(),
     );
   }

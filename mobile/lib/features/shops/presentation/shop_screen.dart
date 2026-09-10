@@ -15,6 +15,7 @@ import 'package:allgo/features/shops/presentation/shop_follow_controller.dart';
 import 'package:allgo/features/shops/presentation/shop_posts_providers.dart';
 import 'package:allgo/features/shops/presentation/reviews_providers.dart';
 import 'package:allgo/shared/widgets/async_view.dart';
+import 'package:allgo/shared/widgets/shimmer.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -306,10 +307,7 @@ class _ShopContent extends ConsumerWidget {
         ),
         products.when(
           loading: () => const SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.all(AllGoTokens.space8),
-              child: Center(child: CircularProgressIndicator()),
-            ),
+            child: SizedBox(height: 440, child: CardGridSkeleton(itemCount: 4)),
           ),
           error: (_, __) => SliverToBoxAdapter(
             child: Padding(
@@ -400,10 +398,7 @@ class _ShopPostsSliver extends ConsumerWidget {
 
     return state.when(
       loading: () => const SliverToBoxAdapter(
-        child: Padding(
-          padding: EdgeInsets.all(AllGoTokens.space6),
-          child: Center(child: CircularProgressIndicator()),
-        ),
+        child: SizedBox(height: 280, child: AvatarLineSkeletonList(itemCount: 3, padding: EdgeInsets.zero)),
       ),
       error: (_, __) => SliverToBoxAdapter(
         child: Padding(
@@ -455,10 +450,7 @@ class _ShopReviewsSliver extends ConsumerWidget {
 
     return state.when(
       loading: () => const SliverToBoxAdapter(
-        child: Padding(
-          padding: EdgeInsets.all(AllGoTokens.space6),
-          child: Center(child: CircularProgressIndicator()),
-        ),
+        child: SizedBox(height: 280, child: AvatarLineSkeletonList(itemCount: 3, padding: EdgeInsets.zero)),
       ),
       error: (_, __) => SliverToBoxAdapter(
         child: Padding(

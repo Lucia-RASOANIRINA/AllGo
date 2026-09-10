@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:allgo/core/network/realtime_client.dart';
+import 'package:allgo/shared/widgets/shimmer.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:go_router/go_router.dart';
@@ -225,7 +226,16 @@ class _CourierDashboardScreenState extends ConsumerState<CourierDashboardScreen>
       Expanded(child: FutureBuilder<List<Map<String, dynamic>>>(
         future: _missions(),
         builder: (_, snapshot) {
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          if (!snapshot.hasData) {
+            return Shimmer(
+              child: ListView.separated(
+                padding: const EdgeInsets.all(16),
+                itemCount: 4,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (_, __) => const SkeletonBox(width: double.infinity, height: 88),
+              ),
+            );
+          }
           if (snapshot.data!.isEmpty) return const Center(child: Text('Aucune mission pour le moment.'));
           return ListView(children: snapshot.data!.map((mission) => Card(child: ListTile(
             title: Text('Mission ${mission['orderNumber'] ?? ''}'),

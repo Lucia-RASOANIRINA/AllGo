@@ -2,6 +2,7 @@ import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/features/account/presentation/addresses_providers.dart';
 import 'package:allgo/features/geo/presentation/geo_providers.dart';
+import 'package:allgo/shared/widgets/shimmer.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,7 +25,7 @@ class AddressesScreen extends ConsumerWidget {
         ],
       ),
       body: addresses.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const AvatarLineSkeletonList(itemCount: 4),
         error: (error, _) => Center(
             child: Text(error is DioException
                 ? 'Impossible de charger les adresses.'

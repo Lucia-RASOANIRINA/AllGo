@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/features/messaging/presentation/messaging_providers.dart';
 import 'package:allgo/features/moderation/presentation/moderation_actions.dart';
+import 'package:allgo/shared/widgets/shimmer.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -107,7 +108,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         children: <Widget>[
           Expanded(
             child: messages.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
+              loading: () => const ChatBubbleSkeleton(),
               error: (_, __) =>
                   const Center(child: Text('Conversation indisponible.')),
               data: (list) => list.isEmpty

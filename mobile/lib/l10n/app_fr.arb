@@ -101,6 +101,9 @@
   "homeNewProducts": "Nouveaux produits",
   "homeRecentProducts": "Produits récemment consultés",
   "homeRecentShops": "Boutiques récemment consultées",
+  "homeEmptyTitle": "AllGo arrive à Mahajanga",
+  "homeEmptyMessage": "Les premières boutiques et leurs produits arrivent très bientôt. Revenez faire un tour !",
+  "homeEmptyCta": "Explorer les boutiques",
 
   "cartTitle": "Panier",
   "cartEmptyTitle": "Votre panier est vide",

@@ -1,5 +1,6 @@
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/error/failure.dart';
+import 'package:allgo/shared/widgets/shimmer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -197,23 +198,20 @@ class _ErrorState extends StatelessWidget {
 }
 
 /// Squelettes animés — jamais un cercle de chargement plein écran (§11.3).
+/// Forme générique (blocs pleine largeur) : un écran dont le contenu réel a
+/// une forme distinctive (avatar + texte, grille de cartes…) passe son
+/// propre `skeleton:` à [AsyncView] plutôt que de garder celui-ci.
 class _SkeletonList extends StatelessWidget {
   const _SkeletonList();
 
   @override
   Widget build(BuildContext context) {
-    final base = Theme.of(context).colorScheme.surfaceContainerHighest;
-
-    return ListView.separated(
-      padding: const EdgeInsets.all(AllGoTokens.space4),
-      itemCount: 6,
-      separatorBuilder: (_, __) => const SizedBox(height: AllGoTokens.space3),
-      itemBuilder: (_, __) => Container(
-        height: 88,
-        decoration: BoxDecoration(
-          color: base,
-          borderRadius: BorderRadius.circular(AllGoTokens.radiusCard),
-        ),
+    return Shimmer(
+      child: ListView.separated(
+        padding: const EdgeInsets.all(AllGoTokens.space4),
+        itemCount: 6,
+        separatorBuilder: (_, __) => const SizedBox(height: AllGoTokens.space3),
+        itemBuilder: (_, __) => const SkeletonBox(width: double.infinity, height: 88),
       ),
     );
   }
