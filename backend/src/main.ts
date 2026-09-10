@@ -63,8 +63,12 @@ async function bootstrap(): Promise<void> {
     .addServer('http://localhost:3000/v1', 'Développement local')
     .build();
 
+  // `useGlobalPrefix` : sans lui, Swagger vit sur `/docs` au lieu de `/v1/docs`,
+  // hors du seul chemin (`/v1/*`) qu'un déploiement partageant le domaine avec
+  // un autre site (o2switch) peut faire passer à Passenger.
   SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, openapi), {
     swaggerOptions: { persistAuthorization: true },
+    useGlobalPrefix: true,
   });
 
   const port = config.getOrThrow<number>('port');
