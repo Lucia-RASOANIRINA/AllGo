@@ -87,15 +87,18 @@ final AutoDisposeFutureProviderFamily<OrderDetail, String> orderDetailProvider =
 
   // Le statut se met à jour tout seul dès que la boutique ou le livreur agit
   // — sans cet abonnement, l'écran resterait figé jusqu'au tirer-pour-
-  // rafraîchir manuel (§7.5).
-  final socket = await ref.read(realtimeClientProvider).connect();
-  void handler(dynamic data) {
-    final payload = Map<String, dynamic>.from(data as Map);
-    if (payload['orderId']?.toString() == id) ref.invalidateSelf();
-  }
+  // rafraîchir manuel (§7.5). Best-effort : un échec de connexion temps réel
+  // ne doit jamais empêcher l'affichage du détail déjà obtenu ci-dessus.
+  final socket = await ref.read(realtimeClientProvider).tryConnect();
+  if (socket != null) {
+    void handler(dynamic data) {
+      final payload = Map<String, dynamic>.from(data as Map);
+      if (payload['orderId']?.toString() == id) ref.invalidateSelf();
+    }
 
-  socket.on('order:status', handler);
-  ref.onDispose(() => socket.off('order:status', handler));
+    socket.on('order:status', handler);
+    ref.onDispose(() => socket.off('order:status', handler));
+  }
 
   return _orderFromJson(raw);
 });

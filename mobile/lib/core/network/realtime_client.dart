@@ -17,6 +17,18 @@ class RealtimeClient {
   final TokenStore _tokenStore;
   io.Socket? _socket;
 
+  /// Sur `dart:io` (Android/iOS), ce package n'utilise **jamais** `polling`
+  /// quel que soit l'ordre de `setTransports` — `io_transports.dart` du
+  /// package retourne toujours un `WebSocketTransport` (seul le web utilise
+  /// `polling`). Or l'hébergement mutualisé o2switch (Apache + Passenger)
+  /// complète parfois la poignée de main HTTP d'upgrade (101) sans relayer
+  /// ensuite le premier paquet `open` d'Engine.IO de façon fiable — constaté
+  /// en direct : la connexion `dart:io` réussit, mais aucun paquet n'arrive
+  /// jamais, et le délai interne du `Manager` (20 s) finit par échouer avec
+  /// `connect_error: timeout`. C'est un défaut d'infrastructure d'hébergement
+  /// mutualisé, pas un bug applicatif — d'où [tryConnect], qui rend cet échec
+  /// non bloquant pour tout écran dont les données réelles viennent de toute
+  /// façon d'un appel HTTP fiable.
   Future<io.Socket> connect() async {
     final existing = _socket;
     if (existing != null && existing.connected) return existing;
@@ -26,7 +38,7 @@ class RealtimeClient {
         io.io(
           Environment.socketUrl,
           io.OptionBuilder()
-              .setTransports(<String>['websocket', 'polling'])
+              .setTransports(<String>['websocket'])
               // Le `.htaccess` du site PHP historique ne laisse passer que
               // `/v1/` vers Passenger/Node — le chemin par défaut
               // `/socket.io/` tombe sur le site PHP (404), doit donc vivre
@@ -54,14 +66,26 @@ class RealtimeClient {
     return socket;
   }
 
+  /// Comme [connect], mais renvoie `null` au lieu de lever une exception —
+  /// pour tout écran où le canal temps réel n'est qu'un bonus (mise à jour
+  /// sans tirer l'écran) et ne doit jamais empêcher l'affichage des données
+  /// déjà obtenues par HTTP (§ défaut d'infrastructure documenté sur [connect]).
+  Future<io.Socket?> tryConnect() async {
+    try {
+      return await connect();
+    } catch (_) {
+      return null;
+    }
+  }
+
   void dispose() {
     _socket?.dispose();
     _socket = null;
   }
 
   Future<void> subscribeDelivery(String orderId) async {
-    final socket = await connect();
-    socket.emit('delivery:subscribe', <String, dynamic>{'orderId': orderId});
+    final socket = await tryConnect();
+    socket?.emit('delivery:subscribe', <String, dynamic>{'orderId': orderId});
   }
 
   Future<void> publishDeliveryPosition({
@@ -71,7 +95,8 @@ class RealtimeClient {
     double? remainingDistance,
     int? etaMinutes,
   }) async {
-    final socket = await connect();
+    final socket = await tryConnect();
+    if (socket == null) return;
     socket.emit('delivery:position', <String, dynamic>{
       'orderId': orderId,
       'latitude': latitude,

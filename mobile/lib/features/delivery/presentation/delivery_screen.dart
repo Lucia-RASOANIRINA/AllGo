@@ -70,7 +70,8 @@ class _DeliveryScreenState extends ConsumerState<DeliveryScreen> {
       _trackingBound = true;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         final realtime = ref.read(realtimeClientProvider);
-        final socket = await realtime.connect();
+        final socket = await realtime.tryConnect();
+        if (socket == null) return;
         for (final order in deliveries) {
           await realtime.subscribeDelivery(order.id);
         }

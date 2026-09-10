@@ -22,15 +22,18 @@ final merchantOrdersProvider = FutureProvider.autoDispose
 
   // Une nouvelle commande ou un changement de statut (décidé par un autre
   // membre de l'équipe, ou par le client qui annule) apparaît sans que le
-  // commerçant ait à tirer l'écran (§7.5).
-  final socket = await ref.read(realtimeClientProvider).connect();
-  void handler(dynamic _) => ref.invalidateSelf();
-  socket.on('order:new', handler);
-  socket.on('order:status', handler);
-  ref.onDispose(() {
-    socket.off('order:new', handler);
-    socket.off('order:status', handler);
-  });
+  // commerçant ait à tirer l'écran (§7.5). Best-effort : un échec de
+  // connexion temps réel ne doit jamais empêcher l'affichage des commandes.
+  final socket = await ref.read(realtimeClientProvider).tryConnect();
+  if (socket != null) {
+    void handler(dynamic _) => ref.invalidateSelf();
+    socket.on('order:new', handler);
+    socket.on('order:status', handler);
+    ref.onDispose(() {
+      socket.off('order:new', handler);
+      socket.off('order:status', handler);
+    });
+  }
 
   final response = await api.get<Map<String, dynamic>>(
     '/shop/$shopId/orders',

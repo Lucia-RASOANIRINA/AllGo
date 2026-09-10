@@ -162,28 +162,32 @@ class ConversationController
         .reversed
         .toList();
 
-    final socket = await ref.read(realtimeClientProvider).connect();
-    void handler(dynamic data) {
-      final payload = Map<String, dynamic>.from(data as Map);
-      final message = Message.fromJson(payload);
-      if (message.conversationId != conversationId) return;
-      final current = state.valueOrNull ?? const <Message>[];
-      final index = current.indexWhere((m) => m.id == message.id);
-      // Édition ou suppression reçue en temps réel : remplace la ligne
-      // existante plutôt que d'en ajouter une nouvelle en double.
-      state = AsyncData(
-        index == -1
-            ? <Message>[...current, message]
-            : <Message>[
-                ...current.sublist(0, index),
-                message,
-                ...current.sublist(index + 1),
-              ],
-      );
-    }
+    // Best-effort : un échec de connexion temps réel ne doit jamais empêcher
+    // l'affichage de l'historique déjà chargé ci-dessus.
+    final socket = await ref.read(realtimeClientProvider).tryConnect();
+    if (socket != null) {
+      void handler(dynamic data) {
+        final payload = Map<String, dynamic>.from(data as Map);
+        final message = Message.fromJson(payload);
+        if (message.conversationId != conversationId) return;
+        final current = state.valueOrNull ?? const <Message>[];
+        final index = current.indexWhere((m) => m.id == message.id);
+        // Édition ou suppression reçue en temps réel : remplace la ligne
+        // existante plutôt que d'en ajouter une nouvelle en double.
+        state = AsyncData(
+          index == -1
+              ? <Message>[...current, message]
+              : <Message>[
+                  ...current.sublist(0, index),
+                  message,
+                  ...current.sublist(index + 1),
+                ],
+        );
+      }
 
-    socket.on('message:new', handler);
-    ref.onDispose(() => socket.off('message:new', handler));
+      socket.on('message:new', handler);
+      ref.onDispose(() => socket.off('message:new', handler));
+    }
 
     return items;
   }

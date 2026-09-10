@@ -57,11 +57,15 @@ final AutoDisposeFutureProvider<List<OrderSummary>> myOrdersProvider =
   final database = ref.watch(appDatabaseProvider);
 
   // Une commande passée « confirmée » côté boutique doit se voir dans la
-  // liste sans que le client ait à tirer l'écran (§7.5).
-  final socket = await ref.read(realtimeClientProvider).connect();
-  void handler(dynamic _) => ref.invalidateSelf();
-  socket.on('order:status', handler);
-  ref.onDispose(() => socket.off('order:status', handler));
+  // liste sans que le client ait à tirer l'écran (§7.5). Best-effort : un
+  // échec de connexion temps réel ne doit jamais empêcher l'affichage des
+  // commandes elles-mêmes, obtenues séparément par HTTP ci-dessous.
+  final socket = await ref.read(realtimeClientProvider).tryConnect();
+  if (socket != null) {
+    void handler(dynamic _) => ref.invalidateSelf();
+    socket.on('order:status', handler);
+    ref.onDispose(() => socket.off('order:status', handler));
+  }
 
   try {
     final response =

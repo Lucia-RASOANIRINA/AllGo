@@ -24,7 +24,9 @@ class RealtimeService {
     final socket = io.io(
       Environment.socketUrl,
       <String, dynamic>{
-        'transports': <String>['websocket', 'polling'],
+        // Voir `realtime_client.dart` : sur `dart:io`, ce package utilise de
+        // toute façon toujours `websocket`, jamais `polling`.
+        'transports': <String>['websocket'],
         // Voir `realtime_client.dart` : le `.htaccess` du site PHP ne laisse
         // passer que `/v1/` vers Node/Passenger.
         'path': '/v1/socket.io/',
