@@ -1,12 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
 import { Prisma } from '@prisma/client';
 
 import { AppError } from '../../common/http/app-error';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { CourierWithdrawal, type CourierWithdrawalDocument } from '../courier-earnings/schemas/withdrawal.schema';
-import { MerchantWithdrawal, type MerchantWithdrawalDocument } from './schemas/merchant-withdrawal.schema';
 
 /**
  * Commission de plateforme sur la vente elle-même (§30) — distincte de la
@@ -18,11 +14,7 @@ const PLATFORM_COMMISSION_RATE = 0.1;
 
 @Injectable()
 export class FinanceService {
-  constructor(
-    private readonly prisma: PrismaService,
-    @InjectModel(MerchantWithdrawal.name) private readonly merchantWithdrawals: Model<MerchantWithdrawalDocument>,
-    @InjectModel(CourierWithdrawal.name) private readonly courierWithdrawals: Model<CourierWithdrawalDocument>,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   // --- Comptabilisation automatique à la livraison ------------------------
 
@@ -225,21 +217,21 @@ export class FinanceService {
     });
   }
 
-  // --- Retraits commerçants (Mongo, pas encore migré — Phase 5) -----------------
+  // --- Retraits commerçants ---------------------------------------------------
 
   /** Solde retirable = commissions déduites du chiffre d'affaires livré, moins les retraits déjà honorés ou en cours. */
   async merchantBalance(shopId: string): Promise<{ lifetimeRevenue: number; withdrawn: number; balance: number }> {
     const id = Number(shopId);
     const [revenue, withdrawn] = await Promise.all([
       this.prisma.orders.aggregate({ where: { shop_id: id, status: 'delivered' }, _sum: { total_amount: true } }),
-      this.merchantWithdrawals.aggregate([
-        { $match: { shopId: id, status: { $in: ['pending', 'paid'] } } },
-        { $group: { _id: null, total: { $sum: '$amount' } } },
-      ]),
+      this.prisma.merchant_withdrawals.aggregate({
+        where: { shop_id: id, status: { in: ['pending', 'paid'] } },
+        _sum: { amount: true },
+      }),
     ]);
     const subtotal = Number(revenue._sum.total_amount ?? 0);
     const lifetimeRevenue = subtotal * (1 - PLATFORM_COMMISSION_RATE);
-    const withdrawnTotal = Number(withdrawn[0]?.total ?? 0);
+    const withdrawnTotal = Number(withdrawn._sum.amount ?? 0);
     return { lifetimeRevenue, withdrawn: withdrawnTotal, balance: Math.max(0, lifetimeRevenue - withdrawnTotal) };
   }
 
@@ -250,50 +242,51 @@ export class FinanceService {
     const { balance } = await this.merchantBalance(shopId);
     if (amount > balance) throw new AppError('INSUFFICIENT_BALANCE', 'Solde insuffisant.', 400);
 
-    const withdrawal = await this.merchantWithdrawals.create({
-      shopId: Number(shopId),
-      ownerId: ownerMysqlId,
-      amount: amount.toFixed(2),
-      method: method.trim(),
-      account: account.trim(),
+    const row = await this.prisma.merchant_withdrawals.create({
+      data: { shop_id: Number(shopId), owner_id: ownerMysqlId, amount, method: method.trim(), account: account.trim() },
     });
-    return withdrawal.toJSON();
+    return this.merchantWithdrawalToJson(row);
   }
 
-  listMerchantWithdrawals(shopId?: string, status?: string) {
-    const filter: Record<string, unknown> = {};
-    if (shopId) filter.shopId = Number(shopId);
-    if (status) filter.status = status;
-    return this.merchantWithdrawals.find(filter).sort({ createdAt: -1 }).limit(200).lean();
+  async listMerchantWithdrawals(shopId?: string, status?: string) {
+    const rows = await this.prisma.merchant_withdrawals.findMany({
+      where: { ...(shopId ? { shop_id: Number(shopId) } : {}), ...(status ? { status: status as never } : {}) },
+      orderBy: { created_at: 'desc' },
+      take: 200,
+    });
+    return rows.map((row) => this.merchantWithdrawalToJson(row));
   }
 
   async resolveMerchantWithdrawal(id: string, status: 'paid' | 'rejected'): Promise<unknown> {
-    const withdrawal = await this.merchantWithdrawals.findByIdAndUpdate(id, { $set: { status } }, { new: true });
+    const withdrawal = await this.prisma.merchant_withdrawals.update({ where: { id: Number(id) }, data: { status } }).catch(() => null);
     if (!withdrawal) throw AppError.notFound('Retrait');
     if (status === 'paid') {
       await this.prisma.transactions.create({
         data: {
           type: 'merchant_withdrawal',
-          amount: withdrawal.amount as never,
-          shop_id: withdrawal.shopId,
+          amount: withdrawal.amount,
+          shop_id: withdrawal.shop_id,
           status: 'completed',
           note: `Retrait commerçant honoré (${withdrawal.method})`,
         },
       });
     }
-    return withdrawal.toJSON();
+    return this.merchantWithdrawalToJson(withdrawal);
   }
 
   // --- Retraits livreurs (vue et approbation admin) --------------------------
 
-  listCourierWithdrawals(status?: string) {
-    const filter: Record<string, unknown> = {};
-    if (status) filter.status = status;
-    return this.courierWithdrawals.find(filter).sort({ createdAt: -1 }).limit(200).lean();
+  async listCourierWithdrawals(status?: string) {
+    const rows = await this.prisma.courier_withdrawals.findMany({
+      where: status ? { status: status as never } : {},
+      orderBy: { created_at: 'desc' },
+      take: 200,
+    });
+    return rows.map((row) => this.courierWithdrawalToJson(row));
   }
 
   async resolveCourierWithdrawal(id: string, status: 'paid' | 'rejected'): Promise<unknown> {
-    const withdrawal = await this.courierWithdrawals.findByIdAndUpdate(id, { $set: { status } }, { new: true });
+    const withdrawal = await this.prisma.courier_withdrawals.update({ where: { id: Number(id) }, data: { status } }).catch(() => null);
     if (!withdrawal) throw AppError.notFound('Retrait');
     if (status === 'paid') {
       await this.prisma.transactions.create({
@@ -305,7 +298,7 @@ export class FinanceService {
         },
       });
     }
-    return withdrawal.toJSON();
+    return this.courierWithdrawalToJson(withdrawal);
   }
 
   // --- Rapports financiers consolidés ----------------------------------------
@@ -322,14 +315,16 @@ export class FinanceService {
         _count: true,
       }),
       this.prisma.refunds.count({ where: { created_at: { gte: fromDate, lte: toDate } } }),
-      this.merchantWithdrawals.aggregate([
-        { $match: { createdAt: { $gte: fromDate, $lte: toDate }, status: 'paid' } },
-        { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } },
-      ]),
-      this.courierWithdrawals.aggregate([
-        { $match: { createdAt: { $gte: fromDate, $lte: toDate }, status: 'paid' } },
-        { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } },
-      ]),
+      this.prisma.merchant_withdrawals.aggregate({
+        where: { created_at: { gte: fromDate, lte: toDate }, status: 'paid' },
+        _sum: { amount: true },
+        _count: true,
+      }),
+      this.prisma.courier_withdrawals.aggregate({
+        where: { created_at: { gte: fromDate, lte: toDate }, status: 'paid' },
+        _sum: { amount: true },
+        _count: true,
+      }),
     ]);
 
     const byTypeMap = Object.fromEntries(byType.map((row) => [row.type, { total: row._sum.amount ?? 0, count: row._count }]));
@@ -338,8 +333,41 @@ export class FinanceService {
       to: toDate.toISOString(),
       byType: byTypeMap,
       refundsIssued: refundsCount,
-      merchantWithdrawalsPaid: merchantWithdrawalsAgg[0] ?? { total: 0, count: 0 },
-      courierWithdrawalsPaid: courierWithdrawalsAgg[0] ?? { total: 0, count: 0 },
+      merchantWithdrawalsPaid: { total: Number(merchantWithdrawalsAgg._sum.amount ?? 0), count: merchantWithdrawalsAgg._count },
+      courierWithdrawalsPaid: { total: Number(courierWithdrawalsAgg._sum.amount ?? 0), count: courierWithdrawalsAgg._count },
+    };
+  }
+
+  private merchantWithdrawalToJson(row: {
+    id: number; shop_id: number; owner_id: number; amount: unknown; method: string; account: string;
+    status: string; created_at: Date; updated_at: Date | null;
+  }): unknown {
+    return {
+      id: String(row.id),
+      shopId: row.shop_id,
+      ownerId: row.owner_id,
+      amount: Number(row.amount),
+      method: row.method,
+      account: row.account,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private courierWithdrawalToJson(row: {
+    id: number; courier_id: number; amount: unknown; method: string; account: string;
+    status: string; created_at: Date; updated_at: Date | null;
+  }): unknown {
+    return {
+      id: String(row.id),
+      courierId: row.courier_id,
+      amount: Number(row.amount),
+      method: row.method,
+      account: row.account,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
     };
   }
 }

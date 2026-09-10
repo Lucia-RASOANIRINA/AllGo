@@ -1,19 +1,12 @@
 import { Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
-import { Notification, NotificationSchema } from './schemas/notification.schema';
+import { NotificationsCleanupService } from './notifications-cleanup.service';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
-import { User, UserSchema } from '../users/schemas/user.schema';
 
+/** 100 % MySQL depuis la Phase 6 — plus de dépendance au miroir `User`. */
 @Module({
-  imports: [
-    MongooseModule.forFeature([
-      { name: Notification.name, schema: NotificationSchema },
-      { name: User.name, schema: UserSchema },
-    ]),
-  ],
   controllers: [NotificationsController],
-  providers: [NotificationsService],
+  providers: [NotificationsService, NotificationsCleanupService],
   exports: [NotificationsService],
 })
 export class NotificationsModule {}

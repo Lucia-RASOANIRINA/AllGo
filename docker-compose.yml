@@ -1,7 +1,5 @@
 # Infrastructure de développement local — AllGo
-# Le replica set MongoDB est OBLIGATOIRE : les transactions multi-documents
-# (création de commande, encaissement, remboursement — §6.3) n'existent pas
-# sur une instance isolée.
+# 100 % MySQL depuis la Phase 6 : MongoDB a été entièrement retiré.
 
 services:
   # Clone local de la base MariaDB du site web (arur4976_janga_market) — même
@@ -31,39 +29,6 @@ services:
       retries: 10
       start_period: 20s
 
-  mongo:
-    image: mongo:7
-    container_name: allgo-mongo
-    command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo-data:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
-
-  # Initialise le replica set une seule fois, puis s'arrête.
-  mongo-init:
-    image: mongo:7
-    container_name: allgo-mongo-init
-    depends_on:
-      mongo:
-        condition: service_healthy
-    restart: "no"
-    entrypoint:
-      - bash
-      - -c
-      - |
-        mongosh --host mongo:27017 --quiet --eval '
-          try { rs.status().ok && quit(0) } catch (e) {
-            rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "mongo:27017" }] })
-          }
-        '
-
   redis:
     image: redis:7-alpine
     container_name: allgo-redis
@@ -78,55 +43,6 @@ services:
       timeout: 3s
       retries: 5
 
-  # Stockage objet compatible S3 : aucun fichier utilisateur n'atteint jamais
-  # le serveur applicatif (§7.4, §12.1).
-  minio:
-    image: minio/minio:latest
-    container_name: allgo-minio
-    command: ["server", "/data", "--console-address", ":9001"]
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - minio-data:/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-
-  minio-init:
-    image: minio/mc:latest
-    container_name: allgo-minio-init
-    depends_on:
-      minio:
-        condition: service_healthy
-    restart: "no"
-    entrypoint:
-      - sh
-      - -c
-      - |
-        mc alias set local http://minio:9000 minioadmin minioadmin &&
-        mc mb --ignore-existing local/allgo-media &&
-        mc anonymous set download local/allgo-media
-
-  mongo-express:
-    image: mongo-express:latest
-    container_name: allgo-mongo-express
-    depends_on:
-      mongo:
-        condition: service_healthy
-    environment:
-      ME_CONFIG_MONGODB_URL: mongodb://mongo:27017/?replicaSet=rs0
-      ME_CONFIG_BASICAUTH: "false"
-    ports:
-      - "8081:8081"
-
 volumes:
   mariadb-data:
-  mongo-data:
   redis-data:
-  minio-data:

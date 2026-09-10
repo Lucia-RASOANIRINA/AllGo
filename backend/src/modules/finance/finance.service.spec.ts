@@ -1,25 +1,13 @@
-import mongoose, { Connection } from 'mongoose';
-
 import { AppError } from '../../common/http/app-error';
-import { CourierWithdrawal, CourierWithdrawalSchema } from '../courier-earnings/schemas/withdrawal.schema';
 import { FinanceService } from './finance.service';
-import { MerchantWithdrawal, MerchantWithdrawalSchema } from './schemas/merchant-withdrawal.schema';
 
 /**
- * **Test d'intégration** — `orders`/`transactions`/`refunds`/`sales_invoices`
- * ont migré vers MySQL (Phase 3) : la seule base réelle disponible est la
- * production o2switch (`DATABASE_URL`, tunnel SSH), qu'aucun test automatisé
- * ne doit écrire ni nettoyer. `PrismaService` est donc ici un double de test
- * (`jest.fn()`) — même motif que `moderation.integration-spec.ts` pour ses
- * cibles `product`/`shop` — les assertions portent sur les appels Prisma et
- * sur la combinaison avec les documents Mongo réels, jamais sur une relecture
- * MySQL. `MerchantWithdrawal`/`CourierWithdrawal` restent sur Mongo (pas de
- * table réelle équivalente) : ceux-ci sont testés contre une vraie base
- * dédiée (`allgo_test_finance`), comme avant. `npm run test:integration`,
- * pas `npm test`.
+ * 100 % MySQL depuis la Phase 6 (`transactions`/`orders`/`refunds`/
+ * `sales_invoices`/`merchant_withdrawals`/`courier_withdrawals`) — plus
+ * aucune dépendance à une infrastructure réelle, ce test est un simple test
+ * unitaire (`npm test`), plus une intégration Mongo dédiée.
  */
-describe('FinanceService (Prisma en double, Mongo réel pour les retraits)', () => {
-  let connection: Connection;
+describe('FinanceService', () => {
   let service: FinanceService;
   let prisma: {
     orders: { findUnique: jest.Mock; aggregate: jest.Mock; update: jest.Mock };
@@ -27,26 +15,10 @@ describe('FinanceService (Prisma en double, Mongo réel pour les retraits)', () 
     payments: { findMany: jest.Mock };
     refunds: { findMany: jest.Mock; create: jest.Mock; count: jest.Mock };
     sales_invoices: { findMany: jest.Mock; findFirst: jest.Mock; count: jest.Mock; create: jest.Mock };
+    merchant_withdrawals: { findMany: jest.Mock; create: jest.Mock; update: jest.Mock; aggregate: jest.Mock };
+    courier_withdrawals: { findMany: jest.Mock; create: jest.Mock; update: jest.Mock; aggregate: jest.Mock };
     $queryRaw: jest.Mock;
   };
-
-  let merchantWithdrawals: mongoose.Model<any>;
-  let courierWithdrawals: mongoose.Model<any>;
-
-  beforeAll(async () => {
-    const base = process.env.MONGODB_URI ?? 'mongodb://localhost:27017/allgo?replicaSet=rs0&directConnection=true';
-    const testUri = base.replace(/\/[^/?]+(\?|$)/, '/allgo_test_finance$1');
-    connection = mongoose.createConnection(testUri);
-    await connection.asPromise();
-
-    merchantWithdrawals = connection.model(MerchantWithdrawal.name, MerchantWithdrawalSchema);
-    courierWithdrawals = connection.model(CourierWithdrawal.name, CourierWithdrawalSchema);
-  });
-
-  afterAll(async () => {
-    await connection.dropDatabase();
-    await connection.close();
-  });
 
   beforeEach(() => {
     prisma = {
@@ -62,13 +34,21 @@ describe('FinanceService (Prisma en double, Mongo réel pour les retraits)', () 
       payments: { findMany: jest.fn().mockResolvedValue([]) },
       refunds: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn(), count: jest.fn().mockResolvedValue(0) },
       sales_invoices: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null), count: jest.fn().mockResolvedValue(0), create: jest.fn() },
+      merchant_withdrawals: {
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn(),
+        update: jest.fn(),
+        aggregate: jest.fn().mockResolvedValue({ _sum: { amount: null }, _count: 0 }),
+      },
+      courier_withdrawals: {
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn(),
+        update: jest.fn(),
+        aggregate: jest.fn().mockResolvedValue({ _sum: { amount: null }, _count: 0 }),
+      },
       $queryRaw: jest.fn().mockResolvedValue([]),
     };
-    service = new FinanceService(prisma as any, merchantWithdrawals as any, courierWithdrawals as any);
-  });
-
-  afterEach(async () => {
-    await Promise.all([merchantWithdrawals, courierWithdrawals].map((model) => model.collection.deleteMany({})));
+    service = new FinanceService(prisma as never);
   });
 
   function order(overrides: Record<string, unknown> = {}) {
@@ -174,14 +154,15 @@ describe('FinanceService (Prisma en double, Mongo réel pour les retraits)', () 
     });
   });
 
-  describe('retraits commerçants (Mongo + Prisma combinés)', () => {
+  describe('retraits commerçants', () => {
     it('le solde retirable est le chiffre d’affaires livré net de commission, moins les retraits en cours', async () => {
       prisma.orders.aggregate.mockResolvedValue({ _sum: { total_amount: 10000 } });
+      prisma.merchant_withdrawals.aggregate.mockResolvedValue({ _sum: { amount: 0 } });
 
       const before = await service.merchantBalance('10');
       expect(before.balance).toBeCloseTo(9000); // 10000 * (1 - 10%)
 
-      await service.requestMerchantWithdrawal('10', 3, 3000, 'mobile_money', '+261340000001');
+      prisma.merchant_withdrawals.aggregate.mockResolvedValue({ _sum: { amount: 3000 } });
       const after = await service.merchantBalance('10');
       expect(after.balance).toBeCloseTo(6000);
     });
@@ -195,33 +176,34 @@ describe('FinanceService (Prisma en double, Mongo réel pour les retraits)', () 
 
     it('honorer un retrait dépose une ligne de grand livre ; le rejeter n’en dépose aucune', async () => {
       prisma.orders.aggregate.mockResolvedValue({ _sum: { total_amount: 10000 } });
-      const withdrawal: any = await service.requestMerchantWithdrawal('10', 3, 1000, 'mobile_money', '+261340000001');
+      prisma.merchant_withdrawals.create.mockResolvedValue({ id: 1, shop_id: 10, owner_id: 3, amount: '1000.00', method: 'mobile_money', account: 'x', status: 'pending', created_at: new Date(), updated_at: null });
+      await service.requestMerchantWithdrawal('10', 3, 1000, 'mobile_money', '+261340000001');
 
-      await service.resolveMerchantWithdrawal(String(withdrawal._id), 'paid');
+      prisma.merchant_withdrawals.update.mockResolvedValue({ id: 1, shop_id: 10, owner_id: 3, amount: '1000.00', method: 'mobile_money', account: 'x', status: 'paid', created_at: new Date(), updated_at: null });
+      await service.resolveMerchantWithdrawal('1', 'paid');
       expect(prisma.transactions.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ type: 'merchant_withdrawal', shop_id: 10 }),
       });
 
       prisma.transactions.create.mockClear();
-      const withdrawal2: any = await service.requestMerchantWithdrawal('10', 3, 1000, 'mobile_money', '+261340000001');
-      await service.resolveMerchantWithdrawal(String(withdrawal2._id), 'rejected');
+      prisma.merchant_withdrawals.update.mockResolvedValue({ id: 2, shop_id: 10, owner_id: 3, amount: '1000.00', method: 'mobile_money', account: 'x', status: 'rejected', created_at: new Date(), updated_at: null });
+      await service.resolveMerchantWithdrawal('2', 'rejected');
       expect(prisma.transactions.create).not.toHaveBeenCalled();
     });
   });
 
-  describe('retraits livreurs (approbation admin, Mongo réel)', () => {
+  describe('retraits livreurs (approbation admin)', () => {
     it('honorer un retrait livreur dépose une ligne de grand livre', async () => {
-      const withdrawal = await courierWithdrawals.create({ courierId: 7, amount: 5000, method: 'mobile_money', account: '+261340000002' });
-
-      await service.resolveCourierWithdrawal(String(withdrawal._id), 'paid');
-
+      prisma.courier_withdrawals.update.mockResolvedValue({ id: 1, courier_id: 7, amount: '5000.00', method: 'mobile_money', account: 'x', status: 'paid', created_at: new Date(), updated_at: null });
+      await service.resolveCourierWithdrawal('1', 'paid');
       expect(prisma.transactions.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ type: 'courier_withdrawal' }),
       });
     });
 
     it('un retrait introuvable est un 404 explicite', async () => {
-      await expect(service.resolveCourierWithdrawal(new mongoose.Types.ObjectId().toString(), 'paid')).rejects.toThrow(AppError);
+      prisma.courier_withdrawals.update.mockRejectedValue(new Error('not found'));
+      await expect(service.resolveCourierWithdrawal('999', 'paid')).rejects.toThrow(AppError);
     });
   });
 

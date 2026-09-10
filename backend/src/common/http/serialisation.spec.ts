@@ -1,15 +1,26 @@
-import { Decimal128, ObjectId } from 'mongodb';
 import { normaliseResponse } from './serialisation';
 
 /**
  * Ces règles ne sont pas cosmétiques : chacune correspond à une forme que le
- * client Flutter ne sait pas lire, et qui a été constatée en exécutant l'API.
+ * client Flutter ne sait pas lire, et qui a été constatée en exécutant l'API
+ * à l'époque où ce backend était Mongo-natif. Le paquet `mongodb` a disparu
+ * avec la Phase 6 (bascule complète vers MySQL) — ces objets factices
+ * reproduisent juste la forme reconnue par `normaliseResponse` (`_bsontype`),
+ * pour ne pas perdre la couverture de cette règle de sérialisation.
  */
+function fakeObjectId(hex: string): { _bsontype: string; toString(): string } {
+  return { _bsontype: 'ObjectId', toString: () => hex };
+}
+
+function fakeDecimal128(value: string): { _bsontype: string; toString(): string } {
+  return { _bsontype: 'Decimal128', toString: () => value };
+}
+
 describe('normaliseResponse', () => {
   it('renomme `_id` en `id`', () => {
-    const id = new ObjectId();
+    const id = fakeObjectId('507f1f77bcf86cd799439011');
     expect(normaliseResponse({ _id: id, name: 'Riz' })).toEqual({
-      id: id.toHexString(),
+      id: '507f1f77bcf86cd799439011',
       name: 'Riz',
     });
   });
@@ -17,14 +28,14 @@ describe('normaliseResponse', () => {
   it('sérialise un Decimal128 en chaîne, jamais en `{ $numberDecimal }`', () => {
     // Forme constatée avant correction : `{"price":{"$numberDecimal":"5200"}}`.
     // Le client mobile lit un montant, pas un objet d'encodage BSON.
-    const result = normaliseResponse({ price: Decimal128.fromString('5200') }) as {
+    const result = normaliseResponse({ price: fakeDecimal128('5200') }) as {
       price: unknown;
     };
     expect(result.price).toBe('5200');
   });
 
   it('préserve la précision décimale au lieu de passer par un flottant', () => {
-    const result = normaliseResponse({ total: Decimal128.fromString('19999999.99') }) as {
+    const result = normaliseResponse({ total: fakeDecimal128('19999999.99') }) as {
       total: string;
     };
     expect(result.total).toBe('19999999.99');
@@ -42,30 +53,29 @@ describe('normaliseResponse', () => {
   });
 
   it('traverse les tableaux et les objets imbriqués', () => {
-    const id = new ObjectId();
+    const id = fakeObjectId('507f1f77bcf86cd799439011');
     const payload = {
       _id: id,
-      items: [{ _id: id, unitPrice: Decimal128.fromString('5200'), quantity: 2 }],
-      amounts: { total: Decimal128.fromString('13400') },
+      items: [{ _id: id, unitPrice: fakeDecimal128('5200'), quantity: 2 }],
+      amounts: { total: fakeDecimal128('13400') },
     };
 
     expect(normaliseResponse(payload)).toEqual({
-      id: id.toHexString(),
-      items: [{ id: id.toHexString(), unitPrice: '5200', quantity: 2 }],
+      id: '507f1f77bcf86cd799439011',
+      items: [{ id: '507f1f77bcf86cd799439011', unitPrice: '5200', quantity: 2 }],
       amounts: { total: '13400' },
     });
   });
 
-  it('convertit une Map Mongoose en objet', () => {
-    // `conversations.unread` est une Map : `Object.entries` la rendrait vide,
-    // et les compteurs de non-lus disparaîtraient sans erreur visible.
+  it('convertit une Map en objet', () => {
+    // `conversations.unread` était une Map côté Mongo : `Object.entries` la
+    // rendrait vide, et les compteurs de non-lus disparaîtraient sans erreur
+    // visible.
     const payload = { unread: new Map<string, number>([['u1', 3]]) };
     expect(normaliseResponse(payload)).toEqual({ unread: { u1: 3 } });
   });
 
-  it('passe par la transformation `toJSON` d’un document hydraté', () => {
-    // C'est ainsi que le masquage de `passwordHash` déclaré sur le schéma
-    // utilisateur reste appliqué : on n'inspecte jamais l'objet brut.
+  it('passe par la transformation `toJSON` d’un objet qui en expose une', () => {
     const document = {
       toJSON: () => ({ _id: 'abc', name: 'Soa' }),
       passwordHash: 'secret',

@@ -1,14 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
 import { AppError } from '../../common/http/app-error';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { User, type UserDocument } from '../users/schemas/user.schema';
+import { buildRoleAssignments } from '../users/mysql-role-mapper';
 import { CourierEarningsService } from '../courier-earnings/courier-earnings.service';
 import { FinanceService } from '../finance/finance.service';
-import { Review, type ReviewDocument } from '../reviews/schemas/review.schema';
-import { Post, type PostDocument } from '../social/schemas/post.schema';
-import { Report, type ReportDocument } from '../moderation/schemas/report.schema';
 import { AdminLogsService } from '../admin-logs/admin-logs.service';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 
@@ -17,33 +12,59 @@ type DisputeStatus = 'resolved' | 'rejected';
 @Injectable()
 export class AdministrationService {
   constructor(
-    @InjectModel(User.name) private readonly users: Model<UserDocument>,
-    @InjectModel(Review.name) private readonly reviews: Model<ReviewDocument>,
-    @InjectModel(Post.name) private readonly posts: Model<PostDocument>,
-    @InjectModel(Report.name) private readonly reports: Model<ReportDocument>,
     private readonly prisma: PrismaService,
     private readonly courierEarnings: CourierEarningsService,
     private readonly finance: FinanceService,
     private readonly adminLogs: AdminLogsService,
   ) {}
 
-  usersList(status?: string) {
-    return this.users.find(status ? { status } : {}).select('phone email firstName lastName avatar status roles courierProfile createdAt').sort({ createdAt: -1 }).limit(200).lean();
+  async usersList(status?: string): Promise<unknown[]> {
+    const rows = await this.prisma.users.findMany({
+      where: status ? { status: status as never } : {},
+      orderBy: { created_at: 'desc' },
+      take: 200,
+    });
+    return rows.map((row) => ({
+      id: String(row.id),
+      phone: row.phone,
+      email: row.email,
+      firstName: row.firstname,
+      lastName: row.lastname,
+      avatar: row.avatar ?? undefined,
+      status: row.status,
+      roles: buildRoleAssignments({ roleId: row.role_id, adminLevel: row.admin_level, ownedShopIds: [], teamMembership: null }),
+      createdAt: row.created_at,
+    }));
   }
+
+  private async resolveAdminUserId(id: string): Promise<number> {
+    const mysqlId = Number(id);
+    if (!Number.isInteger(mysqlId)) throw AppError.notFound('Utilisateur');
+    return mysqlId;
+  }
+
   async updateUser(
     id: string,
     patch: { status?: 'active' | 'suspended' | 'pending'; roles?: unknown[] },
     admin: AuthenticatedUser,
   ) {
-    if (!Types.ObjectId.isValid(id)) throw AppError.notFound('Utilisateur');
-    const user = await this.users.findByIdAndUpdate(id, { $set: patch }, { new: true }).select('phone firstName lastName status roles');
+    const mysqlId = await this.resolveAdminUserId(id);
+    // `roles` n'est jamais réellement envoyé par l'application (vérifié dans
+    // le code mobile : seul `status` l'est) — un rôle se déduit de
+    // `role_id`/de la propriété de boutique/de l'équipe, il n'y a rien
+    // d'arbitraire à « poser » dessus.
+    const user = await this.prisma.users
+      .update({ where: { id: mysqlId }, data: patch.status ? { status: patch.status } : {} })
+      .catch(() => null);
     if (!user) throw AppError.notFound('Utilisateur');
     await this.adminLogs.log(admin, `updateUser(user=${id}, patch=${JSON.stringify(patch)})`, 'user');
-    return user;
+    return { id, phone: user.phone, firstName: user.firstname, lastName: user.lastname, status: user.status };
   }
+
   async removeUser(id: string, admin: AuthenticatedUser) {
-    const result = await this.users.updateOne({ _id: id }, { $set: { status: 'suspended' } });
-    if (!result.modifiedCount) throw AppError.notFound('Utilisateur');
+    const mysqlId = await this.resolveAdminUserId(id);
+    const result = await this.prisma.users.updateMany({ where: { id: mysqlId }, data: { status: 'suspended' } });
+    if (!result.count) throw AppError.notFound('Utilisateur');
     await this.adminLogs.log(admin, `removeUser(user=${id})`, 'user');
     return { deleted: true, suspended: true };
   }
@@ -89,12 +110,17 @@ export class AdministrationService {
   }
   /**
    * File des produits signalés — `isReported` n'existe plus côté MySQL
-   * (Phase 2) : déduit des signalements en attente (`Report`, Mongo,
-   * `targetType: 'product'`) plutôt qu'un drapeau à resynchroniser.
+   * (Phase 2) : déduit des signalements en attente (`reports`, table réelle
+   * depuis la Phase 5, `reportable_type: 'product'`) plutôt qu'un drapeau à
+   * resynchroniser.
    */
   async reportedProducts() {
-    const pending = await this.reports.find({ targetType: 'product', status: 'pending' }).distinct('targetId');
-    const ids = pending.map((id) => Number(id)).filter((id) => Number.isInteger(id));
+    const pending = await this.prisma.reports.findMany({
+      where: { reportable_type: 'product', status: 'pending' },
+      select: { reportable_id: true },
+      distinct: ['reportable_id'],
+    });
+    const ids = pending.map((r) => r.reportable_id);
     if (ids.length === 0) return [];
     return this.prisma.products.findMany({ where: { id: { in: ids } }, orderBy: { updated_at: 'desc' }, take: 200 });
   }
@@ -195,23 +221,24 @@ export class AdministrationService {
       topZones,
       courierPerformance,
     ] = await Promise.all([
-      this.users.countDocuments({}),
+      this.prisma.users.count(),
       this.prisma.shops.count(),
       this.prisma.products.count(),
       this.prisma.orders.count(),
-      this.reviews.countDocuments({}),
-      this.posts.countDocuments({}),
+      this.prisma.product_reviews.count(),
+      this.prisma.posts.count(),
       this.prisma.orders.aggregate({ where: { status: 'delivered' }, _sum: { total_amount: true } }),
       this.prisma.orders.groupBy({ by: ['status'], _count: true }),
       this.prisma.orders.groupBy({ by: ['payment_method', 'payment_status'], _count: true, _sum: { total_amount: true } }),
-      this.users.aggregate([
-        { $match: { createdAt: { $gte: from } } },
-        { $group: { _id: { $dateToString: { date: '$createdAt', format: '%Y-%m-%d' } }, count: { $sum: 1 } } },
-        { $sort: { _id: 1 } },
-      ]),
-      // `shops` a migré vers MySQL (Phase 2) : `DATE_FORMAT` en SQL brut
-      // remplace le `$dateToString`/`$group` Mongo, Prisma ne sait pas grouper
-      // par expression calculée sur une date.
+      // `users` a migré vers MySQL dès la Phase 1 : `DATE_FORMAT` en SQL brut
+      // remplace le `$dateToString`/`$group` Mongo, même motif que `shopGrowth`
+      // juste en dessous — Prisma ne sait pas grouper par expression calculée
+      // sur une date.
+      this.prisma.$queryRaw<{ day: string; count: bigint }[]>`
+        SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS day, COUNT(*) AS count
+        FROM users WHERE created_at >= ${from}
+        GROUP BY day ORDER BY day ASC
+      `,
       this.prisma.$queryRaw<{ day: string; count: bigint }[]>`
         SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS day, COUNT(*) AS count
         FROM shops WHERE created_at >= ${from}
@@ -264,7 +291,7 @@ export class AdministrationService {
       })),
       growth: {
         periodDays: days,
-        users: userGrowth,
+        users: userGrowth.map((row) => ({ _id: row.day, count: Number(row.count) })),
         shops: shopGrowth.map((row) => ({ _id: row.day, count: Number(row.count) })),
       },
       topProducts: topProducts.map((row) => ({

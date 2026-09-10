@@ -1,7 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
-import { MongooseModule } from '@nestjs/mongoose';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
@@ -60,23 +59,6 @@ import { SettingsModule } from './modules/settings/settings.module';
             'req.body.refreshToken',
           ],
         },
-      }),
-    }),
-
-    MongooseModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        uri: config.getOrThrow<string>('mongoUri'),
-        // Les écritures ne sont confirmées qu'une fois répliquées sur la
-        // majorité du replica set : une bascule de primaire ne peut pas perdre
-        // une commande déjà confirmée au client.
-        writeConcern: { w: 'majority' },
-        // `primary` est OBLIGATOIRE, pas une préférence de confort : une
-        // transaction multi-documents refuse toute autre valeur
-        // (« Read preference in a transaction must be primary »). Avec
-        // `primaryPreferred`, la création de commande échoue systématiquement.
-        readPreference: 'primary',
-        retryWrites: true,
       }),
     }),
 

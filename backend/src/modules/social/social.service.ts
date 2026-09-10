@@ -6,7 +6,6 @@ import type { Paginated } from '../../common/http/response.interceptor';
 import { decodeCursor, encodeCursor, prismaCursorFilter } from '../../common/pagination/cursor';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { Role } from '../../common/rbac/roles';
-import { AuthService } from '../auth/auth.service';
 import { ModerationService } from '../moderation/moderation.service';
 import type { ReportReasonCode } from '../moderation/schemas/report.schema';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -27,18 +26,13 @@ type PostRow = Prisma.postsGetPayload<{ include: typeof POST_INCLUDE }>;
 
 /**
  * Réseau social — `posts`/`comments`/`reactions`/`post_media`/`shares` sont
- * des tables réelles depuis la Phase 4. `authorId`/`Comment.userId` restent
- * exposés au format miroir Mongo (`AuthService.resolveMirrorId`) tant que
- * `AuthenticatedUser.id` (session courante) n'a pas basculé sur l'entier
- * MySQL direct (Phase 6) : le mobile compare `post.authorId` à `/me.id` pour
- * ses « est-ce moi » (bouton signaler/bloquer un auteur) — les deux doivent
- * rester dans le même référentiel jusque-là (§ décision du 2026-09-09).
+ * des tables réelles depuis la Phase 4. 100 % MySQL depuis la bascule
+ * d'identité (Phase 6).
  */
 @Injectable()
 export class SocialService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly auth: AuthService,
     private readonly moderation: ModerationService,
     private readonly media: MediaService,
   ) {}
@@ -215,23 +209,23 @@ export class SocialService {
    * jamais une suppression) ET dépose une entrée dans la file de modération
    * unifiée (§29), avec l'identité du signalant.
    */
-  async report(reporterMirrorId: string, postId: string, reason?: string, reasonCode?: ReportReasonCode): Promise<{ reported: true }> {
+  async report(reporterMysqlId: number, postId: string, reason?: string, reasonCode?: ReportReasonCode): Promise<{ reported: true }> {
     const result = await this.prisma.posts.updateMany({
       where: { id: Number(postId) },
       data: { reported: true, report_reason: reason },
     });
     if (!result.count) throw AppError.notFound('Publication');
-    await this.moderation.fileReport({ reporterId: reporterMirrorId, targetType: 'post', targetId: postId, reason, reasonCode });
+    await this.moderation.fileReport({ reporterId: reporterMysqlId, targetType: 'post', targetId: postId, reason, reasonCode });
     return { reported: true };
   }
 
-  async reportComment(reporterMirrorId: string, commentId: string, reason?: string, reasonCode?: ReportReasonCode): Promise<{ reported: true }> {
+  async reportComment(reporterMysqlId: number, commentId: string, reason?: string, reasonCode?: ReportReasonCode): Promise<{ reported: true }> {
     const result = await this.prisma.comments.updateMany({
       where: { id: Number(commentId) },
       data: { reported: true, report_reason: reason },
     });
     if (!result.count) throw AppError.notFound('Commentaire');
-    await this.moderation.fileReport({ reporterId: reporterMirrorId, targetType: 'comment', targetId: commentId, reason, reasonCode });
+    await this.moderation.fileReport({ reporterId: reporterMysqlId, targetType: 'comment', targetId: commentId, reason, reasonCode });
     return { reported: true };
   }
 
@@ -249,11 +243,8 @@ export class SocialService {
     };
   }
 
-  private async toJson(row: PostRow): Promise<unknown> {
-    // `resolveMirrorId` ne crée jamais de miroir (§ AuthService) : un auteur
-    // qui n'en a pas encore un ne s'est jamais reconnecté depuis la Phase 1,
-    // ce qui ne peut normalement pas arriver pour quelqu'un ayant publié.
-    const authorMirrorId = (await this.auth.resolveMirrorId(row.user_id)) ?? String(row.user_id);
+  private toJson(row: PostRow): unknown {
+    const authorMirrorId = String(row.user_id);
     const isShopAuthor = row.shop_id != null && row.shops;
 
     return {

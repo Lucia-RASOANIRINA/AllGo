@@ -1,6 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
 import type { Prisma } from '@prisma/client';
 
 import { AppError } from '../../common/http/app-error';
@@ -10,10 +8,7 @@ import { isShopOpenNow, type OpeningHourRow } from '../../common/time/open-now';
 import { ROLE_TO_TEAM_ROLE } from '../users/mysql-role-mapper';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
-import { Post, type PostDocument } from '../social/schemas/post.schema';
-import { Promotion, type PromotionDocument } from '../campaigns/schemas/promotion.schema';
 import { MediaService } from '../media/media.service';
-import { Shop, type ShopDocument } from './schemas/shop.schema';
 import type { CreateShopDto, UpdateShopDto } from './dto/shop.dto';
 import type { AddTeamMemberDto, UpdateTeamMemberDto } from './dto/team.dto';
 
@@ -34,32 +29,8 @@ const SHOP_UPDATE_FIELDS = [
 export class ShopsService {
   constructor(
     private readonly prisma: PrismaService,
-    @InjectModel(Shop.name) private readonly mirror: Model<ShopDocument>,
-    @InjectModel(Post.name) private readonly posts: Model<PostDocument>,
-    @InjectModel(Promotion.name) private readonly promotions: Model<PromotionDocument>,
     private readonly media: MediaService,
   ) {}
-
-  /**
-   * Pont d'identité transitoire (§ décision du 2026-09-09) — voir
-   * `AuthService.mirrorUser`, même motif : les modules pas encore migrés
-   * (Commandes, Publications, Promotions, Abonnements) référencent une
-   * boutique par ObjectId Mongo. Renvoie l'ObjectId stable du miroir pour un
-   * `shopId` MySQL donné, en le créant si besoin.
-   */
-  async resolveMirrorId(shopMysqlId: number): Promise<string> {
-    const shop = await this.prisma.shops.findUnique({ where: { id: shopMysqlId } });
-    if (!shop) throw AppError.notFound('Boutique');
-    const doc = await this.mirror.findOneAndUpdate(
-      { mysqlId: shopMysqlId },
-      {
-        $set: { name: shop.name, slug: shop.slug },
-        $setOnInsert: { mysqlId: shopMysqlId },
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
-    );
-    return String(doc._id);
-  }
 
   async list(
     limit: number,
@@ -105,17 +76,16 @@ export class ShopsService {
   /**
    * Tableau de bord — `orders`/`order_items` ont migré vers MySQL (Phase 3) :
    * interrogés directement via `prisma.orders`, plus besoin du miroir pour
-   * cette partie. Publications/Promotions restent sur Mongo (pas encore
-   * migrées, Phase 4) : toujours interrogées par l'ObjectId du miroir.
+   * cette partie. `posts`/`promotions` ont migré vers MySQL (Phase 4) :
+   * `shop_id` y est déjà un entier natif, plus besoin du miroir pour elles
+   * non plus — ce tableau de bord n'a donc plus AUCUNE dépendance Mongo.
    */
   async dashboard(shopId: string): Promise<unknown> {
     const id = Number(shopId);
     const shop = await this.prisma.shops.findUnique({ where: { id } });
     if (!shop) throw AppError.notFound('Boutique');
-    const mirrorId = await this.resolveMirrorId(id);
-    const mirrorObjectId = new Types.ObjectId(mirrorId);
 
-    const [productCount, teamCount, orderCount, customerCount, revenue, periods, topProductsRaw, followers, postStats, promotionStats, deliveryRevenue, visitors, byStatusRows, lowStock, deliveredCount] =
+    const [productCount, teamCount, orderCount, customerCount, revenue, periods, topProductsRaw, followers, postStatsRows, promotionCount, activePromotionCount, deliveryRevenue, visitors, byStatusRows, lowStock, deliveredCount] =
       await Promise.all([
         this.prisma.products.count({ where: { shop_id: id } }),
         this.prisma.shop_team_members.count({ where: { shop_id: id } }),
@@ -137,23 +107,15 @@ export class ShopsService {
           GROUP BY oi.product_id ORDER BY quantity DESC LIMIT 10
         `,
         this.prisma.shop_followers.count({ where: { shop_id: id } }),
-        this.posts.aggregate([
-          { $match: { $or: [{ shopId: mirrorObjectId }, { 'author.shopId': mirrorObjectId }] } },
-          {
-            $group: {
-              _id: null,
-              posts: { $sum: 1 },
-              likes: { $sum: '$counters.reactions' },
-              comments: { $sum: '$counters.comments' },
-              shares: { $sum: '$counters.shares' },
-              reach: { $sum: '$counters.views' },
-            },
-          },
-        ]),
-        this.promotions.aggregate([
-          { $match: { shopId: mirrorObjectId } },
-          { $group: { _id: null, count: { $sum: 1 }, active: { $sum: { $cond: ['$active', 1, 0] } } } },
-        ]),
+        this.prisma.$queryRaw<{ posts: bigint; likes: bigint; comments: bigint; shares: bigint }[]>`
+          SELECT
+            (SELECT COUNT(*) FROM posts WHERE shop_id = ${id}) AS posts,
+            (SELECT COUNT(*) FROM reactions r JOIN posts p ON p.id = r.post_id WHERE p.shop_id = ${id}) AS likes,
+            (SELECT COUNT(*) FROM comments c JOIN posts p ON p.id = c.post_id WHERE p.shop_id = ${id}) AS comments,
+            (SELECT COUNT(*) FROM shares s JOIN posts p ON p.id = s.post_id WHERE p.shop_id = ${id}) AS shares
+        `,
+        this.prisma.promotions.count({ where: { shop_id: id } }),
+        this.prisma.promotions.count({ where: { shop_id: id, active: true } }),
         this.prisma.orders.aggregate({ where: { shop_id: id, status: 'delivered' }, _sum: { shipping_fee: true } }),
         this.prisma.products.aggregate({ where: { shop_id: id }, _sum: { views: true } }),
         this.prisma.orders.groupBy({ by: ['status'], where: { shop_id: id }, _count: true }),
@@ -175,6 +137,7 @@ export class ShopsService {
     const byStatus = byStatusRows.map((row) => ({ _id: row.status, count: row._count }));
 
     const totalRevenue = Number(revenue._sum.total_amount ?? 0);
+    const postStats = postStatsRows[0];
     return {
       shopId: String(id),
       revenue: totalRevenue,
@@ -183,7 +146,7 @@ export class ShopsService {
       products: productCount,
       stock: { lowStock },
       customers: customerCount,
-      promotions: promotionStats[0]?.count ?? 0,
+      promotions: promotionCount,
       statistics: { byStatus },
       notifications: 0,
       stats: {
@@ -200,8 +163,14 @@ export class ShopsService {
         averageBasket: orderCount ? totalRevenue / orderCount : 0,
         visitors: visitors._sum.views ?? 0,
         followers,
-        publicationEngagement: postStats[0] ?? { posts: 0, likes: 0, comments: 0, shares: 0, reach: 0 },
-        promotionPerformance: promotionStats[0] ?? { count: 0, active: 0 },
+        publicationEngagement: {
+          posts: Number(postStats?.posts ?? 0),
+          likes: Number(postStats?.likes ?? 0),
+          comments: Number(postStats?.comments ?? 0),
+          shares: Number(postStats?.shares ?? 0),
+          reach: 0,
+        },
+        promotionPerformance: { count: promotionCount, active: activePromotionCount },
         deliveryRevenue: Number(deliveryRevenue._sum.shipping_fee ?? 0),
       },
     };
@@ -283,7 +252,6 @@ export class ShopsService {
         status: 'pending',
       },
     });
-    await this.resolveMirrorId(created.id);
     return this.toJson(created, []);
   }
 
@@ -305,11 +273,6 @@ export class ShopsService {
     if (dto.longitude !== undefined) data.longitude = dto.longitude;
 
     const updated = await this.prisma.shops.update({ where: { id: existing.id }, data });
-
-    // Mise à jour du nom/slug sur le miroir : le nom d'une boutique change
-    // rarement, mais autant rester cohérent pour les modules pas encore
-    // migrés qui l'affichent parfois directement.
-    await this.mirror.updateOne({ mysqlId: updated.id }, { $set: { name: updated.name, slug: updated.slug } });
 
     const hours = (await this.openingHoursByShop([updated.id])).get(updated.id) ?? [];
     return this.toJson(updated, hours);
@@ -374,27 +337,32 @@ export class ShopsService {
     return { removed: true };
   }
 
-  /** Publications d'une boutique — reste sur Mongo (pas encore migré), via le miroir. */
+  /** Publications d'une boutique — table réelle `posts` (Phase 4), `shop_id` déjà un entier natif. */
   async postsFor(shopId: string, limit: number, cursor?: string): Promise<Paginated<unknown>> {
-    const mirrorId = await this.resolveMirrorId(Number(shopId));
-    const filter: Record<string, unknown> = { 'author.type': 'shop', 'author.shopId': mirrorId };
-    if (cursor) {
-      const decoded = decodeCursor(cursor);
-      Object.assign(filter, {
-        $or: [{ createdAt: { $lt: decoded.value } }, { createdAt: decoded.value, _id: { $lt: decoded.id } }],
-      });
-    }
+    const where: Prisma.postsWhereInput = { shop_id: Number(shopId) };
+    if (cursor) Object.assign(where, prismaCursorFilter('created_at', decodeCursor(cursor)));
 
-    const docs = await this.posts.find(filter).sort({ createdAt: -1, _id: -1 }).limit(limit + 1).lean();
-    const hasMore = docs.length > limit;
-    const items = hasMore ? docs.slice(0, limit) : docs;
-    const last = items[items.length - 1] as { _id: unknown; createdAt: Date } | undefined;
+    const rows = await this.prisma.posts.findMany({
+      where,
+      include: { post_media: true, _count: { select: { reactions: true, comments: true } } },
+      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+    });
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    const last = items[items.length - 1];
 
     return {
-      items,
+      items: items.map((row) => ({
+        id: String(row.id),
+        content: row.content ?? undefined,
+        media: row.post_media.map((m) => ({ ...this.media.publicUrls(m.file_path), type: m.type })),
+        counters: { reactions: row._count.reactions, comments: row._count.comments },
+        createdAt: row.created_at,
+      })),
       hasMore,
       nextCursor:
-        hasMore && last ? encodeCursor({ value: last.createdAt.toISOString(), id: String(last._id) }) : null,
+        hasMore && last ? encodeCursor({ value: last.created_at!.toISOString(), id: String(last.id) }) : null,
     };
   }
 

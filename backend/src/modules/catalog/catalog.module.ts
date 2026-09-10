@@ -1,23 +1,18 @@
 import { Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
 import { CatalogController } from './catalog.controller';
 import { CatalogService } from './catalog.service';
-import { Category, CategorySchema } from './schemas/category.schema';
-import { Product, ProductSchema } from './schemas/product.schema';
-import { Shop, ShopSchema } from '../shops/schemas/shop.schema';
 import { MediaModule } from '../media/media.module';
 
+/**
+ * 100 % MySQL depuis la Phase 2 (`products`/`categories`) — l'enregistrement
+ * Mongoose `Product`/`Category`/`Shop` restait présent sans plus aucun
+ * consommateur (`@InjectModel` jamais appelé côté service depuis lors),
+ * même régression que celle trouvée et corrigée dans `shops.module.ts`.
+ */
 @Module({
-  imports: [
-    MongooseModule.forFeature([
-      { name: Product.name, schema: ProductSchema },
-      { name: Category.name, schema: CategorySchema },
-      { name: Shop.name, schema: ShopSchema },
-    ]),
-    MediaModule,
-  ],
+  imports: [MediaModule],
   controllers: [CatalogController],
   providers: [CatalogService],
-  exports: [CatalogService, MongooseModule],
+  exports: [CatalogService],
 })
 export class CatalogModule {}

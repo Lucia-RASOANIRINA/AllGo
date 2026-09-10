@@ -44,7 +44,7 @@ export class StockController {
     @Body() dto: MoveStockDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.stock.move({ ...dto, shopId, userId: user.id });
+    return this.stock.move({ ...dto, shopId, userId: user.mysqlId });
   }
 
   @Get('alerts')

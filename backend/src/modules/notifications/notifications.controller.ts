@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { IsArray, IsMongoId, IsOptional } from 'class-validator';
+import { IsArray, IsNumberString, IsOptional } from 'class-validator';
 
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
@@ -11,11 +11,11 @@ import { NotificationsService } from './notifications.service';
 export class MarkReadDto {
   @ApiPropertyOptional({
     type: [String],
-    description: 'Identifiants à marquer comme lus. Omis : toutes les notifications non lues.',
+    description: 'Identifiants numériques MySQL à marquer comme lus. Omis : toutes les notifications non lues.',
   })
   @IsOptional()
   @IsArray()
-  @IsMongoId({ each: true })
+  @IsNumberString({}, { each: true })
   ids?: string[];
 }
 
@@ -28,7 +28,7 @@ export class NotificationsController {
   @RequirePermission(Permission.NotificationRead)
   @ApiOperation({ summary: 'Lister mes notifications.' })
   list(@CurrentUser() user: AuthenticatedUser, @Query() query: PaginationQueryDto) {
-    return this.notifications.list(user.id, query.limit, query.cursor);
+    return this.notifications.list(user.mysqlId, query.limit, query.cursor);
   }
 
   @Post('read')
@@ -36,6 +36,6 @@ export class NotificationsController {
   @RequirePermission(Permission.NotificationRead)
   @ApiOperation({ summary: 'Marquer des notifications comme lues.' })
   markRead(@CurrentUser() user: AuthenticatedUser, @Body() dto: MarkReadDto) {
-    return this.notifications.markRead(user.id, dto.ids);
+    return this.notifications.markRead(user.mysqlId, dto.ids);
   }
 }

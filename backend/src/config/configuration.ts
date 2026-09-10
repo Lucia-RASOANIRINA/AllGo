@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+
 /** Configuration typée, alimentée exclusivement par l'environnement (§12.1). */
 export interface AppConfig {
   env: string;
@@ -5,21 +7,16 @@ export interface AppConfig {
   apiPrefix: string;
   corsOrigins: string[];
   minSupportedAppVersion: string;
-  mongoUri: string;
   redisUrl: string;
+  apiPublicBaseUrl: string;
   jwt: {
     accessSecret: string;
     accessTtl: string;
     refreshSecret: string;
     refreshTtl: string;
   };
-  s3: {
-    endpoint: string;
-    region: string;
-    bucket: string;
-    accessKey: string;
-    secretKey: string;
-    forcePathStyle: boolean;
+  media: {
+    storagePath: string;
     publicBaseUrl: string;
   };
   smtp: {
@@ -55,22 +52,23 @@ export default (): AppConfig => ({
     .map((o) => o.trim())
     .filter(Boolean),
   minSupportedAppVersion: process.env.MIN_SUPPORTED_APP_VERSION ?? '1.0.0',
-  mongoUri: required('MONGODB_URI'),
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
+  // URL par laquelle le client mobile atteint CETTE API — sert à construire
+  // `uploadUrl` (§ MediaService) en absolu, jamais relative à la machine du
+  // serveur. Doit pointer sur le domaine public réel en production.
+  apiPublicBaseUrl: (process.env.API_PUBLIC_BASE_URL ?? `http://localhost:${process.env.PORT ?? 3000}/${process.env.API_PREFIX ?? 'v1'}`).replace(/\/$/, ''),
   jwt: {
     accessSecret: required('JWT_ACCESS_SECRET'),
     accessTtl: process.env.JWT_ACCESS_TTL ?? '15m',
     refreshSecret: required('JWT_REFRESH_SECRET'),
     refreshTtl: process.env.JWT_REFRESH_TTL ?? '30d',
   },
-  s3: {
-    endpoint: process.env.S3_ENDPOINT ?? 'http://localhost:9000',
-    region: process.env.S3_REGION ?? 'us-east-1',
-    bucket: process.env.S3_BUCKET ?? 'allgo-media',
-    accessKey: required('S3_ACCESS_KEY'),
-    secretKey: required('S3_SECRET_KEY'),
-    forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== 'false',
-    publicBaseUrl: process.env.S3_PUBLIC_BASE_URL ?? 'http://localhost:9000/allgo-media',
+  // Stockage disque local (§ décision du 2026-09-10 : plus de S3/MinIO) — un
+  // dossier servi statiquement par le serveur web existant (Apache/o2switch
+  // en production, un simple dossier local en développement).
+  media: {
+    storagePath: process.env.MEDIA_STORAGE_PATH ?? resolve(process.cwd(), 'uploads'),
+    publicBaseUrl: (process.env.MEDIA_PUBLIC_BASE_URL ?? 'http://localhost:3000/media').replace(/\/$/, ''),
   },
   // Absent en développement : `EmailService` journalise le lien au lieu
   // d'envoyer un courriel (§ décision de portée L0).

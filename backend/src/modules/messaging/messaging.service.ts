@@ -7,7 +7,6 @@ import { EventsGateway, RealtimeEvent } from '../realtime/events.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ModerationService } from '../moderation/moderation.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { AuthService } from '../auth/auth.service';
 
 const CONVERSATION_INCLUDE = {
   users_conversations_user_one_idTousers: { select: { id: true, firstname: true, lastname: true, avatar: true } },
@@ -22,15 +21,12 @@ type ConversationRow = Prisma.conversationsGetPayload<{ include: typeof CONVERSA
  * tables réelles depuis la Phase 4. Le modèle réel est STRICTEMENT 1:1
  * (`user_one_id`/`user_two_id`) : plus de tableau `participants[]`, plus de
  * `unread`/`blockedBy`/`archivedBy` embarqués — reconstruits ici à la lecture
- * depuis les colonnes plates. `Participant.userId`/`Message.senderId`
- * restent exposés au format miroir Mongo (même motif que `SocialService` :
- * le mobile compare ces champs à `/me.id` et à `Conversation.blockedBy`).
+ * depuis les colonnes plates.
  */
 @Injectable()
 export class MessagingService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly auth: AuthService,
     private readonly realtime: EventsGateway,
     private readonly notifications: NotificationsService,
     private readonly moderation: ModerationService,
@@ -67,8 +63,8 @@ export class MessagingService {
       otherMysqlId = shop.user_id;
       shopId = shop.id;
     } else if (target.participantId) {
-      const resolved = await this.auth.resolveMysqlId(target.participantId);
-      if (!resolved) throw AppError.notFound('Utilisateur');
+      const resolved = Number(target.participantId);
+      if (!Number.isInteger(resolved)) throw AppError.notFound('Utilisateur');
       otherMysqlId = resolved;
     } else {
       throw new AppError('INVALID_PARTICIPANT', 'Une conversation nécessite une boutique ou un autre participant.', 400);
@@ -156,11 +152,10 @@ export class MessagingService {
       include: { message_attachments: true },
     });
 
-    const otherMirrorId = (await this.auth.resolveMirrorId(otherId)) ?? String(otherId);
     const payload = { conversationId, message: await this.messageToJson(message) };
-    this.realtime.emitToUser(otherMirrorId, RealtimeEvent.MessageNew, payload);
+    this.realtime.emitToUser(String(otherId), RealtimeEvent.MessageNew, payload);
     await this.notifications.create({
-      userId: otherMirrorId,
+      userId: otherId,
       type: 'message.received',
       title: `Nouveau message de ${user.phone}`,
       body: content.trim(),
@@ -189,9 +184,9 @@ export class MessagingService {
     return { blocked: false };
   }
 
-  async report(conversationId: string, reporterMirrorId: string, userMysqlId: number, reason?: string): Promise<{ reported: true }> {
+  async report(conversationId: string, userMysqlId: number, reason?: string): Promise<{ reported: true }> {
     await this.member(conversationId, userMysqlId);
-    await this.moderation.fileReport({ reporterId: reporterMirrorId, targetType: 'conversation', targetId: conversationId, reason });
+    await this.moderation.fileReport({ reporterId: userMysqlId, targetType: 'conversation', targetId: conversationId, reason });
     return { reported: true };
   }
 
@@ -255,8 +250,7 @@ export class MessagingService {
     const conversation = await this.prisma.conversations.findUnique({ where: { id: Number(conversationId) } });
     const otherId = conversation ? this.otherMysqlId(conversation, userMysqlId) : undefined;
     if (otherId) {
-      const otherMirrorId = (await this.auth.resolveMirrorId(otherId)) ?? String(otherId);
-      this.realtime.emitToUser(otherMirrorId, RealtimeEvent.MessageNew, {
+      this.realtime.emitToUser(String(otherId), RealtimeEvent.MessageNew, {
         conversationId,
         message: await this.messageToJson(message),
         edited: true,
@@ -278,8 +272,8 @@ export class MessagingService {
   }
 
   private async toJson(row: ConversationRow): Promise<unknown> {
-    const oneMirrorId = (await this.auth.resolveMirrorId(row.user_one_id)) ?? String(row.user_one_id);
-    const twoMirrorId = (await this.auth.resolveMirrorId(row.user_two_id)) ?? String(row.user_two_id);
+    const oneMirrorId = String(row.user_one_id);
+    const twoMirrorId = String(row.user_two_id);
     const shopOwnerMysqlId = row.shops?.user_id;
 
     const [unreadForOne, unreadForTwo, lastMessage] = await Promise.all([
@@ -321,11 +315,10 @@ export class MessagingService {
   }
 
   private async messageToJson(message: Prisma.messagesGetPayload<{ include: { message_attachments: true } }>): Promise<unknown> {
-    const senderMirrorId = (await this.auth.resolveMirrorId(message.sender_id)) ?? String(message.sender_id);
     return {
       id: String(message.id),
       conversationId: String(message.conversation_id),
-      senderId: senderMirrorId,
+      senderId: String(message.sender_id),
       content: message.content ?? undefined,
       attachments: message.message_attachments.map((a) => ({ url: a.url, type: a.type, name: a.name ?? undefined })),
       isRead: message.is_read ?? false,

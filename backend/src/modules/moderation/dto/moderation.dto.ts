@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsDateString, IsIn, IsInt, IsMongoId, IsOptional, IsString, Min, MaxLength } from 'class-validator';
+import { IsDateString, IsIn, IsInt, IsNumberString, IsOptional, IsString, Min, MaxLength } from 'class-validator';
 
 import { REPORT_ACTIONS, REPORT_REASON_CODES, type ReportAction, type ReportReasonCode } from '../schemas/report.schema';
 import { SANCTION_TYPES, type SanctionType } from '../schemas/sanction.schema';
@@ -29,8 +29,8 @@ export class ResolveReportDto {
   resolution?: string;
 
   /** Requis quand `action` vaut `warning`, `suspension` ou `ban` — le signalement porte sur un contenu, pas forcément sur un compte. */
-  @ApiProperty({ required: false })
-  @IsOptional() @IsMongoId()
+  @ApiProperty({ required: false, description: 'Identifiant numérique MySQL.' })
+  @IsOptional() @IsNumberString()
   sanctionUserId?: string;
 
   /** Uniquement pour `action: 'suspension'` — absent, la sanction est définitive. */
@@ -40,7 +40,7 @@ export class ResolveReportDto {
 }
 
 export class IssueSanctionDto {
-  @ApiProperty() @IsMongoId() userId!: string;
+  @ApiProperty({ description: 'Identifiant numérique MySQL.' }) @IsNumberString() userId!: string;
   @ApiProperty({ enum: SANCTION_TYPES }) @IsIn(SANCTION_TYPES) type!: SanctionType;
   @ApiProperty({ maxLength: 500 }) @IsString() @MaxLength(500) reason!: string;
   @ApiProperty({ required: false }) @IsOptional() @IsDateString() expiresAt?: string;

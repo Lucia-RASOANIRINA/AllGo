@@ -1,27 +1,33 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectConnection } from '@nestjs/mongoose';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { Connection } from 'mongoose';
+import type Redis from 'ioredis';
 
 import { Public } from '../../common/decorators/auth.decorators';
+import { REDIS_CLIENT } from '../../infrastructure/redis/redis.constants';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 
 @ApiTags('Exploitation')
 @Controller()
 export class HealthController {
   constructor(
-    @InjectConnection() private readonly connection: Connection,
+    private readonly prisma: PrismaService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly config: ConfigService,
   ) {}
 
   @Public()
   @Get('health')
   @ApiOperation({ summary: 'Sonde de disponibilité (supervision externe).' })
-  health() {
-    const states = ['disconnected', 'connected', 'connecting', 'disconnecting'];
+  async health() {
+    const [mysql, redis] = await Promise.all([
+      this.prisma.$queryRaw`SELECT 1`.then(() => 'connected' as const).catch(() => 'disconnected' as const),
+      this.redis.ping().then(() => 'connected' as const).catch(() => 'disconnected' as const),
+    ]);
     return {
-      status: this.connection.readyState === 1 ? 'ok' : 'degraded',
-      mongo: states[this.connection.readyState] ?? 'unknown',
+      status: mysql === 'connected' && redis === 'connected' ? 'ok' : 'degraded',
+      mysql,
+      redis,
       uptimeSeconds: Math.floor(process.uptime()),
     };
   }

@@ -269,12 +269,17 @@ model notifications {
   id         Int       @id @default(autoincrement())
   user_id    Int
   type       String    @db.VarChar(50)
+  title      String    @default("") @db.VarChar(150)
+  body       String?   @db.Text
   data       String?   @db.Text
   is_read    Boolean?  @default(false)
   created_at DateTime? @default(now()) @db.DateTime(0)
+  expires_at DateTime? @db.DateTime(0)
   users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "notifications_ibfk_1")
 
   @@index([user_id], map: "user_id")
+  @@index([user_id, created_at], map: "idx_notifications_user_created")
+  @@index([user_id, is_read], map: "idx_notifications_user_read")
 }
 
 model order_items {
@@ -337,6 +342,7 @@ model orders {
   refunds          refunds[]
   sales_invoices   sales_invoices[]
   transactions     transactions[]
+  product_reviews  product_reviews[]
 
   @@index([address_id], map: "address_id")
   @@index([shop_id], map: "shop_id")
@@ -522,15 +528,25 @@ model product_images {
 }
 
 model product_reviews {
-  id         Int       @id @default(autoincrement())
-  product_id Int
-  user_id    Int
-  rating     Int       @db.TinyInt
-  comment    String?   @db.Text
-  created_at DateTime? @default(now()) @db.DateTime(0)
-  products   products  @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "product_reviews_ibfk_1")
-  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "product_reviews_ibfk_2")
+  id            Int                        @id @default(autoincrement())
+  product_id    Int?
+  /// Ajoutées manuellement (mobile, Phase 5) — hors `prisma db pull`, voir refresh_tokens.
+  target_type   product_reviews_target_type @default(product)
+  target_id     Int?
+  order_id      Int?
+  user_id       Int
+  rating        Int                        @db.TinyInt
+  comment       String?                    @db.Text
+  created_at    DateTime?                  @default(now()) @db.DateTime(0)
+  photos        String?                    @db.Text
+  verified      Boolean                    @default(true)
+  reported      Boolean                    @default(false)
+  report_reason String?                    @db.VarChar(300)
+  products      products?                  @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "product_reviews_ibfk_1")
+  users         users                      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "product_reviews_ibfk_2")
+  orders        orders?                    @relation(fields: [order_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "fk_product_reviews_order")
 
+  @@unique([user_id, order_id, target_type, target_id], map: "unique_review")
   @@index([product_id], map: "product_id")
   @@index([user_id], map: "user_id")
 }
@@ -581,6 +597,7 @@ model products {
   stories          stories[]
   shops            shops              @relation(fields: [shop_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "products_ibfk_1")
   categories       categories?        @relation(fields: [category_id], references: [id], onUpdate: Restrict, map: "products_ibfk_2")
+  stock_movements  stock_movements[]
 
   @@index([category_id], map: "category_id")
   @@index([shop_id], map: "shop_id")
@@ -670,13 +687,24 @@ model refresh_tokens {
 
 model reports {
   id              Int                     @id @default(autoincrement())
-  reporter_id     Int
+  /// Nullable depuis la Phase 4 (mobile) — un signalement automatique n'a pas de signalant.
+  reporter_id     Int?
   reportable_type reports_reportable_type
   reportable_id   Int
   reason          String                  @db.VarChar(255)
+  /// Ajoutées manuellement (mobile, Phase 5) — hors `prisma db pull`, voir refresh_tokens.
+  reason_code     reports_reason_code     @default(other)
+  automatic       Boolean                 @default(false)
   status          reports_status?         @default(pending)
+  action          reports_action          @default(none)
   created_at      DateTime?               @default(now()) @db.DateTime(0)
-  users           users                   @relation(fields: [reporter_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "reports_ibfk_1")
+  resolution      String?                 @db.Text
+  resolved_by     Int?
+  resolved_at     DateTime?               @db.DateTime(0)
+  updated_at      DateTime?               @default(now()) @db.DateTime(0)
+  users_reports_reporter_idTousers users?  @relation("reports_reporter_id", fields: [reporter_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "reports_ibfk_1")
+  users_reports_resolved_byTousers users?  @relation("reports_resolved_by", fields: [resolved_by], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "fk_reports_resolved_by")
+  sanctions       sanctions[]
 
   @@index([reporter_id], map: "reporter_id")
 }
@@ -758,6 +786,32 @@ model shop_favorites {
 
   @@unique([shop_id, user_id], map: "unique_shop_favorite")
   @@index([user_id], map: "idx_shop_favorites_user")
+}
+
+/// Ajoutée manuellement (mobile, Phase 5) — hors `prisma db pull`, voir refresh_tokens.
+model sanctions {
+  id                                  Int       @id @default(autoincrement())
+  user_id                             Int
+  type                                sanctions_type
+  reason                              String    @db.Text
+  report_id                           Int?
+  issued_by                           Int
+  expires_at                          DateTime? @db.DateTime(0)
+  created_at                          DateTime? @default(now()) @db.DateTime(0)
+  users_sanctions_user_idTousers      users     @relation("sanctions_user_id", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_sanctions_user")
+  reports                             reports?  @relation(fields: [report_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "fk_sanctions_report")
+  users_sanctions_issued_byTousers    users     @relation("sanctions_issued_by", fields: [issued_by], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "fk_sanctions_issued_by")
+
+  @@index([user_id, created_at], map: "idx_sanctions_user")
+}
+
+/// Ajoutée manuellement (mobile, Phase 5) — hors `prisma db pull`, voir refresh_tokens.
+model banned_words {
+  id         Int      @id @default(autoincrement())
+  word       String   @unique @db.VarChar(100)
+  added_by   Int
+  created_at DateTime? @default(now()) @db.DateTime(0)
+  users      users    @relation(fields: [added_by], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "fk_banned_words_added_by")
 }
 
 model settings {
@@ -862,6 +916,8 @@ model shops {
   categories         categories?         @relation(fields: [category_id], references: [id], onUpdate: Restrict, map: "fk_shops_category")
   users              users               @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "shops_ibfk_1")
   statistics         statistics[]
+  merchant_withdrawals merchant_withdrawals[]
+  stock_movements    stock_movements[]
 
   @@index([category_id], map: "fk_shops_category")
   @@index([user_id], map: "user_id")
@@ -969,6 +1025,14 @@ model users {
   gender                                         String?            @db.VarChar(10)
   com_notif_seen_at                              DateTime?          @db.DateTime(0)
   com_orders_seen_at                             DateTime?          @db.DateTime(0)
+  /// Ajoutée manuellement (mobile, Phase 6) — hors `prisma db pull`, voir refresh_tokens.
+  locale                                         users_locale       @default(fr)
+  /// Ajoutée manuellement (mobile, Phase 6) — hors `prisma db pull`, voir refresh_tokens.
+  theme                                          users_theme        @default(system)
+  /// Ajoutée manuellement (mobile, Phase 6) — hors `prisma db pull`, voir refresh_tokens.
+  push_enabled                                   Boolean            @default(true)
+  /// Ajoutée manuellement (mobile, Phase 6) — `{orders,promotions,social,messages,delivery: bool}`.
+  push_categories                                Json?
   addresses                                      addresses[]
   admin_logs                                     admin_logs[]
   cart                                           cart[]
@@ -992,7 +1056,11 @@ model users {
   product_reviews                                product_reviews[]
   reactions                                      reactions[]
   refresh_tokens                                 refresh_tokens[]
-  reports                                        reports[]
+  reports_reports_reporter_idTousers             reports[]          @relation("reports_reporter_id")
+  reports_reports_resolved_byTousers             reports[]          @relation("reports_resolved_by")
+  sanctions_sanctions_user_idTousers              sanctions[]        @relation("sanctions_user_id")
+  sanctions_sanctions_issued_byTousers            sanctions[]        @relation("sanctions_issued_by")
+  banned_words                                    banned_words[]
   saved_posts                                    saved_posts[]
   saved_promotions                               saved_promotions[]
   shares                                         shares[]
@@ -1007,8 +1075,145 @@ model users {
   story_views                                    story_views[]
   user_presence                                  user_presence?
   roles                                          roles              @relation(fields: [role_id], references: [id], onUpdate: Restrict, map: "users_ibfk_1")
+  courier_withdrawals                            courier_withdrawals[]
+  courier_bonuses_courier_bonuses_courier_idTousers courier_bonuses[] @relation("courier_bonuses_courier_id")
+  courier_bonuses_courier_bonuses_granted_byTousers courier_bonuses[] @relation("courier_bonuses_granted_by")
+  merchant_withdrawals                           merchant_withdrawals[]
+  stock_movements                                stock_movements[]
+  device_tokens                                  device_tokens[]
+  courier_profiles                               courier_profiles?
 
   @@index([role_id], map: "role_id")
+}
+
+/// Ajoutée manuellement (mobile, Phase 6) — hors `prisma db pull`, voir refresh_tokens.
+model courier_withdrawals {
+  id         Int                        @id @default(autoincrement())
+  courier_id Int
+  amount     Decimal                    @db.Decimal(12, 2)
+  method     String                     @db.VarChar(40)
+  account    String                     @db.VarChar(120)
+  status     courier_withdrawals_status @default(pending)
+  created_at DateTime                   @default(now()) @db.DateTime(0)
+  updated_at DateTime?                  @default(now()) @db.DateTime(0)
+  users      users                      @relation(fields: [courier_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_courier_withdrawals_user")
+
+  @@index([status], map: "idx_courier_withdrawals_status")
+}
+
+/// Ajoutée manuellement (mobile, Phase 6) — hors `prisma db pull`, voir refresh_tokens.
+model courier_bonuses {
+  id                                       Int      @id @default(autoincrement())
+  courier_id                               Int
+  amount                                   Decimal  @db.Decimal(12, 2)
+  reason                                   String   @db.VarChar(300)
+  granted_by                               Int
+  created_at                               DateTime @default(now()) @db.DateTime(0)
+  users_courier_bonuses_courier_idTousers  users    @relation("courier_bonuses_courier_id", fields: [courier_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_courier_bonuses_user")
+  users_courier_bonuses_granted_byTousers  users    @relation("courier_bonuses_granted_by", fields: [granted_by], references: [id], onUpdate: Restrict, map: "fk_courier_bonuses_granted_by")
+
+  @@index([courier_id, created_at], map: "idx_courier_bonuses_courier_created")
+}
+
+/// Ajoutée manuellement (mobile, Phase 6) — hors `prisma db pull`, voir refresh_tokens.
+model merchant_withdrawals {
+  id         Int                        @id @default(autoincrement())
+  shop_id    Int
+  owner_id   Int
+  amount     Decimal                    @db.Decimal(12, 2)
+  method     String                     @db.VarChar(40)
+  account    String                     @db.VarChar(120)
+  status     courier_withdrawals_status @default(pending)
+  created_at DateTime                   @default(now()) @db.DateTime(0)
+  updated_at DateTime?                  @default(now()) @db.DateTime(0)
+  shops      shops                      @relation(fields: [shop_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_merchant_withdrawals_shop")
+  users      users                      @relation(fields: [owner_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_merchant_withdrawals_owner")
+
+  @@index([status], map: "idx_merchant_withdrawals_status")
+}
+
+/// Ajoutée manuellement (mobile, Phase 6) — hors `prisma db pull`, voir refresh_tokens.
+/// Remplace la collection Mongo `stockMovements` (ADR 0002 levée : plus de
+/// contrainte time-series/transaction incompatible une fois `shop_id`/`user_id`
+/// des entiers MySQL directs comme le reste du domaine boutique).
+model stock_movements {
+  id            Int                   @id @default(autoincrement())
+  shop_id       Int
+  product_id    Int
+  user_id       Int
+  type          stock_movements_type
+  reason        String                @db.VarChar(200)
+  quantity      Int
+  stock_before  Int
+  stock_after   Int
+  unit_cost     Decimal?              @db.Decimal(12, 2)
+  supplier      String?               @db.VarChar(150)
+  note          String?               @db.VarChar(300)
+  at            DateTime              @default(now()) @db.DateTime(0)
+  shops         shops                 @relation(fields: [shop_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_stock_movements_shop")
+  products      products              @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_stock_movements_product")
+  users         users                 @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "fk_stock_movements_user")
+
+  @@index([shop_id, at], map: "idx_stock_movements_shop_at")
+  @@index([product_id, at], map: "idx_stock_movements_product_at")
+}
+
+/// Ajoutée manuellement (mobile, Phase 6) — hors `prisma db pull`, voir refresh_tokens.
+/// Remplace `User.devices[]` (Mongo) — jetons FCM pour les notifications push.
+model device_tokens {
+  id            Int                  @id @default(autoincrement())
+  user_id       Int
+  device_id     String               @db.VarChar(150)
+  fcm_token     String               @db.VarChar(300)
+  platform      device_tokens_platform
+  last_seen_at  DateTime?            @db.DateTime(0)
+  users         users                @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_device_tokens_user")
+
+  @@unique([user_id, device_id], map: "unique_device")
+}
+
+/// Ajoutée manuellement (mobile, Phase 6) — hors `prisma db pull`, voir refresh_tokens.
+/// Remplace `User.courierProfile` (Mongo) — purement informatif, aucune règle
+/// métier ne le consultait déjà avant cette bascule.
+model courier_profiles {
+  user_id           Int      @id
+  identity_verified Boolean  @default(false)
+  vehicle           String?  @db.VarChar(60)
+  available         Boolean  @default(false)
+  users             users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_courier_profiles_user")
+}
+
+/// Ajoutée manuellement (mobile, Phase 6) — hors `prisma db pull`, voir refresh_tokens.
+enum courier_withdrawals_status {
+  pending
+  paid
+  rejected
+}
+
+/// Ajoutée manuellement (mobile, Phase 6) — hors `prisma db pull`, voir refresh_tokens.
+enum stock_movements_type {
+  in
+  out
+  correction
+}
+
+/// Ajoutée manuellement (mobile, Phase 6) — hors `prisma db pull`, voir refresh_tokens.
+enum device_tokens_platform {
+  android
+  ios
+}
+
+/// Ajoutée manuellement (mobile, Phase 6) — hors `prisma db pull`, voir refresh_tokens.
+enum users_locale {
+  fr
+  mg
+}
+
+/// Ajoutée manuellement (mobile, Phase 6) — hors `prisma db pull`, voir refresh_tokens.
+enum users_theme {
+  light
+  dark
+  system
 }
 
 enum post_media_type {
@@ -1117,6 +1322,41 @@ enum reports_status {
   pending
   reviewed
   dismissed
+  actioned
+}
+
+/// Ajoutée manuellement (mobile, Phase 5) — hors `prisma db pull`, voir refresh_tokens.
+enum reports_reason_code {
+  spam
+  abuse
+  nudity
+  scam
+  counterfeit
+  automatic_filter
+  other
+}
+
+/// Ajoutée manuellement (mobile, Phase 5) — hors `prisma db pull`, voir refresh_tokens.
+enum reports_action {
+  none
+  content_removed
+  warning
+  suspension
+  ban
+}
+
+/// Ajoutée manuellement (mobile, Phase 5) — hors `prisma db pull`, voir refresh_tokens.
+enum sanctions_type {
+  warning
+  suspension
+  ban
+}
+
+/// Ajoutée manuellement (mobile, Phase 5) — hors `prisma db pull`, voir refresh_tokens.
+enum product_reviews_target_type {
+  product
+  shop
+  courier
 }
 
 enum refunds_status {

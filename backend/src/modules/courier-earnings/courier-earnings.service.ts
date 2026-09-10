@@ -1,20 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
 import { AppError } from '../../common/http/app-error';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { CourierWithdrawal, type CourierWithdrawalDocument } from './schemas/withdrawal.schema';
-import { CourierBonus, type CourierBonusDocument } from './schemas/bonus.schema';
 
 const COMMISSION_RATE = 0.2;
 
 @Injectable()
 export class CourierEarningsService {
-  constructor(
-    private readonly prisma: PrismaService,
-    @InjectModel(CourierWithdrawal.name) private readonly withdrawals: Model<CourierWithdrawalDocument>,
-    @InjectModel(CourierBonus.name) private readonly bonuses: Model<CourierBonusDocument>,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async summary(courierId: number): Promise<Record<string, unknown>> {
     const now = new Date();
@@ -27,12 +19,12 @@ export class CourierEarningsService {
       this.aggregate(courierId, startOfWeek),
       this.aggregate(courierId, startOfMonth),
       this.aggregate(courierId),
-      this.withdrawals.aggregate([
-        { $match: { courierId, status: { $in: ['pending', 'paid'] } } },
-        { $group: { _id: null, total: { $sum: '$amount' } } },
-      ]),
+      this.prisma.courier_withdrawals.aggregate({
+        where: { courier_id: courierId, status: { in: ['pending', 'paid'] } },
+        _sum: { amount: true },
+      }),
     ]);
-    const pending = pendingWithdrawals[0]?.total ?? 0;
+    const pending = Number(pendingWithdrawals._sum.amount ?? 0);
     return {
       today: day,
       week,
@@ -51,13 +43,10 @@ export class CourierEarningsService {
     if (!Number.isFinite(amount) || amount <= 0 || !reason?.trim()) {
       throw new AppError('INVALID_BONUS', 'Montant et motif de bonus invalides.', 400);
     }
-    const bonus = await this.bonuses.create({
-      courierId,
-      amount,
-      reason: reason.trim(),
-      grantedBy: grantedByMysqlId,
+    const bonus = await this.prisma.courier_bonuses.create({
+      data: { courier_id: courierId, amount, reason: reason.trim(), granted_by: grantedByMysqlId },
     });
-    return bonus.toJSON();
+    return this.bonusToJson(bonus);
   }
 
   async history(courierId: number): Promise<unknown[]> {
@@ -80,7 +69,12 @@ export class CourierEarningsService {
   }
 
   async withdrawalsList(courierId: number): Promise<unknown[]> {
-    return this.withdrawals.find({ courierId }).sort({ createdAt: -1 }).limit(100).lean();
+    const rows = await this.prisma.courier_withdrawals.findMany({
+      where: { courier_id: courierId },
+      orderBy: { created_at: 'desc' },
+      take: 100,
+    });
+    return rows.map((row) => this.withdrawalToJson(row));
   }
 
   async requestWithdrawal(courierId: number, amount: number, method: string, account: string): Promise<unknown> {
@@ -89,19 +83,22 @@ export class CourierEarningsService {
     }
     const summary = await this.summary(courierId);
     if (amount > Number(summary.balance)) throw new AppError('INSUFFICIENT_BALANCE', 'Solde insuffisant.', 400);
-    return this.withdrawals.create({ courierId, amount, method: method.trim(), account: account.trim() });
+    const row = await this.prisma.courier_withdrawals.create({
+      data: { courier_id: courierId, amount, method: method.trim(), account: account.trim() },
+    });
+    return this.withdrawalToJson(row);
   }
 
   private async aggregate(courierId: number, from?: Date) {
-    const [deliveries, bonusRow] = await Promise.all([
+    const [deliveries, bonusSum] = await Promise.all([
       this.prisma.orders.findMany({
         where: { courier_id: courierId, status: 'delivered', ...(from ? { updated_at: { gte: from } } : {}) },
         select: { shipping_fee: true, tip_amount: true },
       }),
-      this.bonuses.aggregate([
-        { $match: { courierId, ...(from ? { createdAt: { $gte: from } } : {}) } },
-        { $group: { _id: null, total: { $sum: '$amount' } } },
-      ]),
+      this.prisma.courier_bonuses.aggregate({
+        where: { courier_id: courierId, ...(from ? { created_at: { gte: from } } : {}) },
+        _sum: { amount: true },
+      }),
     ]);
 
     const gross = deliveries.reduce((sum, o) => sum + Number(o.shipping_fee ?? 0), 0);
@@ -110,7 +107,7 @@ export class CourierEarningsService {
     // montants reviennent intégralement au livreur.
     const commission = gross * COMMISSION_RATE;
     const tips = deliveries.reduce((sum, o) => sum + Number(o.tip_amount ?? 0), 0);
-    const bonuses = Number(bonusRow[0]?.total ?? 0);
+    const bonuses = Number(bonusSum._sum.amount ?? 0);
 
     return {
       total: gross - commission + tips + bonuses,
@@ -118,6 +115,35 @@ export class CourierEarningsService {
       commissions: commission,
       bonuses,
       tips,
+    };
+  }
+
+  private withdrawalToJson(row: {
+    id: number; courier_id: number; amount: unknown; method: string; account: string;
+    status: string; created_at: Date; updated_at: Date | null;
+  }): unknown {
+    return {
+      id: String(row.id),
+      courierId: row.courier_id,
+      amount: Number(row.amount),
+      method: row.method,
+      account: row.account,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private bonusToJson(row: {
+    id: number; courier_id: number; amount: unknown; reason: string; granted_by: number; created_at: Date;
+  }): unknown {
+    return {
+      id: String(row.id),
+      courierId: row.courier_id,
+      amount: Number(row.amount),
+      reason: row.reason,
+      grantedBy: row.granted_by,
+      createdAt: row.created_at,
     };
   }
 }

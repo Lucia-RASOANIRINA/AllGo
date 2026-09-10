@@ -1,12 +1,12 @@
 {
-  "//": "Tests exigeant MongoDB et Redis en service — dont le test d'ossature des routes (§12.1). Lancer `docker compose up -d` au préalable.",
+  "//": "Tests exigeant Redis en service (MySQL réel est déjà couvert par des tests unitaires, PrismaService en double). Lancer `docker compose up -d` au préalable.",
   "moduleFileExtensions": ["js", "json", "ts"],
   "rootDir": "../src",
   "testRegex": ".*\\.integration-spec\\.ts$",
   "transform": { "^.+\\.(t|j)s$": "ts-jest" },
   "testEnvironment": "node",
   "testTimeout": 60000,
-  "//forceExit": "Les pilotes MongoDB et Redis gardent des sockets ouvertes après app.close() ; sans cela Jest reste suspendu au lieu de rendre la main à la CI.",
+  "//forceExit": "Le pilote Redis garde des sockets ouvertes après app.close() ; sans cela Jest reste suspendu au lieu de rendre la main à la CI.",
   "forceExit": true,
   "moduleNameMapper": {
     "^src/(.*)$": "<rootDir>/$1"

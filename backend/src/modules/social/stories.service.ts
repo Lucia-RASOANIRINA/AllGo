@@ -3,7 +3,6 @@ import type { Prisma } from '@prisma/client';
 
 import { AppError } from '../../common/http/app-error';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
-import { AuthService } from '../auth/auth.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { MediaService } from '../media/media.service';
 
@@ -15,20 +14,18 @@ const STORY_INCLUDE = {
 type StoryRow = Prisma.storiesGetPayload<{ include: typeof STORY_INCLUDE }>;
 
 /**
- * Stories — table réelle `stories` (Phase 4). `authorId` reste exposé au
- * format miroir Mongo (même motif que `SocialService` : le mobile compare
- * `story.authorId` à `/me.id` pour savoir si la story lui appartient).
+ * Stories — table réelle `stories` (Phase 4), 100 % MySQL depuis la bascule
+ * d'identité (Phase 6).
  *
  * Purge : MariaDB n'a pas d'équivalent natif à l'index TTL Mongo — `list()`
  * filtre déjà sur `expires_at > now()`, une story expirée n'apparaît jamais ;
- * une tâche planifiée de nettoyage des lignes est une question d'hygiène de
- * table, pas de comportement visible (à ajouter en Phase 6).
+ * `purgeExpired()` nettoie les lignes elles-mêmes (hygiène de table, aucun
+ * comportement visible), appelée par `StoriesCleanupService` (`@Cron`).
  */
 @Injectable()
 export class StoriesService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly auth: AuthService,
     private readonly media: MediaService,
   ) {}
 
@@ -111,11 +108,17 @@ export class StoriesService {
     return { reacted: true };
   }
 
-  private async toJson(row: StoryRow): Promise<unknown> {
-    const authorMirrorId = (await this.auth.resolveMirrorId(row.user_id)) ?? String(row.user_id);
+  /** Purge les stories expirées depuis plus de 7 jours (rétention, § décision confirmée). */
+  async purgeExpired(): Promise<{ deleted: number }> {
+    const threshold = new Date(Date.now() - 7 * 24 * 3600 * 1000);
+    const result = await this.prisma.stories.deleteMany({ where: { expires_at: { lt: threshold } } });
+    return { deleted: result.count };
+  }
+
+  private toJson(row: StoryRow): unknown {
     return {
       id: String(row.id),
-      authorId: authorMirrorId,
+      authorId: String(row.user_id),
       author: { name: `${row.users.firstname} ${row.users.lastname}`.trim(), avatar: row.users.avatar ?? undefined },
       media: { ...this.media.publicUrls(row.media_path), type: row.type },
       productId: row.product_id ? String(row.product_id) : undefined,

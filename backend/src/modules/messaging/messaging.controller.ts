@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { IsArray, IsIn, IsMongoId, IsNumberString, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { IsArray, IsIn, IsNumberString, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators';
@@ -10,9 +10,9 @@ import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { MessagingService } from './messaging.service';
 
 export class CreateConversationDto {
-  @ApiPropertyOptional({ description: 'Autre utilisateur — pour un dialogue client ↔ livreur.' })
+  @ApiPropertyOptional({ description: 'Autre utilisateur (identifiant numérique MySQL) — pour un dialogue client ↔ livreur.' })
   @IsOptional()
-  @IsMongoId()
+  @IsNumberString()
   participantId?: string;
 
   @ApiPropertyOptional({ description: 'Boutique (identifiant numérique MySQL) — pour « Envoyer un message » depuis une fiche boutique.' })
@@ -95,7 +95,7 @@ export class MessagingController {
   @RequirePermission(Permission.MessageReport)
   @ApiOperation({ summary: 'Signaler une conversation à la modération.' })
   report(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: ReportConversationDto) {
-    return this.messaging.report(id, user.id, user.mysqlId, dto.reason);
+    return this.messaging.report(id, user.mysqlId, dto.reason);
   }
 
   @Post(':id/read')

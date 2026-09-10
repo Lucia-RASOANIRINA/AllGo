@@ -10,30 +10,48 @@ Référence normative : [`docs/CAHIER_DES_CHARGES_MOBILE_FLUTTER.md`](docs/CAHIE
 | Dossier | Rôle |
 
 | `mobile/` | Application Flutter (Android / iOS) — architecture en couches §4.3 |
-| `backend/` | API NestJS + Mongoose (MongoDB) — §5.1, §7 |
-| `migration/` | Outillage de migration MariaDB → MongoDB — §15.3 |
+| `backend/` | API NestJS + Prisma (MySQL) — §5.1, §7 |
+| `migration/` | `dumps/` (exports phpMyAdmin, alimentent la base MariaDB locale) toujours utilisés ; l'outil CLI MariaDB→MongoDB qui l'accompagne est obsolète depuis la Phase 6 (migration terminée dans l'autre sens : tout est resté/revenu sur MySQL) |
 | `docs/` | Cahier des charges, ADR, dictionnaire des collections |
-| `docker-compose.yml` | MongoDB (replica set), Redis, MinIO, Mongo Express |
+| `docker-compose.yml` | MariaDB, Redis |
 
 ## Trajectoire retenue
 
-**Trajectoire C — migration progressive par domaine.** MongoDB devient la source de vérité
-un domaine à la fois ; MariaDB s'éteint au lot M7. Jamais deux sources de vérité pour un
-même domaine. Voir chapitre 15 du cahier des charges.
+**Trajectoire C — migration progressive par domaine**, achevée. Le backend est
+désormais **100 % MySQL** : MongoDB a été entièrement retiré (Phase 6, voir
+ci-dessous). Voir chapitre 15 du cahier des charges pour l'historique de la
+démarche.
 
 ## Migration MySQL (o2switch) — état et accès de test
 
-Le backend tourne actuellement en **hybride** : Auth/Utilisateurs (Phase 1),
-Catalogue/Boutiques/Géolocalisation (Phase 2) et Commandes/Panier/Paiements/
-Finance/Livreur (Phase 3) lisent et écrivent directement sur la vraie base de
+**Migration terminée (Phase 6).** Tous les domaines — Auth/Utilisateurs
+(Phase 1), Catalogue/Boutiques/Géolocalisation (Phase 2), Commandes/Panier/
+Paiements/Finance/Livreur (Phase 3), Réseau social/Messagerie/Stories/
+Campagnes (Phase 4), Modération/Avis (Phase 5), Notifications (Phase 5-bis),
+et Stock/Retraits livreur/Retraits marchand/Profil livreur/Préférences/
+Terminaux (Phase 6) — lisent et écrivent directement sur la vraie base de
 production o2switch (`arur4976_janga_market`, partagée avec le site web
-JangaMarket) via Prisma. Réseau social, messagerie, campagnes/promotions,
-modération et avis restent sur MongoDB (Phases 4-5 à venir) — c'est pourquoi
-**Docker (Mongo + Redis) reste indispensable même en pointant sur la base
-MySQL réelle** : l'application entière boote sur `MongooseModule` au
-démarrage, et Redis porte les OTP, les verrous d'idempotence et les
-compteurs de tentatives de connexion, indépendamment de la base qui héberge
-les données métier.
+JangaMarket) via Prisma. **MongoDB, Argon2, `@nestjs/mongoose`,
+`mongodb-memory-server` ont été entièrement retirés du code et des
+dépendances** — l'application démarre sans aucun conteneur Mongo (vérifié en
+direct, Phase 6).
+
+L'identité de session (`AuthenticatedUser.id`) est désormais l'entier MySQL
+direct — la bascule depuis l'ancien pont miroir Mongo a entraîné une
+**déconnexion globale ponctuelle de tous les comptes** (assumée, décidée à
+l'avance). Le stockage média est passé de S3/MinIO à un **dossier local**
+(`MediaService`, voir la section Médias plus bas).
+
+**Docker (MariaDB + Redis)** reste utile en développement local : MariaDB
+héberge un clone de la base réelle (dumps phpMyAdmin), Redis porte les OTP,
+les jetons de téléversement à usage unique, les verrous d'idempotence et les
+compteurs de tentatives de connexion.
+
+**SMS et paiements mobile money réels ne sont pas encore branchés** — décision
+assumée (§ mise en marché) : plutôt qu'un faux succès silencieux, l'API
+renvoie une indisponibilité explicite (`503`) tant qu'aucun fournisseur n'est
+configuré. Voir `SmsService`/`PaymentProvider.isAvailable()` — le paiement à
+la livraison (`cod`) reste pleinement fonctionnel dans tous les cas.
 
 **Accès à la base réelle** : hébergement mutualisé, pas d'accès MySQL direct
 depuis l'extérieur — un tunnel SSH est nécessaire :
@@ -94,6 +112,148 @@ réelle (connexion, checkout, livraison) les a révélés :
    non négligeables vers la base (tunnel SSH compris) — la création de
    commande échouait après le décrément de stock mais avant l'écriture de
    l'historique. Porté à 15 s pour `OrdersService.create()`.
+5. **Suspendre un compte depuis la modération ne l'empêchait pas de se
+   reconnecter** — `ModerationService`/`AdministrationService` n'écrivaient
+   que le miroir Mongo `User.status`, jamais `prisma.users.status`, la seule
+   colonne que vérifie réellement `AuthService.login()`. Vérifié en direct :
+   un compte de test suspendu via `/moderation/reports/:id` (action
+   `suspension`) pouvait toujours se connecter avant le correctif, plus
+   après. Corrigé par résolution du miroir vers l'entier MySQL réel avant
+   toute suspension (`ModerationService.suspendMirroredUser`).
+6. **`SHOP_TEAM_ROLES` (validateur DTO)** listait déjà `shop_courier` avant
+   ce constat n°2 plus haut, mais la table `favorites` (générique, héritée du
+   web) n'était en réalité **jamais utilisée** par `FavoritesService` malgré
+   la migration Phase 2 — `product`/`shop`/`promotion`/`post` écrivaient tous
+   dans l'ancienne collection Mongo `Favorite`. Découvert en relisant le
+   code avant la Phase 4, corrigé en même temps que la migration des trois
+   autres types.
+7. **Suspendre un compte depuis le panneau `/admin/users/:id` (et pas
+   seulement `/moderation/reports`, voir n°5) avait le même défaut** :
+   `AdministrationService.updateUser/removeUser` n'écrivaient eux aussi que
+   le miroir Mongo. Corrigé au même endroit du code, vérifié en direct par
+   le même scénario (suspension → tentative de connexion refusée →
+   réactivation → connexion à nouveau possible).
+8. **`GET /reviews?targetType=…&targetId=…` renvoyait `INTERNAL_ERROR` dès
+   que `limit` n'était pas fourni explicitement** — `@Query('limit') limit?:
+   number` sans DTO dédié ne convertit ni ne borne rien : Mongoose tolérait
+   silencieusement un `.limit(NaN)` (aucun filtre appliqué), Prisma rejette
+   `take: NaN` avec une erreur de validation. Invisible tant que `reviews`
+   restait sur Mongo, découvert dès la première lecture réelle après la
+   migration Phase 5. Corrigé par un `ReviewsQueryDto` dédié (même motif que
+   `ShopQueryDto`/`FavoritesQueryDto`), qui borne aussi `limit` à 100.
+9. **Régression introduite par la Phase 4 elle-même** : `ShopsService.dashboard()`
+   (statistiques `publicationEngagement`/`promotionPerformance`) et
+   `ShopsService.postsFor()` (onglet « Publications » d'une boutique)
+   continuaient d'interroger les collections Mongo `Post`/`Promotion`,
+   devenues silencieusement mortes en écriture dès que la Phase 4 a basculé
+   les publications/promotions sur MySQL — le tableau de bord d'une boutique
+   affichait donc des statistiques figées à zéro et la liste de ses
+   publications restait vide, sans jamais lever d'erreur. Corrigé par un
+   `$queryRaw` à sous-requêtes corrélées (comptes posts/réactions/commentaires/
+   partages par `shop_id`) et un `prisma.promotions.count()` pour le tableau
+   de bord, et une réécriture complète de `postsFor()` sur `prisma.posts`.
+   Vérifié en direct : création d'une publication + réaction + commentaire
+   test sur « Boutique Test Phase3 », confirmation que les compteurs du
+   tableau de bord et la liste des publications reflètent bien ce contenu,
+   puis suppression du contenu de test et retour à zéro confirmé.
+10. **`NotificationsService` écrivait dans une collection Mongo entièrement
+    séparée de la vraie table MySQL `notifications`** (déjà utilisée par le
+    site web, colonnes `id`/`user_id`/`type`/`data`/`is_read`/`created_at`,
+    sans jamais avoir de trace côté mobile) — une notification créée côté
+    mobile (nouveau message, commande…) n'apparaissait jamais côté web, et
+    inversement : deux silos qui ne se voient pas, découvert lors de l'audit
+    final post-Phase 5 (aucun module ne dépendait plus de Mongo à ce point,
+    sauf celui-ci). Colonnes `title`/`body`/`expires_at` ajoutées à la table
+    (le mobile attend un texte déjà localisé, la table héritée du web ne
+    stockait que `type`/`data`) ; réécrit sur `prisma.notifications`, purge
+    automatique horaire (`NotificationsCleanupService`, `@Cron`) remplaçant
+    l'index TTL Mongo. Vérifié en direct : message test client → boutique,
+    notification réelle créée en base avec le bon titre/corps, marquage
+    comme lue, puis nettoyage (notification, message, conversation de test
+    supprimés).
+11. **Le pipeline de redimensionnement d'image n'a jamais existé** —
+    `sharp`/`bullmq` étaient en dépendance depuis le début, mais aucun code
+    ne les utilisait : `MediaService.publicUrls()` construisait des URL vers
+    des variantes `_200`/`_800`/`_1600.webp` qui n'ont jamais été générées,
+    quel que soit l'environnement (S3/MinIO en local comme en tests). Le
+    téléversement direct vers S3 rendait ce traitement server-side
+    structurellement impossible (le serveur ne voit jamais les octets).
+    Découvert en concevant le remplacement par un stockage disque local
+    (§ décision du 2026-09-10) : le nouveau flux fait transiter les octets
+    par l'API (jeton Redis à usage unique au lieu d'un présigné S3), ce qui a
+    permis d'implémenter réellement `sharp` à la réception. Vérifié en
+    direct : upload d'une image de test, les 3 fichiers WebP existent bien
+    sur disque et sont servis avec le bon type MIME ; un fichier déguisé
+    (mauvais octets sous une extension `.jpg`) est rejeté (`INVALID_IMAGE`).
+12. **Trois envois temps réel n'ont jamais atteint leur destinataire** —
+    `events.gateway.ts` (position du livreur) et `orders.service.ts`
+    (changement de statut, ×2) appelaient `emitToUser(String(mysqlId), ...)`
+    alors que les sockets rejoignaient un salon nommé d'après l'ObjectId du
+    miroir Mongo (`user:${claims.sub}`) : les deux formats ne coïncidaient
+    jamais, ces trois poussées étaient silencieusement perdues depuis leur
+    écriture. Corrigé de facto par la bascule d'identité (Phase 6) —
+    `claims.sub` est désormais le même entier MySQL que celui déjà utilisé
+    par ces trois appels.
+13. **`GET /moderation/sanctions/me` renvoyait toujours une liste vide** —
+    passait `user.id` (l'ObjectId miroir) à une méthode qui n'acceptait que
+    des entiers MySQL ; `Number(ObjectId)` échoue silencieusement. Corrigé en
+    passant `user.mysqlId` explicitement, indépendamment de la bascule
+    d'identité générale.
+
+## Déploiement o2switch (cPanel « Setup Node.js App »)
+
+Node.js y tourne derrière **Phusion Passenger** — contraintes déjà
+respectées par le code : un seul appel `app.listen(port, '0.0.0.0')`
+(`src/main.ts`), et `PORT` lu depuis l'environnement
+(`src/config/configuration.ts`). `app.js` à la racine du dépôt sert de point
+d'entrée Passenger (`require('./dist/main.js')`) — renseigner directement
+`dist/main.js` comme « Application startup file » dans l'UI cPanel fonctionne
+aussi tout aussi bien, `app.js` n'est qu'un raccourci.
+
+**Depuis la Phase 6, plus aucune infrastructure externe n'est requise** —
+MongoDB, S3/MinIO ont été entièrement retirés. Le backend ne dépend plus que
+de MySQL (déjà en place, partagé avec le site web) et de Redis (Redis Manager
+cPanel, **version 7.x recommandée** — pleinement compatible avec
+`ioredis@5.4.1`, une version ≥ 6.2 convient aussi si c'est la seule
+disponible).
+
+Marche à suivre :
+
+1. **Setup Node.js App** (cPanel) → créer une application : version Node
+   ≥ 20 (`engines.node` du `package.json`), dossier racine = ce dépôt
+   (`backend/`), mode **Production**, fichier de démarrage `app.js`.
+2. Variables d'environnement dans l'onglet dédié de cPanel — **jamais de
+   `.env` versionné** :
+   - `NODE_ENV=production`
+   - `DATABASE_URL` (Prisma → `arur4976_janga_market`, en local sur le
+     serveur o2switch lui-même — plus de tunnel SSH nécessaire une fois déployé)
+   - `REDIS_URL` (Redis Manager cPanel, généralement
+     `redis://:<mot-de-passe>@127.0.0.1:6379` — à confirmer dans l'écran cPanel)
+   - `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET` (générés pour la prod, jamais
+     réutilisés du `.env` de dev)
+   - `API_PUBLIC_BASE_URL` (ex. `https://arur4976.odns.fr/v1`) — sert à
+     construire les liens de téléversement média, doit pointer sur le
+     domaine public réel
+   - `MEDIA_STORAGE_PATH` (chemin absolu serveur vers un dossier du docroot
+     public, ex. `/home/arur4976/public_html/media`) et
+     `MEDIA_PUBLIC_BASE_URL` (ex. `https://arur4976.odns.fr/media`) — le
+     dossier est créé automatiquement au démarrage, avec un `.htaccess` qui y
+     désactive l'exécution de scripts (§ sécurité, `MediaService`)
+   - `CORS_ORIGINS`
+   - **Ne pas définir `PAYMENTS_DEMO_MODE`** (absent = mode démo désactivé,
+     § décision mise en marché). `SMS_GATEWAY_*` absents tant qu'aucun
+     fournisseur n'est branché (comportement « indisponible » assumé).
+3. Sur le terminal cPanel (ou SSH) **directement sur le serveur, jamais
+   depuis un poste Windows** : bouton « Run NPM Install » (ou `npm install`),
+   puis `npx prisma generate` (télécharge le moteur natif Linux — copier un
+   `node_modules` généré sous Windows casserait Prisma), puis `npm run
+   build`. Point de vigilance supplémentaire : `sharp` (traitement d'image)
+   embarque lui aussi un binaire natif par plateforme — un `npm install`
+   exécuté sur le serveur cible le récupère automatiquement, une copie
+   Windows non.
+4. Redémarrer l'application depuis l'UI « Setup Node.js App ».
+5. Vérifier `GET /v1/docs` (Swagger) et un endpoint réel derrière le proxy
+   Passenger.
 
 ## Démarrage
 
@@ -101,15 +261,9 @@ réelle (connexion, checkout, livraison) les a révélés :
 
 ```bash
 docker compose up -d
-# MongoDB      : mongodb://localhost:27017/allgo?replicaSet=rs0
-# Redis        : localhost:6379
-# MinIO        : http://localhost:9001  (minioadmin / minioadmin)
-# Mongo Express: http://localhost:8081
+# MariaDB : localhost:3306 (clone local, alimenté par migration/dumps/*.sql)
+# Redis   : localhost:6379
 ```
-
-Le *replica set* est **obligatoire** : sans lui, les transactions multi-documents de la
-création de commande (§6.3) n'existent pas. Le service `mongo-init` l'initialise
-automatiquement au premier démarrage.
 
 ### 2. API
 
@@ -117,7 +271,6 @@ automatiquement au premier démarrage.
 cd backend
 cp .env.example .env      # renseigner les secrets — aucun secret n'est versionné (§12.1)
 npm install
-npm run seed              # jeu de données Mahajanga : 6 comptes, 2 boutiques, 7 produits
 npm run start:dev         # http://localhost:3000/v1
                           # OpenAPI : http://localhost:3000/docs
 ```
@@ -128,56 +281,17 @@ Générer les deux secrets JWT :
 node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 ```
 
-> Si votre base MongoDB existait déjà avant cette mise à jour (schémas antérieurs
-> aux favoris génériques, aux avis à cible unique ou aux boutiques à deux),
-> repartez d'un volume propre avant de réensemencer :
-> `docker compose down -v && docker compose up -d && npm run seed`. Un index
-> unique hérité d'un ancien schéma ne se supprime jamais tout seul — MongoDB
-> ajoute les index déclarés, il ne retire jamais ceux qui ne le sont plus.
-
-#### Données de test disponibles
-
-Chaque exécution de `npm run seed` réinitialise les collections de développement et
-génère de nouveaux `ObjectId` — un compte par rôle, et au moins un document par
-fonctionnalité livrée depuis le lot L0. Le script affiche les identifiants exacts
-(boutiques, commandes) à la fin de son exécution.
-
-**Comptes** (mot de passe unique : `MotDePasse2026`) :
-
-| Rôle | Téléphone | Nom | Détail |
-
-| Client | `+261340000002` | Soa Randria | Adresse enregistrée, avis déposés, litige ouvert |
-| Client | `+261340000006` | Fara Ravelo | Second compte client, sans historique |
-| Commerçant | `+261340000001` | Hery Rakoto | Propriétaire d'Épicerie Mahavoky |
-| Commerçant | `+261340000003` | Lala Andriamampianina | Propriétaire de Sahaza Mode |
-| Livreur | `+261340000004` | Tovo Rabe | Identité vérifiée, une mission en cours, un bonus et un retrait en attente |
-| Administrateur | `+261340000005` | Admin AllGo | Rôle `platform_admin` |
-
-**Catalogue et commerce** :
-
-| Type | Valeur | Détail |
-
-| Boutique | `epicerie-mahavoky` | Épicerie, catégorie Alimentation, ouverte tous les jours sauf dimanche |
-| Boutique | `sahaza-mode` | Mode et vêtements, avec variantes de taille |
-| Produit | `6001234567890` | Riz Makalioka 5 kg, 22 000 Ar, promo 19 500 Ar |
-| Produit vedette | Chemise homme en coton | Sujette à la promotion flash ci-dessous |
-| Code promo générique | `BIENVENUE10` | 10 %, minimum 5 000 Ar, plafond 10 000 Ar |
-| Code promo boutique | `MAHAVOKY5` | 2 000 Ar de réduction, Épicerie Mahavoky uniquement |
-| Promotion flash | Chemises Sahaza Mode | -20 %, active 48 h, liée à une story |
-| Commande livrée | `ALG-2026-0001` | Payée, avis déposés dessus, litige ouvert |
-| Commande en livraison | `ALG-2026-0002` | Étape « vers le client », livreur affecté |
-| Position | `-15.7167, 46.3167` | Latitude, longitude du centre de test |
-
-Publications, story (liée à un produit et à la promotion flash), conversation avec
-messages, favori et abonnement sont également en place — de quoi peupler chaque écran
-sans étape manuelle.
+**Données de test** : il n'y a plus de script `npm run seed` — la base de
+développement est un clone MariaDB de la vraie base (dumps phpMyAdmin sous
+`migration/dumps/`), ou directement la base de production o2switch via le
+tunnel SSH (§ ci-dessus). Les comptes de test réutilisables sont documentés
+dans « Comptes de test (base réelle) » plus haut.
 
 Exemples de vérification après le démarrage de l'API :
 
 ```bash
 curl "http://localhost:3000/v1/products?limit=20"
 curl "http://localhost:3000/v1/geo/shops?lat=-15.7167&lng=46.3167&radius=5"
-curl "http://localhost:3000/v1/products/barcode/6001234567890"
 curl "http://localhost:3000/v1/campaigns/flash"
 curl "http://localhost:3000/v1/search?q=riz"
 ```
@@ -190,7 +304,7 @@ Tests**
 
 ```bash
 npm test              # unitaires — aucune infrastructure requise
-npm run test:integration   # exige `docker compose up -d` (test d'ossature des routes)
+npm run test:integration   # exige `docker compose up -d` (Redis)
 npm run openapi:export     # écrit openapi.json depuis les DTO
 ```
 
@@ -298,13 +412,14 @@ node tool/generate_icons.js      # 5 densités + icône adaptative + logo applic
 `custom_lint`, `riverpod_lint`, `riverpod_annotation` et `retrofit` sont
 délibérément écartés — chaque motif est inscrit dans `pubspec.yaml`.
 
-### 4. Migration
+### 4. Migration (obsolète)
 
-```bash
-cd migration
-npm install
-npm run migrate -- categories --dry-run
-```
+`migration/` contenait l'outillage CLI d'une migration MariaDB → MongoDB
+domaine par domaine — direction abandonnée : la Phase 6 a confirmé MySQL
+comme source de vérité définitive pour l'ensemble du backend. Seul
+`migration/dumps/` (exports phpMyAdmin) reste utile, pour alimenter la base
+MariaDB locale de développement (§ Démarrage). Le reste du paquet peut être
+retiré du dépôt à l'occasion, il n'est plus exécuté par rien.
 
 ## Écarts assumés par rapport au cahier des charges
 
@@ -314,7 +429,7 @@ laissées implicites dans le code :
 | ADR | Sujet | Écart |
 
 | [0001](docs/adr/0001-serveur-api-et-trajectoire-de-migration.md) | Serveur d'API et trajectoire | Le cahier des charges ne nomme pas le serveur d'API ; NestJS est retenu, trajectoire C |
-| [0002](docs/adr/0002-stockmovements-series-temporelles-vs-transactions.md) | `stockMovements` | Le §6.2 (série temporelle) et le §6.3 (transaction) sont **incompatibles** sous MongoDB ; l'intégrité l'emporte, la collection redevient ordinaire |
+| 0002 (levée) | `stockMovements` | Gardait cette collection sur Mongo pour contourner une incompatibilité §6.2/§6.3 propre à MongoDB (série temporelle vs transaction) — sans objet depuis la Phase 6 : `stock_movements` est une table MySQL ordinaire comme le reste du domaine boutique |
 
 ## Conventions
 
@@ -323,7 +438,7 @@ laissées implicites dans le code :
   pas de garde (§3.2, §12.1).
 - **Hors ligne d'abord** : l'interface Flutter lit toujours Drift ; le réseau alimente le
   cache, il ne bloque jamais l'affichage (§9.1).
-- **Montants** : `Decimal128` côté MongoDB, jamais `Double` (§15.4).
+- **Montants** : `Decimal`/`DECIMAL` côté MySQL (Prisma), jamais `Double`/`Float` (§15.4).
 - **Coordonnées** : GeoJSON `[longitude, latitude]` — l'ordre est inversé par rapport à
   l'habitude `lat, lng` (§15.4).
 - **Instantanés contractuels** : une ligne de commande fige nom et prix au moment de

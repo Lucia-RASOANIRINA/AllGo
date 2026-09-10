@@ -6,11 +6,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { MediaService } from '../media/media.service';
 import type { CreatePromotionDto, UpdatePromotionDto } from './dto/promotion.dto';
 
-/**
- * Promotions — table réelle `promotions` (Phase 4). `shop_id` est déjà un
- * entier MySQL natif : plus besoin du miroir Mongo boutique
- * (`ShopsService.resolveMirrorId`) pour ce module.
- */
+/** Promotions — table réelle `promotions` (Phase 4). `shop_id` est un entier MySQL natif. */
 @Injectable()
 export class CampaignsService {
   constructor(

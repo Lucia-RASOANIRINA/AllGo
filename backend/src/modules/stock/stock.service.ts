@@ -1,12 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
 
 import { AppError } from '../../common/http/app-error';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { MediaService } from '../media/media.service';
-import { ShopsService } from '../shops/shops.service';
-import { StockMovement, type StockMovementDocument } from './schemas/stock-movement.schema';
 
 export interface MoveStockInput {
   shopId: string;
@@ -15,15 +11,20 @@ export interface MoveStockInput {
   quantity: number;
   reason: string;
   note?: string;
-  userId: string;
+  userId: number;
 }
 
+/**
+ * `stock_movements` (table MySQL réelle depuis la Phase 6) — remplace la
+ * collection Mongo `stockMovements`. L'ADR qui la maintenait sur Mongo
+ * (incompatibilité time-series/transaction) est levée par décision explicite
+ * du 2026-09-10 : `shop_id`/`user_id` sont désormais des entiers MySQL
+ * directs, ce qui a aussi permis de retirer le miroir Mongo `Shop`.
+ */
 @Injectable()
 export class StockService {
   constructor(
-    @InjectModel(StockMovement.name) private readonly movements: Model<StockMovementDocument>,
     private readonly prisma: PrismaService,
-    private readonly shopsService: ShopsService,
     private readonly media: MediaService,
   ) {}
 
@@ -61,18 +62,18 @@ export class StockService {
       throw new AppError('STOCK_CONFLICT', 'Le stock a été modifié entre-temps. Réessayez.', 409);
     }
 
-    const shopMirrorId = await this.shopsService.resolveMirrorId(Number(input.shopId));
-    await this.movements.create({
-      at: new Date(),
-      shopId: new Types.ObjectId(shopMirrorId),
-      productId: product.id,
-      type: input.type,
-      reason: input.reason,
-      quantity: Math.abs(delta),
-      stockBefore,
-      stockAfter,
-      note: input.note,
-      userId: new Types.ObjectId(input.userId),
+    await this.prisma.stock_movements.create({
+      data: {
+        shop_id: Number(input.shopId),
+        product_id: product.id,
+        user_id: input.userId,
+        type: input.type,
+        reason: input.reason,
+        quantity: Math.abs(delta),
+        stock_before: stockBefore,
+        stock_after: stockAfter,
+        note: input.note,
+      },
     });
 
     return { stockAfter };
@@ -110,25 +111,30 @@ export class StockService {
     }));
   }
 
-  /**
-   * Historique des mouvements. La jointure vers les noms de produits se fait
-   * en deux temps plutôt qu'un `$lookup` natif — `products` a migré vers
-   * MySQL (Phase 2), un `$lookup` Mongo ne peut plus le joindre.
-   */
+  /** Historique des mouvements, du plus récent au plus ancien. */
   async history(shopId: string): Promise<unknown[]> {
-    const shopMirrorId = await this.shopsService.resolveMirrorId(Number(shopId));
-    const rows = await this.movements
-      .find({ shopId: new Types.ObjectId(shopMirrorId) })
-      .sort({ at: -1 })
-      .limit(200)
-      .lean();
+    const rows = await this.prisma.stock_movements.findMany({
+      where: { shop_id: Number(shopId) },
+      orderBy: { at: 'desc' },
+      take: 200,
+      include: { products: { select: { name: true } } },
+    });
 
-    const productIds = [...new Set(rows.map((r) => r.productId))];
-    const products = productIds.length
-      ? await this.prisma.products.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true } })
-      : [];
-    const nameById = new Map(products.map((p) => [p.id, p.name]));
-
-    return rows.map((row) => ({ ...row, product: { name: nameById.get(row.productId) ?? 'Produit' } }));
+    return rows.map((row) => ({
+      id: String(row.id),
+      shopId: String(row.shop_id),
+      productId: String(row.product_id),
+      userId: String(row.user_id),
+      type: row.type,
+      reason: row.reason,
+      quantity: row.quantity,
+      stockBefore: row.stock_before,
+      stockAfter: row.stock_after,
+      unitCost: row.unit_cost ? Number(row.unit_cost) : undefined,
+      supplier: row.supplier ?? undefined,
+      note: row.note ?? undefined,
+      at: row.at,
+      product: { name: row.products.name },
+    }));
   }
 }

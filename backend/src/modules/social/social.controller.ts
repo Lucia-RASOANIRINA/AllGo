@@ -92,13 +92,13 @@ export class SocialController {
   @RequirePermission(Permission.PostReport)
   @ApiOperation({ summary: 'Signaler une publication à la modération.' })
   report(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: ReportDto) {
-    return this.social.report(user.id, id, dto.reason, dto.reasonCode);
+    return this.social.report(user.mysqlId, id, dto.reason, dto.reasonCode);
   }
 
   @Post('comments/:id/report')
   @RequirePermission(Permission.CommentReport)
   @ApiOperation({ summary: 'Signaler un commentaire à la modération.' })
   reportComment(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: ReportDto) {
-    return this.social.reportComment(user.id, id, dto.reason, dto.reasonCode);
+    return this.social.reportComment(user.mysqlId, id, dto.reason, dto.reasonCode);
   }
 }

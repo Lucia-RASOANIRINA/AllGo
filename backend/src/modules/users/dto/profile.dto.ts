@@ -5,6 +5,7 @@ import {
   IsEmail,
   IsIn,
   IsNotEmpty,
+  IsObject,
   IsOptional,
   IsString,
   MaxLength,
@@ -42,12 +43,11 @@ export class UpdateProfileDto {
     example: { orders: true, promotions: false, social: true, messages: true, delivery: true },
   })
   @IsOptional()
-  @ValidateNested()
+  @IsObject()
   notificationCategories?: Record<string, boolean>;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() courierAvailable?: boolean;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() identityVerified?: boolean;
   @ApiPropertyOptional() @IsOptional() @IsString() vehicle?: string;
-  @ApiPropertyOptional({ type: [String] }) @IsOptional() documents?: string[];
 }
 
 export class CreateAddressDto {

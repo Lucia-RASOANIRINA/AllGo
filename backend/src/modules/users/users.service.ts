@@ -1,6 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
 
 import { AppError } from '../../common/http/app-error';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
@@ -9,30 +7,26 @@ import { MediaService } from '../media/media.service';
 import { AuthService } from '../auth/auth.service';
 import type { RegisterDeviceDto } from '../auth/dto/auth.dto';
 import type { CreateAddressDto, UpdateProfileDto } from './dto/profile.dto';
-import { User, type UserDocument } from './schemas/user.schema';
 
 /** Adresse de substitution générée à l'inscription mobile — jamais montrée à l'utilisateur. */
 const isPlaceholderEmail = (email: string): boolean => email.endsWith('@mobile.allgo.local');
+const NOTIFICATION_CATEGORIES = ['orders', 'promotions', 'social', 'messages', 'delivery'] as const;
 
 @Injectable()
 export class UsersService {
   constructor(
-    @InjectModel(User.name) private readonly mirror: Model<UserDocument>,
     private readonly prisma: PrismaService,
     private readonly media: MediaService,
     private readonly auth: AuthService,
   ) {}
 
-  /**
-   * Profil composé : les champs canoniques viennent de MySQL (`users`,
-   * source de vérité depuis la bascule Auth), le reste (terminaux,
-   * préférences, profil livreur) du miroir Mongo — aucun équivalent MySQL
-   * pour ces concepts mobile-only (§ décision du 2026-09-09).
-   */
+  /** Profil composé : 100 % MySQL depuis la Phase 6. */
   async findById(user: AuthenticatedUser): Promise<unknown> {
-    const [mysqlUser, mirrored] = await Promise.all([
+    const [mysqlUser, devices, courierProfile, presence] = await Promise.all([
       this.prisma.users.findUnique({ where: { id: user.mysqlId } }),
-      this.mirror.findOne({ mysqlId: user.mysqlId }).lean(),
+      this.prisma.device_tokens.findMany({ where: { user_id: user.mysqlId } }),
+      this.prisma.courier_profiles.findUnique({ where: { user_id: user.mysqlId } }),
+      this.prisma.user_presence.findUnique({ where: { user_id: user.mysqlId } }),
     ]);
     if (!mysqlUser) throw AppError.notFound('Utilisateur');
 
@@ -51,10 +45,26 @@ export class UsersService {
       phoneVerifiedAt: mysqlUser.phone_verified_at ?? undefined,
       createdAt: mysqlUser.created_at,
       updatedAt: mysqlUser.updated_at,
-      devices: mirrored?.devices ?? [],
-      preferences: mirrored?.preferences ?? {},
-      courierProfile: mirrored?.courierProfile ?? {},
-      presence: mirrored?.presence ?? { isOnline: false },
+      devices: devices.map((d) => ({
+        deviceId: d.device_id,
+        fcmToken: d.fcm_token,
+        platform: d.platform,
+        lastSeenAt: d.last_seen_at ?? undefined,
+      })),
+      preferences: {
+        locale: mysqlUser.locale,
+        theme: mysqlUser.theme,
+        pushEnabled: mysqlUser.push_enabled,
+        pushCategories: (mysqlUser.push_categories as Record<string, boolean> | null) ?? {},
+      },
+      courierProfile: courierProfile
+        ? {
+            identityVerified: courierProfile.identity_verified,
+            vehicle: courierProfile.vehicle ?? undefined,
+            available: courierProfile.available,
+          }
+        : {},
+      presence: presence ? { isOnline: presence.is_online, lastSeenAt: presence.last_seen ?? undefined } : { isOnline: false },
     };
   }
 
@@ -74,40 +84,38 @@ export class UsersService {
       // Une nouvelle adresse remplace la précédente : elle repart non vérifiée.
       mysqlUpdate.email_verified_at = null;
     }
+    if (dto.locale !== undefined) mysqlUpdate.locale = dto.locale;
+    if (dto.theme !== undefined) mysqlUpdate.theme = dto.theme;
+    if (dto.pushEnabled !== undefined) mysqlUpdate.push_enabled = dto.pushEnabled;
+    if (dto.notificationCategories !== undefined) {
+      const current = (await this.prisma.users.findUnique({ where: { id: user.mysqlId }, select: { push_categories: true } }))
+        ?.push_categories as Record<string, boolean> | null;
+      const merged = { ...(current ?? {}) };
+      for (const [category, enabled] of Object.entries(dto.notificationCategories)) {
+        if ((NOTIFICATION_CATEGORIES as readonly string[]).includes(category)) merged[category] = enabled;
+      }
+      mysqlUpdate.push_categories = merged;
+    }
 
     if (Object.keys(mysqlUpdate).length > 0) {
       await this.prisma.users.update({ where: { id: user.mysqlId }, data: mysqlUpdate });
     }
 
-    // Champs mobile-only (aucun équivalent MySQL) : miroir Mongo uniquement.
-    const mirrorUpdate: Record<string, unknown> = {};
-    for (const field of ['firstName', 'lastName', 'bio'] as const) {
-      if (dto[field] !== undefined) mirrorUpdate[field] = dto[field];
-    }
-    if (dto.email !== undefined) mirrorUpdate.email = dto.email.toLowerCase();
-    if (mysqlUpdate.avatar) mirrorUpdate.avatar = mysqlUpdate.avatar;
-
-    for (const field of ['locale', 'theme', 'pushEnabled'] as const) {
-      if (dto[field] !== undefined) mirrorUpdate[`preferences.${field}`] = dto[field];
-    }
-    if (dto.notificationCategories !== undefined) {
-      for (const [category, enabled] of Object.entries(dto.notificationCategories)) {
-        if (['orders', 'promotions', 'social', 'messages', 'delivery'].includes(category)) {
-          mirrorUpdate[`preferences.pushCategories.${category}`] = enabled;
-        }
-      }
-    }
-    for (const [field, value] of Object.entries({
-      available: dto.courierAvailable,
-      identityVerified: dto.identityVerified,
-      vehicle: dto.vehicle,
-      documents: dto.documents,
-    })) {
-      if (value !== undefined) mirrorUpdate[`courierProfile.${field}`] = value;
-    }
-
-    if (Object.keys(mirrorUpdate).length > 0) {
-      await this.mirror.updateOne({ mysqlId: user.mysqlId }, { $set: mirrorUpdate });
+    if (dto.courierAvailable !== undefined || dto.identityVerified !== undefined || dto.vehicle !== undefined) {
+      await this.prisma.courier_profiles.upsert({
+        where: { user_id: user.mysqlId },
+        create: {
+          user_id: user.mysqlId,
+          available: dto.courierAvailable ?? false,
+          identity_verified: dto.identityVerified ?? false,
+          vehicle: dto.vehicle,
+        },
+        update: {
+          ...(dto.courierAvailable !== undefined ? { available: dto.courierAvailable } : {}),
+          ...(dto.identityVerified !== undefined ? { identity_verified: dto.identityVerified } : {}),
+          ...(dto.vehicle !== undefined ? { vehicle: dto.vehicle } : {}),
+        },
+      });
     }
 
     return this.findById(user);
@@ -170,30 +178,25 @@ export class UsersService {
   }
 
   /**
-   * Enregistrement d'un terminal pour le push — mobile-only, miroir Mongo.
+   * Enregistrement d'un terminal pour le push.
    *
-   * Idempotent par `deviceId` : réinstaller l'application ou renouveler le
-   * jeton FCM met à jour l'entrée existante au lieu d'en accumuler une nouvelle
-   * à chaque démarrage — sinon les notifications partent en double.
+   * Idempotent par `deviceId` (contrainte `unique_device`) : réinstaller
+   * l'application ou renouveler le jeton FCM met à jour l'entrée existante au
+   * lieu d'en accumuler une nouvelle à chaque démarrage — sinon les
+   * notifications partent en double.
    */
   async registerDevice(user: AuthenticatedUser, dto: RegisterDeviceDto): Promise<{ registered: boolean }> {
-    const updated = await this.mirror.updateOne(
-      { mysqlId: user.mysqlId, 'devices.deviceId': dto.deviceId },
-      {
-        $set: {
-          'devices.$.fcmToken': dto.fcmToken,
-          'devices.$.platform': dto.platform,
-          'devices.$.lastSeenAt': new Date(),
-        },
+    await this.prisma.device_tokens.upsert({
+      where: { user_id_device_id: { user_id: user.mysqlId, device_id: dto.deviceId } },
+      create: {
+        user_id: user.mysqlId,
+        device_id: dto.deviceId,
+        fcm_token: dto.fcmToken,
+        platform: dto.platform,
+        last_seen_at: new Date(),
       },
-    );
-
-    if (updated.matchedCount === 0) {
-      await this.mirror.updateOne(
-        { mysqlId: user.mysqlId },
-        { $push: { devices: { ...dto, lastSeenAt: new Date() } } },
-      );
-    }
+      update: { fcm_token: dto.fcmToken, platform: dto.platform, last_seen_at: new Date() },
+    });
     return { registered: true };
   }
 
@@ -209,7 +212,8 @@ export class UsersService {
    * Les adresses de livraison enregistrées ne sont pas supprimées : certaines
    * peuvent être référencées par des commandes passées (`orders.address_id`),
    * et un compte suspendu ne peut de toute façon plus les consulter ni s'y
-   * reconnecter.
+   * reconnecter. Les terminaux enregistrés sont retirés : un compte supprimé
+   * ne doit plus jamais recevoir de notification push.
    */
   async deleteAccount(user: AuthenticatedUser): Promise<{ deleted: true }> {
     const anonymisedEmail = `deleted-${user.mysqlId}@mobile.allgo.local`;
@@ -230,23 +234,7 @@ export class UsersService {
     });
     if (updated.count === 0) throw AppError.notFound('Utilisateur');
 
-    await this.mirror.updateOne(
-      { mysqlId: user.mysqlId },
-      {
-        $set: {
-          firstName: 'Compte',
-          lastName: 'supprimé',
-          phone: anonymisedPhone,
-          status: 'suspended',
-          avatar: undefined,
-          cover: undefined,
-          bio: undefined,
-          devices: [],
-        },
-        $unset: { email: '' },
-      },
-    );
-
+    await this.prisma.device_tokens.deleteMany({ where: { user_id: user.mysqlId } });
     await this.auth.revokeAllSessions(user.mysqlId);
     return { deleted: true };
   }

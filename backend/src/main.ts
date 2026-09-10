@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import compression from 'compression';
 import helmet from 'helmet';
@@ -12,8 +13,15 @@ import { ResponseInterceptor } from './common/http/response.interceptor';
 async function bootstrap(): Promise<void> {
   // `rawBody` : la vérification de signature des rappels mobile money exige le
   // corps reçu octet pour octet — re-sérialiser le JSON invaliderait le HMAC.
-  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+    rawBody: true,
+  });
   const config = app.get(ConfigService);
+
+  // Sert les médias en local (en production, Apache sert directement le
+  // dossier public o2switch — cette ligne ne fait alors rien de plus).
+  app.useStaticAssets(config.getOrThrow<string>('media.storagePath'), { prefix: '/media' });
 
   app.setGlobalPrefix(config.getOrThrow<string>('apiPrefix'));
   app.enableShutdownHooks();

@@ -1,27 +1,17 @@
 import { Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
-import { Shop, ShopSchema } from './schemas/shop.schema';
 import { ShopsController } from './shops.controller';
 import { ShopsService } from './shops.service';
-import { Product, ProductSchema } from '../catalog/schemas/product.schema';
-import { Post, PostSchema } from '../social/schemas/post.schema';
-import { Follow, FollowSchema } from '../social/schemas/interactions.schema';
-import { Promotion, PromotionSchema } from '../campaigns/schemas/promotion.schema';
-import { User, UserSchema } from '../users/schemas/user.schema';
 import { MediaModule } from '../media/media.module';
 
+/**
+ * 100 % MySQL depuis la Phase 6 — `StockMovement` (dernier consommateur du
+ * miroir Mongo `Shop`) a migré vers `stock_movements` ; plus aucune
+ * dépendance Mongo dans ce module.
+ */
 @Module({
-  imports: [
-    MongooseModule.forFeature([
-      { name: Shop.name, schema: ShopSchema },
-      { name: Product.name, schema: ProductSchema }, { name: Post.name, schema: PostSchema },
-      { name: Follow.name, schema: FollowSchema }, { name: Promotion.name, schema: PromotionSchema },
-      { name: User.name, schema: UserSchema },
-    ]),
-    MediaModule,
-  ],
+  imports: [MediaModule],
   controllers: [ShopsController],
   providers: [ShopsService],
-  exports: [ShopsService, MongooseModule],
+  exports: [ShopsService],
 })
 export class ShopsModule {}

@@ -1,11 +1,8 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { InjectModel } from '@nestjs/mongoose';
-import * as argon2 from 'argon2';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
-import { Model, Types } from 'mongoose';
 import type Redis from 'ioredis';
 import type { users as MysqlUser } from '@prisma/client';
 
@@ -14,7 +11,6 @@ import { AppError } from '../../common/http/app-error';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { buildRoleAssignments } from '../users/mysql-role-mapper';
-import { User, type UserDocument } from '../users/schemas/user.schema';
 import { EmailService } from './email.service';
 import { SmsService } from './sms.service';
 import type { LoginDto, RegisterDto } from './dto/auth.dto';
@@ -24,19 +20,6 @@ export interface TokenPair {
   refreshToken: string;
   expiresIn: number;
 }
-
-/**
- * Paramètres Argon2id — utilisés UNIQUEMENT pour le hash placebo du miroir
- * Mongo (§ ci-dessous, `mirrorUser`) : ce hash n'est jamais vérifié, l'unique
- * source de vérité pour l'authentification est désormais `users.password`
- * (MySQL, bcrypt — écrit par le site web comme par l'inscription mobile).
- */
-const ARGON2_OPTIONS: argon2.Options = {
-  type: argon2.argon2id,
-  memoryCost: 19_456,
-  timeCost: 2,
-  parallelism: 1,
-};
 
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOGIN_WINDOW_SECONDS = 15 * 60;
@@ -48,7 +31,6 @@ export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
   constructor(
-    @InjectModel(User.name) private readonly mirror: Model<UserDocument>,
     private readonly prisma: PrismaService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly jwt: JwtService,
@@ -59,7 +41,7 @@ export class AuthService {
 
   // ─────────────────────────────────────────────────────────── Inscription ──
 
-  async register(dto: RegisterDto): Promise<{ user: unknown } & TokenPair> {
+  async register(dto: RegisterDto): Promise<TokenPair> {
     const localPhone = AuthService.toLocalPhoneFormat(AuthService.normalisePhone(dto.phone));
     const last9 = AuthService.last9Digits(localPhone);
 
@@ -88,9 +70,7 @@ export class AuthService {
       },
     });
 
-    const tokens = await this.issueTokens(mysqlUser);
-    const mirrored = await this.mirror.findOne({ mysqlId: mysqlUser.id });
-    return { user: mirrored?.toJSON(), ...tokens };
+    return this.issueTokens(mysqlUser);
   }
 
   // ───────────────────────────────────────────────────────────── Connexion ──
@@ -187,34 +167,6 @@ export class AuthService {
     });
 
     return tokens;
-  }
-
-  /**
-   * Résout l'ObjectId du miroir Mongo pour un utilisateur MySQL donné — pour
-   * les modules pas encore migrés qui référencent un utilisateur par ObjectId
-   * (ex. `MessagingService.resolveShopParticipant`). Ne CRÉE jamais de miroir
-   * ici (contrairement à `ShopsService.resolveMirrorId`) : un miroir
-   * utilisateur exige des champs obligatoires (téléphone, mot de passe...)
-   * qu'on ne peut pas fabriquer à partir du seul id — s'il n'existe pas,
-   * c'est que cet utilisateur ne s'est jamais connecté depuis la migration.
-   */
-  async resolveMirrorId(mysqlId: number): Promise<string | null> {
-    const doc = await this.mirror.findOne({ mysqlId }).select('_id').lean();
-    return doc ? String(doc._id) : null;
-  }
-
-  /**
-   * Sens inverse — pour les champs déjà migrés vers MySQL (auteur d'une
-   * publication, expéditeur d'un message, cible d'un blocage...) qui doivent
-   * néanmoins continuer à s'exposer au format miroir tant que
-   * `AuthenticatedUser.id` (session courante) n'a pas basculé sur l'entier
-   * MySQL direct (Phase 6) : le mobile compare ces champs à `/me.id` pour ses
-   * « est-ce moi » (`isMine`), ils doivent rester dans le même référentiel.
-   */
-  async resolveMysqlId(mirrorId: string): Promise<number | null> {
-    if (!Types.ObjectId.isValid(mirrorId)) return null;
-    const doc = await this.mirror.findById(mirrorId).select('mysqlId').lean();
-    return doc?.mysqlId ?? null;
   }
 
   async logout(sid: string): Promise<void> {
@@ -403,15 +355,7 @@ export class AuthService {
 
   // ──────────────────────────────────────────────────────────── Internes ──
 
-  /**
-   * Construit `AuthenticatedUser`, tient à jour le miroir Mongo (§ décision du
-   * 2026-09-09) et émet la paire de jetons.
-   *
-   * Le miroir existe pour les modules pas encore migrés qui font
-   * `new Types.ObjectId(user.id)`/`.populate('userId')` et attendent un vrai
-   * document `User` (nom, avatar, rôles...) — sans lui, tout module encore sur
-   * Mongo verrait des profils vides dès la première connexion post-bascule.
-   */
+  /** Construit `AuthenticatedUser` et émet la paire de jetons. */
   private async issueTokens(
     mysqlUser: MysqlUser,
     context: { deviceId?: string; ip?: string; userAgent?: string } = {},
@@ -429,12 +373,11 @@ export class AuthService {
         : null,
     });
 
-    const mirrored = await this.mirrorUser(mysqlUser, roles);
     const sid = randomBytes(16).toString('base64url');
 
     const claims: AuthenticatedUser & { sub: string } = {
-      sub: String(mirrored._id),
-      id: String(mirrored._id),
+      sub: String(mysqlUser.id),
+      id: String(mysqlUser.id),
       mysqlId: mysqlUser.id,
       phone: mysqlUser.phone ?? '',
       roles,
@@ -471,35 +414,6 @@ export class AuthService {
       refreshToken,
       expiresIn: Math.floor(AuthService.parseTtlMs(accessTtl) / 1000),
     };
-  }
-
-  /**
-   * Upsert du miroir Mongo par `mysqlId`, avec les champs affichés en direct
-   * ailleurs dans l'app (nom, rôles) synchronisés à chaque émission de jetons.
-   * Le hash placebo n'est écrit qu'à la création — jamais lu, jamais comparé.
-   */
-  private async mirrorUser(mysqlUser: MysqlUser, roles: AuthenticatedUser['roles']): Promise<UserDocument> {
-    const doc = await this.mirror.findOneAndUpdate(
-      { mysqlId: mysqlUser.id },
-      {
-        $set: {
-          phone: mysqlUser.phone ?? `mysql-${mysqlUser.id}`,
-          email: mysqlUser.email,
-          firstName: mysqlUser.firstname,
-          lastName: mysqlUser.lastname,
-          avatar: mysqlUser.avatar ?? undefined,
-          bio: mysqlUser.bio ?? undefined,
-          status: mysqlUser.status ?? 'active',
-          roles,
-        },
-        $setOnInsert: {
-          mysqlId: mysqlUser.id,
-          passwordHash: await argon2.hash(randomBytes(32).toString('hex'), ARGON2_OPTIONS),
-        },
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
-    );
-    return doc;
   }
 
   /** Limitation de débit sur l'authentification — 5 tentatives / 15 min (§12.1). */
