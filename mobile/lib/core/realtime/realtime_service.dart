@@ -25,6 +25,9 @@ class RealtimeService {
       Environment.socketUrl,
       <String, dynamic>{
         'transports': <String>['websocket', 'polling'],
+        // Voir `realtime_client.dart` : le `.htaccess` du site PHP ne laisse
+        // passer que `/v1/` vers Node/Passenger.
+        'path': '/v1/socket.io/',
         'autoConnect': false,
         'auth': <String, dynamic>{'token': token},
         'reconnection': true,

@@ -27,6 +27,12 @@ class RealtimeClient {
           Environment.socketUrl,
           io.OptionBuilder()
               .setTransports(<String>['websocket', 'polling'])
+              // Le `.htaccess` du site PHP historique ne laisse passer que
+              // `/v1/` vers Passenger/Node — le chemin par défaut
+              // `/socket.io/` tombe sur le site PHP (404), doit donc vivre
+              // sous `/v1/` comme le reste de l'API (même contrainte que
+              // Swagger dans `main.ts`).
+              .setPath('/v1/socket.io/')
               .setAuth(<String, dynamic>{'token': token})
               .disableAutoConnect()
               .build(),

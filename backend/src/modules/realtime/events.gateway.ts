@@ -40,6 +40,11 @@ export const RealtimeEvent = {
   transports: ['websocket', 'polling'],
   pingInterval: 25_000,
   pingTimeout: 20_000,
+  // Chemin déplacé sous `/v1/` : c'est le seul segment que le `.htaccess` du
+  // site PHP historique laisse passer vers Passenger (même contrainte que
+  // Swagger, cf. `useGlobalPrefix` dans `main.ts`) — le chemin par défaut
+  // `/socket.io/` tombe sur le site PHP (404) avant même d'atteindre Node.
+  path: '/v1/socket.io/',
 })
 export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() private readonly server!: Server;
