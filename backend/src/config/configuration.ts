@@ -77,8 +77,8 @@ export default (): AppConfig => ({
     port: Number(process.env.SMTP_PORT ?? 587),
     user: process.env.SMTP_USER,
     password: process.env.SMTP_PASSWORD,
-    from: process.env.SMTP_FROM ?? 'no-reply@allgo.mg',
-    verificationUrl: process.env.EMAIL_VERIFICATION_URL ?? 'https://app.allgo.mg/verifier-email',
+    from: process.env.SMTP_FROM ?? 'no-reply@allgomada.com',
+    verificationUrl: process.env.EMAIL_VERIFICATION_URL ?? 'https://allgomada.com/verifier-email',
   },
   // Absent tant qu'aucun fournisseur SMS n'est branché : `SmsService` répond
   // alors une indisponibilité explicite en production (§ décision du

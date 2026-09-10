@@ -231,12 +231,15 @@ Marche à suivre :
      `redis://:<mot-de-passe>@127.0.0.1:6379` — à confirmer dans l'écran cPanel)
    - `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET` (générés pour la prod, jamais
      réutilisés du `.env` de dev)
-   - `API_PUBLIC_BASE_URL` (ex. `https://arur4976.odns.fr/v1`) — sert à
-     construire les liens de téléversement média, doit pointer sur le
-     domaine public réel
+   - `API_PUBLIC_BASE_URL` (`https://allgomada.com/v1` — domaine réel,
+     certificat Let's Encrypt valide ; `arur4976.odns.fr` est le domaine
+     technique temporaire d'o2switch, dont la zone DNS parente `odns.fr`
+     empêche Let's Encrypt d'y émettre un certificat, § SERVFAIL CAA constaté
+     en direct) — sert à construire les liens de téléversement média, doit
+     pointer sur le domaine public réel
    - `MEDIA_STORAGE_PATH` (chemin absolu serveur vers un dossier du docroot
      public, ex. `/home/arur4976/public_html/media`) et
-     `MEDIA_PUBLIC_BASE_URL` (ex. `https://arur4976.odns.fr/media`) — le
+     `MEDIA_PUBLIC_BASE_URL` (`https://allgomada.com/media`) — le
      dossier est créé automatiquement au démarrage, avec un `.htaccess` qui y
      désactive l'exécution de scripts (§ sécurité, `MediaService`)
    - `CORS_ORIGINS`

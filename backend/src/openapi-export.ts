@@ -28,7 +28,7 @@ async function exportSpec(): Promise<void> {
     .setDescription('Contrat généré depuis les DTO — ne pas éditer à la main.')
     .setVersion('1.0')
     .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' })
-    .addServer('https://api.allgo.mg/v1', 'Production')
+    .addServer('https://allgomada.com/v1', 'Production')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

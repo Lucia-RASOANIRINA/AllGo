@@ -59,7 +59,7 @@ async function bootstrap(): Promise<void> {
     )
     .setVersion('1.0')
     .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' })
-    .addServer('https://api.allgo.mg/v1', 'Production')
+    .addServer('https://allgomada.com/v1', 'Production')
     .addServer('http://localhost:3000/v1', 'Développement local')
     .build();
 
