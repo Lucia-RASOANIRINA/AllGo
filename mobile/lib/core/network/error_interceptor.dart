@@ -59,7 +59,14 @@ class ErrorInterceptor extends Interceptor {
     // que l'utilisateur doit se reconnecter — d'où un type dédié plutôt
     // qu'un `ApiFailure` de plus, que chaque écran devrait réinterpréter lui-
     // même pour retrouver ce même constat.
-    if (response.statusCode == 401) return const Failure.unauthenticated();
+    //
+    // Exception : une requête `skipAuth` (login, inscription, OTP...) n'a
+    // jamais porté de jeton et n'est jamais passée par ce rafraîchissement —
+    // son 401 est un refus métier ordinaire (identifiants invalides), pas une
+    // session expirée. Sans cette distinction, une simple erreur de mot de
+    // passe à la connexion s'affichait comme « Votre session a expiré ».
+    final isAuthEndpoint = response.requestOptions.extra['skipAuth'] == true;
+    if (response.statusCode == 401 && !isAuthEndpoint) return const Failure.unauthenticated();
 
     final body = response.data;
     final error = body is Map<String, dynamic> ? body['error'] as Map<String, dynamic>? : null;

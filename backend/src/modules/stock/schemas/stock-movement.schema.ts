@@ -41,7 +41,8 @@ export class StockMovement extends Document {
   @Prop({ type: Date, default: () => new Date(), required: true }) at!: Date;
 
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Shop', required: true }) shopId!: Types.ObjectId;
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Product', required: true }) productId!: Types.ObjectId;
+  /** Identifiant entier MySQL (`products.id`) depuis la migration du Catalogue (Phase 2). */
+  @Prop({ type: Number, required: true }) productId!: number;
 
   @Prop({ type: String, enum: ['in', 'out', 'correction'], required: true })
   type!: 'in' | 'out' | 'correction';

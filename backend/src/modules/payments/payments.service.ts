@@ -1,9 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
 
 import { AppError } from '../../common/http/app-error';
-import { Order, type OrderDocument } from '../orders/schemas/order.schema';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import {
   PAYMENT_PROVIDERS,
   type PaymentProvider,
@@ -19,19 +17,31 @@ export class PaymentsService {
 
   constructor(
     @Inject(PAYMENT_PROVIDERS) private readonly providers: Map<string, PaymentProvider>,
-    @InjectModel(Order.name) private readonly orders: Model<OrderDocument>,
+    private readonly prisma: PrismaService,
   ) {}
 
+  /** Accès direct à un fournisseur — utilisé par `GET /payments/methods` pour refléter sa disponibilité réelle. */
+  provider(name: string): PaymentProvider | undefined {
+    return this.providers.get(name);
+  }
+
+  /**
+   * `Order.payment` (sous-document Mongo) a migré vers MySQL (Phase 3) : une
+   * ligne `payments` par tentative (jamais réécrite), plus les colonnes
+   * `orders.payment_status`/`payment_method` qui portent l'état courant.
+   */
   async initiate(
     orderId: string,
-    userId: string,
+    userMysqlId: number,
     provider: string,
     phone: string,
   ): Promise<InitiateResult> {
-    const order = await this.orders.findOne({ _id: orderId, userId });
+    const order = await this.prisma.orders.findFirst({
+      where: { id: Number(orderId), user_id: userMysqlId },
+    });
     if (!order) throw AppError.notFound('Commande');
 
-    if (order.payment.status === 'paid') {
+    if (order.payment_status === 'paid') {
       throw new AppError('ALREADY_PAID', 'Cette commande est déjà payée.', 409);
     }
 
@@ -43,16 +53,27 @@ export class PaymentsService {
     }
 
     const result = await implementation.initiate({
-      orderId: String(order._id),
-      orderNumber: order.orderNumber,
-      amount: String(order.amounts.total),
+      orderId: String(order.id),
+      orderNumber: order.order_number,
+      amount: String(order.total_amount),
       phone,
     });
 
-    order.payment.status = 'pending';
-    order.payment.providerTxId = result.txId;
-    order.payment.method = provider;
-    await order.save();
+    await this.prisma.$transaction([
+      this.prisma.payments.create({
+        data: {
+          order_id: order.id,
+          method: provider,
+          transaction_ref: result.txId,
+          amount: order.total_amount,
+          status: 'pending',
+        },
+      }),
+      this.prisma.orders.update({
+        where: { id: order.id },
+        data: { payment_method: provider as never },
+      }),
+    ]);
 
     return result;
   }
@@ -87,26 +108,35 @@ export class PaymentsService {
       throw new AppError('INVALID_PAYLOAD', 'Le rappel de paiement est incomplet.', 400);
     }
 
-    const order = await this.orders.findOne({
-      'payment.providerTxId': payload.txId,
+    const payment = await this.prisma.payments.findFirst({
+      where: { transaction_ref: payload.txId },
+      orderBy: { id: 'desc' },
     });
-    if (!order) throw AppError.notFound('Transaction');
+    if (!payment) throw AppError.notFound('Transaction');
 
-    const statusMap = {
-      pending: 'pending',
-      paid: 'paid',
-      failed: 'failed',
-      cancelled: 'cancelled',
-    } as const;
-    const nextStatus = statusMap[payload.status as keyof typeof statusMap];
-    if (!nextStatus) throw new AppError('INVALID_PAYLOAD', 'Statut de paiement inconnu.', 400);
+    /**
+     * `payments.status` (par tentative) n'a que 3 valeurs (pending/success/
+     * failed) — `cancelled` n'existe pas à ce niveau, seul `orders.payment_status`
+     * distingue `unpaid`/`paid`/`refunded`. Un rappel « cancelled » ramène donc
+     * la tentative à `failed` (l'utilisateur peut en retenter une autre).
+     */
+    const paymentStatusMap = { pending: 'pending', paid: 'success', failed: 'failed', cancelled: 'failed' } as const;
+    const orderStatusMap = { pending: 'unpaid', paid: 'paid', failed: 'unpaid', cancelled: 'unpaid' } as const;
+    const nextPaymentStatus = paymentStatusMap[payload.status as keyof typeof paymentStatusMap];
+    if (!nextPaymentStatus) throw new AppError('INVALID_PAYLOAD', 'Statut de paiement inconnu.', 400);
+
+    const order = await this.prisma.orders.findUnique({ where: { id: payment.order_id } });
+    if (!order) throw AppError.notFound('Commande');
 
     // Idempotence : un rappel déjà appliqué ne modifie plus l'état final.
-    if (order.payment.status !== 'paid' && order.payment.status !== 'refunded') {
-      order.payment.status = nextStatus;
-      if (payload.reference) order.payment.reference = payload.reference;
-      if (nextStatus === 'paid') order.payment.paidAt = new Date();
-      await order.save();
+    if (order.payment_status !== 'paid' && order.payment_status !== 'refunded') {
+      await this.prisma.$transaction([
+        this.prisma.payments.update({ where: { id: payment.id }, data: { status: nextPaymentStatus } }),
+        this.prisma.orders.update({
+          where: { id: order.id },
+          data: { payment_status: orderStatusMap[payload.status as keyof typeof orderStatusMap] },
+        }),
+      ]);
     }
     return { received: true };
   }

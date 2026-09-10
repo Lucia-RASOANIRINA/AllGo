@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
-import { IsArray, IsDateString, IsIn, IsMongoId, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { IsArray, IsDateString, IsIn, IsNumberString, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators';
@@ -22,9 +22,9 @@ export class CreatePostDto {
   @ApiProperty({ type: [PostMediaDto], required: false })
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => PostMediaDto)
   media?: PostMediaDto[];
-  @ApiProperty({ required: false }) @IsOptional() @IsMongoId() productId?: string;
-  @ApiProperty({ required: false }) @IsOptional() @IsMongoId() promotionId?: string;
-  @ApiProperty({ required: false }) @IsOptional() @IsMongoId() shopId?: string;
+  @ApiProperty({ required: false, description: 'Identifiant numérique MySQL.' }) @IsOptional() @IsNumberString() productId?: string;
+  @ApiProperty({ required: false, description: 'Identifiant numérique MySQL.' }) @IsOptional() @IsNumberString() promotionId?: string;
+  @ApiProperty({ required: false, description: 'Identifiant numérique MySQL.' }) @IsOptional() @IsNumberString() shopId?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsDateString() scheduledAt?: string;
   @ApiProperty({ enum: ['public', 'followers'], required: false })
   @IsOptional() @IsIn(['public', 'followers']) visibility?: 'public' | 'followers';
@@ -42,7 +42,7 @@ export class SocialController {
   @Get('posts')
   @RequirePermission(Permission.PostRead)
   feed(@CurrentUser() user: AuthenticatedUser, @Query() query: PaginationQueryDto) {
-    return this.social.feed(query.limit, query.cursor, user.id);
+    return this.social.feed(query.limit, query.cursor, user.mysqlId);
   }
 
   @Post('posts')
@@ -54,19 +54,19 @@ export class SocialController {
   @Patch('posts/:id')
   @RequirePermission(Permission.PostUpdate)
   update(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: CreatePostDto) {
-    return this.social.update(user.id, id, dto);
+    return this.social.update(user.mysqlId, id, dto);
   }
 
   @Delete('posts/:id')
   @RequirePermission(Permission.PostDelete)
   remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.social.remove(user.id, id);
+    return this.social.remove(user.mysqlId, id);
   }
 
   @Post('posts/:id/reactions')
   @RequirePermission(Permission.ReactionToggle)
   react(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.social.toggleReaction(user.id, id);
+    return this.social.toggleReaction(user.mysqlId, id);
   }
 
   @Get('posts/:id/comments')
@@ -84,8 +84,8 @@ export class SocialController {
   @Post('posts/:id/share')
   @RequirePermission(Permission.PostShare)
   @ApiOperation({ summary: 'Partager une publication (compteur).' })
-  share(@Param('id') id: string) {
-    return this.social.share(id);
+  share(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.social.share(id, user.mysqlId);
   }
 
   @Post('posts/:id/report')

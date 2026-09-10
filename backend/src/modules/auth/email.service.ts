@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 
+import { AppError } from '../../common/http/app-error';
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -20,7 +22,7 @@ export class EmailService {
         this.logger.debug(`Lien de vérification email pour ${to}: ${verificationUrl}?token=${token}`);
         return;
       }
-      throw new Error('Configuration SMTP incomplète.');
+      throw new AppError('EMAIL_GATEWAY_UNAVAILABLE', "L'envoi d'email n'est pas encore configuré.", 503);
     }
 
     const transporter = nodemailer.createTransport({

@@ -47,7 +47,13 @@ class AuthInterceptor extends QueuedInterceptor {
     Response<dynamic> response,
     ResponseInterceptorHandler handler,
   ) async {
-    if (response.statusCode != 401 || response.requestOptions.extra['retried'] == true) {
+    // `skipAuth` (login, inscription, OTP...) : la requête ne porte aucun
+    // jeton d'accès, donc un 401 ici est un refus métier ordinaire (identifiants
+    // invalides), jamais un signe de session expirée — tenter un rafraîchissement
+    // n'a aucun sens et écraserait le vrai message d'erreur.
+    if (response.statusCode != 401 ||
+        response.requestOptions.extra['retried'] == true ||
+        response.requestOptions.extra['skipAuth'] == true) {
       handler.next(response);
       return;
     }

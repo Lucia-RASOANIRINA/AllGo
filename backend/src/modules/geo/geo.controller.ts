@@ -5,7 +5,7 @@ import {
   IsIn,
   IsLatitude,
   IsLongitude,
-  IsMongoId,
+  IsNumberString,
   IsNumber,
   IsOptional,
   Max,
@@ -40,7 +40,7 @@ export class NearbyShopsQueryDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsMongoId()
+  @IsNumberString()
   category?: string;
 
   @ApiPropertyOptional({ default: 50, maximum: 100 })

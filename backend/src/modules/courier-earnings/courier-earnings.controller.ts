@@ -10,19 +10,19 @@ export class CourierEarningsController {
 
   @Get()
   @RequirePermission(Permission.CourierEarningsRead)
-  summary(@CurrentUser() user: AuthenticatedUser) { return this.earnings.summary(user.id); }
+  summary(@CurrentUser() user: AuthenticatedUser) { return this.earnings.summary(user.mysqlId); }
 
   @Get('history')
   @RequirePermission(Permission.CourierEarningsRead)
-  history(@CurrentUser() user: AuthenticatedUser) { return this.earnings.history(user.id); }
+  history(@CurrentUser() user: AuthenticatedUser) { return this.earnings.history(user.mysqlId); }
 
   @Get('withdrawals')
   @RequirePermission(Permission.CourierEarningsRead)
-  withdrawals(@CurrentUser() user: AuthenticatedUser) { return this.earnings.withdrawalsList(user.id); }
+  withdrawals(@CurrentUser() user: AuthenticatedUser) { return this.earnings.withdrawalsList(user.mysqlId); }
 
   @Post('withdrawals')
   @RequirePermission(Permission.CourierEarningsRead)
   request(@CurrentUser() user: AuthenticatedUser, @Body() body: { amount: number; method: string; account: string }) {
-    return this.earnings.requestWithdrawal(user.id, body.amount, body.method, body.account);
+    return this.earnings.requestWithdrawal(user.mysqlId, body.amount, body.method, body.account);
   }
 }

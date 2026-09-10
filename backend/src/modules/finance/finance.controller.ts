@@ -6,7 +6,6 @@ import { Permission } from '../../common/rbac/permissions';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { CreateRefundDto, RequestWithdrawalDto, ResolveWithdrawalDto } from './dto/finance.dto';
 import { FinanceService } from './finance.service';
-import type { TransactionStatus, TransactionType } from './schemas/transaction.schema';
 
 @ApiTags('Finance')
 @Controller('finance')
@@ -24,7 +23,7 @@ export class FinanceController {
   @Post('merchant/withdrawals')
   @RequirePermission(Permission.WithdrawalRequest, 'shopId')
   requestMerchantWithdrawal(@CurrentUser() user: AuthenticatedUser, @Body() dto: RequestWithdrawalDto) {
-    return this.finance.requestMerchantWithdrawal(dto.shopId, user.id, dto.amount, dto.method, dto.account);
+    return this.finance.requestMerchantWithdrawal(dto.shopId, user.mysqlId, dto.amount, dto.method, dto.account);
   }
 
   @Get('merchant/withdrawals')
@@ -37,7 +36,7 @@ export class FinanceController {
 
   @Get('transactions')
   @RequirePermission(Permission.PlatformModerate)
-  transactions(@Query('type') type?: TransactionType, @Query('status') status?: TransactionStatus) {
+  transactions(@Query('type') type?: string, @Query('status') status?: string) {
     return this.finance.listTransactions(type, status);
   }
 
@@ -74,7 +73,7 @@ export class FinanceController {
   @Post('refunds')
   @RequirePermission(Permission.PlatformModerate)
   createRefund(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateRefundDto) {
-    return this.finance.createRefund(dto.orderId, dto.amount, dto.reason, user.id);
+    return this.finance.createRefund(dto.orderId, dto.amount, dto.reason, user.mysqlId);
   }
 
   @Get('invoices')
@@ -86,7 +85,7 @@ export class FinanceController {
   @Post('invoices/:orderId')
   @RequirePermission(Permission.PlatformModerate)
   generateInvoice(@CurrentUser() user: AuthenticatedUser, @Param('orderId') orderId: string) {
-    return this.finance.generateInvoice(orderId, user.id);
+    return this.finance.generateInvoice(orderId, user.mysqlId);
   }
 
   @Get('withdrawals/merchants')

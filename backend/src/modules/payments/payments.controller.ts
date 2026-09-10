@@ -11,7 +11,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
-import { IsIn, IsMongoId, IsString } from 'class-validator';
+import { IsIn, IsNumberString, IsString } from 'class-validator';
 import type { Request } from 'express';
 
 import {
@@ -25,7 +25,7 @@ import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { PaymentsService } from './payments.service';
 
 export class InitiatePaymentDto {
-  @ApiProperty() @IsMongoId() orderId!: string;
+  @ApiProperty() @IsNumberString() orderId!: string;
 
   @ApiProperty({ enum: ['mvola', 'orange_money', 'airtel_money'] })
   @IsIn(['mvola', 'orange_money', 'airtel_money'])
@@ -45,12 +45,18 @@ export class PaymentsController {
   @RequirePermission(Permission.PaymentInitiate)
   @ApiOperation({ summary: 'Lister les moyens de paiement disponibles.' })
   methods() {
+    const mobileMoney: Array<{ key: string; label: string }> = [
+      { key: 'mvola', label: 'MVola' },
+      { key: 'orange_money', label: 'Orange Money' },
+      { key: 'airtel_money', label: 'Airtel Money' },
+    ];
     return {
       data: [
         { key: 'cod', label: 'Paiement à la livraison', available: true },
-        { key: 'mvola', label: 'MVola', available: true },
-        { key: 'orange_money', label: 'Orange Money', available: true },
-        { key: 'airtel_money', label: 'Airtel Money', available: true },
+        ...mobileMoney.map(({ key, label }) => {
+          const available = this.payments.provider(key)?.isAvailable() ?? false;
+          return { key, label, available, message: available ? undefined : 'Ce moyen de paiement sera bientôt disponible.' };
+        }),
       ],
     };
   }
@@ -61,7 +67,7 @@ export class PaymentsController {
   @ApiHeader({ name: 'Idempotency-Key', required: true })
   @ApiOperation({ summary: 'Déclencher un paiement mobile money.' })
   initiate(@CurrentUser() user: AuthenticatedUser, @Body() dto: InitiatePaymentDto) {
-    return this.payments.initiate(dto.orderId, user.id, dto.provider, dto.phone);
+    return this.payments.initiate(dto.orderId, user.mysqlId, dto.provider, dto.phone);
   }
 
   /**

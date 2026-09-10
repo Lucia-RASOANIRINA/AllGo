@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsDateString, IsIn, IsMongoId, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsNumber, IsNumberString, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreatePromotionDto {
   @ApiProperty() @IsString() name!: string;
@@ -12,7 +12,7 @@ export class CreatePromotionDto {
   @ApiPropertyOptional() @IsOptional() @IsString() couponCode?: string;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() flash?: boolean;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() specialOffer?: boolean;
-  @ApiPropertyOptional() @IsOptional() @IsMongoId() productId?: string;
+  @ApiPropertyOptional({ description: 'Identifiant numérique MySQL du produit.' }) @IsOptional() @IsNumberString() productId?: string;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() active?: boolean;
 }
 export class UpdatePromotionDto extends PartialType(CreatePromotionDto) {}

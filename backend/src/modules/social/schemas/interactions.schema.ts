@@ -50,7 +50,13 @@ export class Follow extends Document {
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) followerId!: Types.ObjectId;
   @Prop({ type: String, enum: ['user', 'shop'], required: true })
   targetType!: 'user' | 'shop';
-  @Prop({ type: MongooseSchema.Types.ObjectId, required: true }) targetId!: Types.ObjectId;
+  /**
+   * ObjectId pour `targetType: 'user'` (miroir Mongo, § décision du
+   * 2026-09-09) ; entier MySQL pour `targetType: 'shop'` depuis la migration
+   * du module Boutiques (Phase 2) — d'où un type non contraint (`Mixed`)
+   * plutôt qu'un `ObjectId` strict.
+   */
+  @Prop({ type: MongooseSchema.Types.Mixed, required: true }) targetId!: Types.ObjectId | number;
   createdAt!: Date;
 }
 export type FollowDocument = HydratedDocument<Follow>;
@@ -71,7 +77,8 @@ export type FavoriteTargetType = (typeof FAVORITABLE_TYPES)[number];
 export class Favorite extends Document {
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
   @Prop({ type: String, enum: FAVORITABLE_TYPES, required: true }) targetType!: FavoriteTargetType;
-  @Prop({ type: MongooseSchema.Types.ObjectId, required: true }) targetId!: Types.ObjectId;
+  /** Entier MySQL pour `product`/`shop` (Phase 2) ; ObjectId Mongo pour `promotion`/`post` (pas encore migrés). */
+  @Prop({ type: MongooseSchema.Types.Mixed, required: true }) targetId!: Types.ObjectId | number;
   createdAt!: Date;
 }
 export type FavoriteDocument = HydratedDocument<Favorite>;

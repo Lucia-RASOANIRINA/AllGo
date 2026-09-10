@@ -18,8 +18,16 @@ export class OrangeMoneyProvider implements PaymentProvider {
 
   constructor(private readonly config: ConfigService) {}
 
+  private demoModeAllowed(): boolean {
+    return this.config.get('env') !== 'production' && this.config.get('PAYMENTS_DEMO_MODE') === 'true';
+  }
+
+  isAvailable(): boolean {
+    return Boolean(this.config.get('ORANGE_MONEY_CONSUMER_KEY')) || this.demoModeAllowed();
+  }
+
   async initiate(context: PaymentContext): Promise<InitiateResult> {
-    if (!this.config.get('ORANGE_MONEY_CONSUMER_KEY')) {
+    if (this.demoModeAllowed() && !this.config.get('ORANGE_MONEY_CONSUMER_KEY')) {
       return {
         txId: `demo-orange-${Date.now()}`,
         ussdCode: `*888*${context.amount}#`,
@@ -36,7 +44,7 @@ export class OrangeMoneyProvider implements PaymentProvider {
   }
 
   async verify(txId: string): Promise<PaymentStatus> {
-    if (!this.config.get('ORANGE_MONEY_CONSUMER_KEY')) {
+    if (this.demoModeAllowed() && !this.config.get('ORANGE_MONEY_CONSUMER_KEY')) {
       return { status: 'paid', providerTxId: txId, paidAt: new Date() };
     }
 

@@ -27,7 +27,8 @@ export class Story extends Document {
   @Prop({ type: [StoryViewerSchema], default: [] }) viewers!: StoryViewer[];
 
   /** Lien optionnel vers un produit ou une promotion (§12). */
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Product' }) productId?: Types.ObjectId;
+  /** Entier MySQL (`products.id`) depuis la migration du Catalogue (Phase 2). */
+  @Prop({ type: Number }) productId?: number;
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Promotion' }) promotionId?: Types.ObjectId;
 
   /** Date de péremption — pilote l'index TTL ci-dessous. */

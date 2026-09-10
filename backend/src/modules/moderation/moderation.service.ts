@@ -3,10 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 
 import { AppError } from '../../common/http/app-error';
-import { Comment, type CommentDocument } from '../social/schemas/interactions.schema';
-import { Post, type PostDocument } from '../social/schemas/post.schema';
-import { Product, type ProductDocument } from '../catalog/schemas/product.schema';
-import { Shop, type ShopDocument } from '../shops/schemas/shop.schema';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { User, type UserDocument } from '../users/schemas/user.schema';
 import { BannedWord, type BannedWordDocument } from './schemas/banned-word.schema';
 import {
@@ -18,23 +15,26 @@ import {
   type ReportTargetType,
 } from './schemas/report.schema';
 import { Sanction, type SanctionDocument, type SanctionType } from './schemas/sanction.schema';
-import { UserBlock, type UserBlockDocument } from './schemas/user-block.schema';
 
 /** Au-delà de ce nombre de signalements en attente, le contenu est masqué sans attendre un modérateur (§29). */
 const AUTO_HIDE_REPORT_THRESHOLD = 3;
+
+/**
+ * `product`/`shop` (Phase 2) et `post`/`comment` (Phase 4, MySQL) stockent un
+ * entier ; `user` (miroir Mongo, pas encore basculé — Phase 6) un ObjectId.
+ */
+function toStorageId(targetType: ReportTargetType, targetId: string): Types.ObjectId | number {
+  return targetType === 'user' ? new Types.ObjectId(targetId) : Number(targetId);
+}
 
 @Injectable()
 export class ModerationService {
   constructor(
     @InjectModel(Report.name) private readonly reports: Model<ReportDocument>,
     @InjectModel(Sanction.name) private readonly sanctions: Model<SanctionDocument>,
-    @InjectModel(UserBlock.name) private readonly blocks: Model<UserBlockDocument>,
     @InjectModel(BannedWord.name) private readonly bannedWords: Model<BannedWordDocument>,
-    @InjectModel(Post.name) private readonly posts: Model<PostDocument>,
-    @InjectModel(Comment.name) private readonly comments: Model<CommentDocument>,
-    @InjectModel(Product.name) private readonly products: Model<ProductDocument>,
-    @InjectModel(Shop.name) private readonly shops: Model<ShopDocument>,
     @InjectModel(User.name) private readonly users: Model<UserDocument>,
+    private readonly prisma: PrismaService,
   ) {}
 
   // --- Signalements ---------------------------------------------------
@@ -51,7 +51,7 @@ export class ModerationService {
       const duplicate = await this.reports.exists({
         reporterId: new Types.ObjectId(input.reporterId),
         targetType: input.targetType,
-        targetId: new Types.ObjectId(input.targetId),
+        targetId: toStorageId(input.targetType, input.targetId),
         status: 'pending',
       });
       if (duplicate) {
@@ -62,7 +62,7 @@ export class ModerationService {
     await this.reports.create({
       reporterId: input.reporterId ? new Types.ObjectId(input.reporterId) : null,
       targetType: input.targetType,
-      targetId: new Types.ObjectId(input.targetId),
+      targetId: toStorageId(input.targetType, input.targetId),
       reason: input.reason?.trim() || 'Signalement sans motif précisé.',
       reasonCode: input.reasonCode ?? (input.automatic ? 'automatic_filter' : 'other'),
       automatic: input.automatic ?? false,
@@ -76,18 +76,20 @@ export class ModerationService {
     if (targetType !== 'post' && targetType !== 'comment' && targetType !== 'product') return;
     const pendingCount = await this.reports.countDocuments({
       targetType,
-      targetId: new Types.ObjectId(targetId),
+      targetId: toStorageId(targetType, targetId),
       status: 'pending',
     });
     if (pendingCount < AUTO_HIDE_REPORT_THRESHOLD) return;
 
     const reason = `Masqué automatiquement après ${pendingCount} signalements.`;
     if (targetType === 'post') {
-      await this.posts.updateOne({ _id: targetId }, { $set: { reported: true, reportReason: reason } });
+      await this.prisma.posts.update({ where: { id: Number(targetId) }, data: { reported: true, report_reason: reason } });
     } else if (targetType === 'comment') {
-      await this.comments.updateOne({ _id: targetId }, { $set: { reported: true, reportReason: reason } });
+      await this.prisma.comments.update({ where: { id: Number(targetId) }, data: { reported: true, report_reason: reason } });
     } else {
-      await this.products.updateOne({ _id: targetId }, { $set: { isHidden: true, isReported: true } });
+      // `isReported` n'existe plus côté MySQL (Phase 2) — déduit de `reports`
+      // (voir `AdministrationService.reportedProducts`) ; seul `is_hidden` reste à écrire.
+      await this.prisma.products.update({ where: { id: Number(targetId) }, data: { is_hidden: true } });
     }
   }
 
@@ -143,62 +145,75 @@ export class ModerationService {
   async removeContent(targetType: ReportTargetType, targetId: string): Promise<{ removed: true }> {
     switch (targetType) {
       case 'post':
-        await this.posts.deleteOne({ _id: targetId });
+        await this.prisma.posts.delete({ where: { id: Number(targetId) } });
         break;
-      case 'comment': {
-        const comment = await this.comments.findOneAndDelete({ _id: targetId });
-        if (comment) await this.posts.updateOne({ _id: comment.postId }, { $inc: { 'counters.comments': -1 } });
+      case 'comment':
+        // Pas de compteur dénormalisé à décrémenter (§ décision Phase 4) : le
+        // nombre de commentaires d'une publication se calcule à la lecture.
+        await this.prisma.comments.delete({ where: { id: Number(targetId) } });
         break;
-      }
       case 'product':
-        await this.products.updateOne({ _id: targetId }, { $set: { status: 'archived', isHidden: true, isReported: true } });
+        await this.prisma.products.update({ where: { id: Number(targetId) }, data: { status: 'archived', is_hidden: true } });
         break;
       case 'shop':
-        await this.shops.updateOne({ _id: targetId }, { $set: { status: 'suspended' } });
+        await this.prisma.shops.update({ where: { id: Number(targetId) }, data: { status: 'suspended' } });
         break;
       case 'user':
-        await this.users.updateOne({ _id: targetId }, { $set: { status: 'suspended' } });
+        // `targetId` reste l'ObjectId du miroir (Phase 6 bascule l'identité
+        // de session sur l'entier MySQL) — résolu ici vers `users.id` réel :
+        // MySQL est l'unique source vérifiée par `AuthService.login()`,
+        // écrire seulement le miroir laissait un compte « supprimé » par la
+        // modération pleinement capable de se reconnecter (même défaut que
+        // celui corrigé dans `AdministrationService`, avant la Phase 5).
+        await this.suspendMirroredUser(targetId);
         break;
     }
     return { removed: true };
   }
 
-  // --- Blocage compte-à-compte ------------------------------------------
+  // --- Blocage compte-à-compte — table réelle `user_blocks` (Phase 4) -----
 
-  async blockUser(blockerId: string, blockedId: string): Promise<{ blocked: true }> {
+  async blockUser(blockerId: number, blockedId: number): Promise<{ blocked: true }> {
     if (blockerId === blockedId) {
       throw new AppError('CANNOT_BLOCK_SELF', 'Vous ne pouvez pas vous bloquer vous-même.', 400);
     }
-    await this.blocks.updateOne(
-      { blockerId: new Types.ObjectId(blockerId), blockedId: new Types.ObjectId(blockedId) },
-      { $setOnInsert: { blockerId: new Types.ObjectId(blockerId), blockedId: new Types.ObjectId(blockedId) } },
-      { upsert: true },
-    );
+    await this.prisma.user_blocks.upsert({
+      where: { blocker_id_blocked_id: { blocker_id: blockerId, blocked_id: blockedId } },
+      create: { blocker_id: blockerId, blocked_id: blockedId },
+      update: {},
+    });
     return { blocked: true };
   }
 
-  async unblockUser(blockerId: string, blockedId: string): Promise<{ blocked: false }> {
-    await this.blocks.deleteOne({ blockerId: new Types.ObjectId(blockerId), blockedId: new Types.ObjectId(blockedId) });
+  async unblockUser(blockerId: number, blockedId: number): Promise<{ blocked: false }> {
+    await this.prisma.user_blocks.deleteMany({ where: { blocker_id: blockerId, blocked_id: blockedId } });
     return { blocked: false };
   }
 
-  listBlockedUsers(blockerId: string) {
-    return this.blocks.find({ blockerId: new Types.ObjectId(blockerId) }).sort({ createdAt: -1 }).lean();
+  listBlockedUsers(blockerId: number) {
+    return this.prisma.user_blocks.findMany({
+      where: { blocker_id: blockerId },
+      orderBy: { created_at: 'desc' },
+      include: { users_user_blocks_blocked_idTousers: { select: { id: true, firstname: true, lastname: true, avatar: true } } },
+    });
   }
 
   /** Vrai si l'un bloque l'autre, dans un sens ou dans l'autre — un blocage ferme le canal pour les deux. */
-  async isBlockedEitherWay(userA: string, userB: string): Promise<boolean> {
-    const count = await this.blocks.countDocuments({
-      $or: [
-        { blockerId: new Types.ObjectId(userA), blockedId: new Types.ObjectId(userB) },
-        { blockerId: new Types.ObjectId(userB), blockedId: new Types.ObjectId(userA) },
-      ],
+  async isBlockedEitherWay(userA: number, userB: number): Promise<boolean> {
+    const count = await this.prisma.user_blocks.count({
+      where: {
+        OR: [
+          { blocker_id: userA, blocked_id: userB },
+          { blocker_id: userB, blocked_id: userA },
+        ],
+      },
     });
     return count > 0;
   }
 
-  async blockedAuthorIds(blockerId: string): Promise<Types.ObjectId[]> {
-    return this.blocks.find({ blockerId: new Types.ObjectId(blockerId) }).distinct('blockedId');
+  async blockedAuthorIds(blockerId: number): Promise<number[]> {
+    const rows = await this.prisma.user_blocks.findMany({ where: { blocker_id: blockerId }, select: { blocked_id: true } });
+    return rows.map((r) => r.blocked_id);
   }
 
   // --- Sanctions ---------------------------------------------------------
@@ -220,7 +235,7 @@ export class ModerationService {
       expiresAt: input.expiresAt,
     });
     if (input.type === 'suspension' || input.type === 'ban') {
-      await this.users.updateOne({ _id: input.userId }, { $set: { status: 'suspended' } });
+      await this.suspendMirroredUser(input.userId);
     }
     return sanction.toJSON();
   }
@@ -229,15 +244,27 @@ export class ModerationService {
     return this.sanctions.find({ userId: new Types.ObjectId(userId) }).sort({ createdAt: -1 }).lean();
   }
 
+  /**
+   * Résout l'ObjectId du miroir vers l'entier MySQL réel et suspend LE
+   * compte, jamais seulement sa copie miroir — `AuthService.login()` ne
+   * vérifie que `prisma.users.status` (§ décision du 2026-09-09, mise en
+   * marché : un compte « suspendu » qui reste connectable n'est pas suspendu).
+   */
+  private async suspendMirroredUser(mirrorId: string): Promise<void> {
+    const mirror = await this.users.findById(mirrorId).select('mysqlId').lean();
+    if (!mirror?.mysqlId) return;
+    await this.prisma.users.update({ where: { id: mirror.mysqlId }, data: { status: 'suspended' } });
+  }
+
   // --- Liste noire (comptes suspendus/bannis) -----------------------------
 
   blacklist() {
-    return this.users
-      .find({ status: 'suspended' })
-      .select('phone email firstName lastName status createdAt')
-      .sort({ updatedAt: -1 })
-      .limit(200)
-      .lean();
+    return this.prisma.users.findMany({
+      where: { status: 'suspended' },
+      select: { id: true, phone: true, email: true, firstname: true, lastname: true, status: true, created_at: true },
+      orderBy: { updated_at: 'desc' },
+      take: 200,
+    });
   }
 
   // --- Modération automatique (mots interdits) ----------------------------
@@ -287,9 +314,9 @@ export class ModerationService {
 
     const reason = `Filtrage automatique : le terme « ${match} » est interdit.`;
     if (targetType === 'post') {
-      await this.posts.updateOne({ _id: targetId }, { $set: { reported: true, reportReason: reason } });
+      await this.prisma.posts.update({ where: { id: Number(targetId) }, data: { reported: true, report_reason: reason } });
     } else {
-      await this.comments.updateOne({ _id: targetId }, { $set: { reported: true, reportReason: reason } });
+      await this.prisma.comments.update({ where: { id: Number(targetId) }, data: { reported: true, report_reason: reason } });
     }
     await this.fileReport({
       reporterId: null,

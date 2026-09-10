@@ -19,9 +19,13 @@ export class RoleAssignment {
   @Prop({ type: String, enum: Object.values(Role), required: true })
   role!: Role;
 
-  /** Portée du rôle. Requis pour tout rôle de boutique, absent pour les rôles globaux. */
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Shop' })
-  shopId?: Types.ObjectId;
+  /**
+   * Portée du rôle. Requis pour tout rôle de boutique, absent pour les rôles
+   * globaux. Identifiant entier MySQL (`shops.id`) depuis la migration des
+   * Boutiques (Phase 2) — plus un ObjectId Mongo.
+   */
+  @Prop({ type: Number })
+  shopId?: number;
 }
 export const RoleAssignmentSchema = SchemaFactory.createForClass(RoleAssignment);
 

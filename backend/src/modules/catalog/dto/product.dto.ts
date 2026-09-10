@@ -4,8 +4,8 @@ import {
   IsArray,
   IsBoolean,
   IsIn,
-  IsMongoId,
   IsNumber,
+  IsNumberString,
   IsOptional,
   IsString,
   Min,
@@ -35,7 +35,10 @@ export class CreateProductDto {
   @ApiPropertyOptional() @IsOptional() @IsString() description?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() sku?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() barcode?: string;
-  @ApiPropertyOptional() @IsOptional() @IsMongoId() categoryId?: string;
+  @ApiPropertyOptional({ description: 'Identifiant numérique MySQL de la catégorie.' })
+  @IsOptional()
+  @IsNumberString()
+  categoryId?: string;
   @ApiProperty() @Type(() => Number) @IsNumber() @Min(0) price!: number;
   @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsNumber() @Min(0) promoPrice?: number;
   @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsNumber() @Min(0) stock?: number;

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { IsIn, IsMongoId, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsNumberString, IsOptional, IsString } from 'class-validator';
 
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators';
 import { Permission } from '../../common/rbac/permissions';
@@ -12,8 +12,8 @@ export class CreateStoryDto {
   @IsString()
   key!: string;
   @ApiProperty({ enum: ['image', 'video'] }) @IsIn(['image', 'video']) type!: 'image' | 'video';
-  @ApiPropertyOptional() @IsOptional() @IsMongoId() productId?: string;
-  @ApiPropertyOptional() @IsOptional() @IsMongoId() promotionId?: string;
+  @ApiPropertyOptional({ description: 'Identifiant numérique MySQL du produit.' }) @IsOptional() @IsNumberString() productId?: string;
+  @ApiPropertyOptional({ description: 'Identifiant numérique MySQL de la promotion.' }) @IsOptional() @IsNumberString() promotionId?: string;
 }
 
 @ApiTags('Stories')
@@ -36,18 +36,18 @@ export class StoriesController {
   @Post(':id/view')
   @RequirePermission(Permission.PostRead)
   view(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.stories.view(id, { id: user.id, name: user.phone });
+    return this.stories.view(id, user.mysqlId);
   }
 
   @Get(':id/viewers')
   @RequirePermission(Permission.StoryCreate)
   viewers(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.stories.viewers(id, user.id);
+    return this.stories.viewers(id, user.mysqlId);
   }
 
   @Post(':id/reactions')
   @RequirePermission(Permission.ReactionToggle)
   react(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.stories.toggleReaction(user.id, id);
+    return this.stories.toggleReaction(user.mysqlId, id);
   }
 }

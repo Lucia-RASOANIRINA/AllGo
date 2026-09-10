@@ -13,50 +13,29 @@ function nowAtShop(): { isoDay: number; hhmm: string } {
   return { isoDay, hhmm };
 }
 
+/** Une ligne de la table `shop_opening_hours` (MySQL) — `opens_at`/`closes_at` en TIME. */
+export interface OpeningHourRow {
+  day_of_week: number;
+  opens_at: Date;
+  closes_at: Date;
+}
+
+/** MariaDB renvoie une colonne `TIME` comme une date épochée à 1970-01-01 UTC — on relit juste l'heure/minute. */
+function hhmmOf(value: Date): string {
+  return String(value.getUTCHours()).padStart(2, '0') + ':' + String(value.getUTCMinutes()).padStart(2, '0');
+}
+
 /**
- * Filtre Mongo « ouvert maintenant » — partagé entre `ShopsService` (liste)
- * et `GeoService` (carte). Un jour de fermeture déclaré (`closedDays`) exclut
- * la boutique même si des horaires du jour existent par erreur.
- * Comparaison de chaînes `HH:mm` zéro-paddées : valide pour du 24 h.
+ * « Ouvert maintenant » — pas de `closedDays` distinct côté MySQL (§ Phase 2) :
+ * l'absence de toute ligne pour le jour courant signifie déjà « fermé »,
+ * contrairement à Mongo où ce cas redondant était géré séparément.
  */
-export function openNowFilter(): Record<string, unknown> {
+export function isShopOpenNow(hours: OpeningHourRow[]): boolean {
   const { isoDay, hhmm } = nowAtShop();
-
-  return {
-    closedDays: { $ne: isoDay },
-    openingHours: { $elemMatch: { day: isoDay, open: { $lte: hhmm }, close: { $gte: hhmm } } },
-  };
+  return hours.some((h) => h.day_of_week === isoDay && hhmmOf(h.opens_at) <= hhmm && hhmmOf(h.closes_at) >= hhmm);
 }
 
-/**
- * Filtre Mongo « fermé maintenant » — strict complément de `openNowFilter()`
- * via `$nor`, plutôt qu'une reformulation indépendante : une boutique sans
- * aucun horaire déclaré tombe aussi dans « fermée », sans qu'il faille
- * décider séparément ce que « pas d'horaires » signifie.
- */
-export function closedNowFilter(): Record<string, unknown> {
-  return { $nor: [openNowFilter()] };
-}
-
-/**
- * Même règle que `openNowFilter()`, évaluée en mémoire sur un document déjà
- * chargé — pour annoter une fiche ou une carte d'un statut « ouvert/fermé »
- * sans reformuler une seconde requête.
- */
-export function isShopOpenNow(shop: {
-  openingHours?: Array<{ day: number; open: string; close: string }>;
-  closedDays?: number[];
-}): boolean {
-  const { isoDay, hhmm } = nowAtShop();
-  if (shop.closedDays?.includes(isoDay)) return false;
-  return (shop.openingHours ?? []).some(
-    (h) => h.day === isoDay && h.open <= hhmm && h.close >= hhmm,
-  );
-}
-
-/** Ajoute `isOpenNow` à un document boutique déjà chargé (`.lean()` inclus). */
-export function withOpenNow<T extends { openingHours?: Array<{ day: number; open: string; close: string }>; closedDays?: number[] }>(
-  shop: T,
-): T & { isOpenNow: boolean } {
-  return { ...shop, isOpenNow: isShopOpenNow(shop) };
+/** Ajoute `isOpenNow` à une boutique déjà chargée avec ses horaires. */
+export function withOpenNow<T>(shop: T, hours: OpeningHourRow[]): T & { isOpenNow: boolean } {
+  return { ...shop, isOpenNow: isShopOpenNow(hours) };
 }

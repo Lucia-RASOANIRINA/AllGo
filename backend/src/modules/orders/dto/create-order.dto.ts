@@ -67,8 +67,8 @@ export class CreateOrderDto {
   @Type(() => DeliveryDto)
   delivery!: DeliveryDto;
 
-  @ApiProperty({ enum: ['cod', 'mvola', 'orange_money', 'airtel_money', 'card'] })
-  @IsIn(['cod', 'mvola', 'orange_money', 'airtel_money', 'card'])
+  @ApiProperty({ enum: ['cod', 'mvola', 'orange_money', 'airtel_money'] })
+  @IsIn(['cod', 'mvola', 'orange_money', 'airtel_money'])
   paymentMethod!: string;
 
   @ApiPropertyOptional({ description: 'Frais de livraison en Ariary, calculés par la boutique.' })

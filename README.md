@@ -21,6 +21,80 @@ Référence normative : [`docs/CAHIER_DES_CHARGES_MOBILE_FLUTTER.md`](docs/CAHIE
 un domaine à la fois ; MariaDB s'éteint au lot M7. Jamais deux sources de vérité pour un
 même domaine. Voir chapitre 15 du cahier des charges.
 
+## Migration MySQL (o2switch) — état et accès de test
+
+Le backend tourne actuellement en **hybride** : Auth/Utilisateurs (Phase 1),
+Catalogue/Boutiques/Géolocalisation (Phase 2) et Commandes/Panier/Paiements/
+Finance/Livreur (Phase 3) lisent et écrivent directement sur la vraie base de
+production o2switch (`arur4976_janga_market`, partagée avec le site web
+JangaMarket) via Prisma. Réseau social, messagerie, campagnes/promotions,
+modération et avis restent sur MongoDB (Phases 4-5 à venir) — c'est pourquoi
+**Docker (Mongo + Redis) reste indispensable même en pointant sur la base
+MySQL réelle** : l'application entière boote sur `MongooseModule` au
+démarrage, et Redis porte les OTP, les verrous d'idempotence et les
+compteurs de tentatives de connexion, indépendamment de la base qui héberge
+les données métier.
+
+**Accès à la base réelle** : hébergement mutualisé, pas d'accès MySQL direct
+depuis l'extérieur — un tunnel SSH est nécessaire :
+
+```bash
+ssh -i <clé> -N -L 3307:/tmp/mysql.sock arur4976@grenier.o2switch.net
+# DATABASE_URL="mysql://arur4976_janga_user:***@127.0.0.1:3307/arur4976_janga_market"
+```
+
+L'IP sortante doit être autorisée dans cPanel → **Autorisation SSH** (entrée
++ sortie, port 22) : une IP qui change (redémarrage box, nouveau réseau) sans
+être réautorisée se traduit par un tunnel qui *time-out silencieusement* (pas
+de refus explicite) — vérifier `curl https://api.ipify.org` en cas de blocage
+inexpliqué.
+
+### Comptes de test (base réelle)
+
+Créés pour vérifier en direct le parcours complet panier → commande →
+paiement → litige → remboursement → livreur, sans jamais toucher aux comptes
+réels de production. Mot de passe unique : `TestAllgo2026`.
+
+| Rôle | Téléphone | `mysqlId` | Détail |
+
+| Client | `+261339990001` | 16 | Compte d'achat, sans historique |
+| Propriétaire boutique | `+261339990002` | 17 | Propriétaire de « Boutique Test Phase3 » (id 3) |
+| Livreur | `+261339990003` | 18 | Membre d'équipe (`shop_courier`) de la boutique de test |
+| Administrateur | `+261339990004` | 19 | `role_id = 1` (`platform_admin`) |
+
+**Boutique et produit** : `Boutique Test Phase3` (id 3, slug
+`boutique-test-phase3`) / `Produit Test Phase3` (id 3, 5 000 Ar, stock 50).
+Les commandes/paiements/litiges créés lors des vérifications sont nettoyés
+après coup — seuls ces comptes, la boutique et le produit restent en base
+comme jeu de test réutilisable.
+
+### Défauts trouvés en exécutant ce parcours contre la base réelle
+
+Aucun n'était détectable par `tsc`/les tests unitaires — seule l'exécution
+réelle (connexion, checkout, livraison) les a révélés :
+
+1. **`RoleAssignment.shopId` (miroir Mongo `User`) était resté typé en
+   ObjectId** (`ref: 'Shop'`) alors que les boutiques sont des entiers MySQL
+   depuis la Phase 2 — Mongoose plantait en tentant de caster `"3"` en
+   ObjectId dès qu'un propriétaire de boutique ou un membre d'équipe se
+   reconnectait (`/auth/login` → `INTERNAL_ERROR`). **Tout propriétaire de
+   boutique réel était donc bloqué hors de son compte** dès l'expiration de
+   son jeton. Corrigé : `shopId` en `Number`.
+2. **`SHOP_TEAM_ROLES` (validateur DTO) omettait `shop_courier`** — aucun
+   livreur ne pouvait jamais être ajouté à l'équipe d'une boutique via l'API,
+   alors que le service et les permissions le permettaient déjà.
+3. **`payments.service.ts`/`.controller.ts`/`.module.ts` n'avaient jamais été
+   migrés** : ils interrogeaient encore le schéma Mongo `Order` (`_id`,
+   `payment.status`, `amounts.total`), inexistant depuis la bascule des
+   commandes sur MySQL (Phase 3) — tout appel à `/payments/initiate` ou au
+   rappel fournisseur échouait silencieusement. Réécrit sur la vraie table
+   `payments` (une ligne par tentative) + `orders.payment_status`.
+4. **Le `timeout` par défaut de Prisma (5 s) pour une transaction
+   interactive** est trop court dès qu'il y a plusieurs allers-retours réseau
+   non négligeables vers la base (tunnel SSH compris) — la création de
+   commande échouait après le décrément de stock mais avant l'écriture de
+   l'historique. Porté à 15 s pour `OrdersService.create()`.
+
 ## Démarrage
 
 ### 1. Infrastructure locale

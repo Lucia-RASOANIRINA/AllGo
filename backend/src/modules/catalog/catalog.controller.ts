@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Header, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsIn, IsMongoId, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsNumber, IsNumberString, IsOptional, IsString, Min } from 'class-validator';
 
 import { Public, RequirePermission } from '../../common/decorators/auth.decorators';
 import { Permission } from '../../common/rbac/permissions';
@@ -10,8 +10,8 @@ import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 import { CatalogService } from './catalog.service';
 
 export class ProductQueryDto extends PaginationQueryDto {
-  @ApiPropertyOptional() @IsOptional() @IsMongoId() category?: string;
-  @ApiPropertyOptional() @IsOptional() @IsMongoId() shop?: string;
+  @ApiPropertyOptional() @IsOptional() @IsNumberString() category?: string;
+  @ApiPropertyOptional() @IsOptional() @IsNumberString() shop?: string;
   @ApiPropertyOptional({
     description: 'Recherche plein texte, pondérée nom (10) / description (2).',
   })

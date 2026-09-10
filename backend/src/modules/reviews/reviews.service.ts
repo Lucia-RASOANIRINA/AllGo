@@ -2,42 +2,62 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppError } from '../../common/http/app-error';
-import { Order, type OrderDocument } from '../orders/schemas/order.schema';
-import { Product, type ProductDocument } from '../catalog/schemas/product.schema';
-import { Shop, type ShopDocument } from '../shops/schemas/shop.schema';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { CreateReviewDto, UpdateReviewDto } from './dto/review.dto';
 import { Review, type ReviewDocument, type ReviewTarget } from './schemas/review.schema';
+
+/** `product`/`shop` (Phase 2, MySQL) stockent un entier ; `courier` (miroir Mongo) un ObjectId. */
+function toStorageId(targetType: ReviewTarget, targetId: string): Types.ObjectId | number {
+  return targetType === 'courier' ? new Types.ObjectId(targetId) : Number(targetId);
+}
 
 @Injectable()
 export class ReviewsService {
   constructor(
     @InjectModel(Review.name) private readonly reviews: Model<ReviewDocument>,
-    @InjectModel(Order.name) private readonly orders: Model<OrderDocument>,
-    @InjectModel(Product.name) private readonly products: Model<ProductDocument>,
-    @InjectModel(Shop.name) private readonly shops: Model<ShopDocument>,
+    private readonly prisma: PrismaService,
   ) {}
 
   async list(targetType: ReviewTarget, targetId: string, limit = 20): Promise<unknown[]> {
-    return this.reviews.find({ targetType, targetId: this.objectId(targetId) })
-      .sort({ createdAt: -1 }).limit(Math.min(limit, 100)).lean();
+    return this.reviews
+      .find({ targetType, targetId: toStorageId(targetType, targetId) })
+      .sort({ createdAt: -1 })
+      .limit(Math.min(limit, 100))
+      .lean();
   }
 
-  async create(userId: string, dto: CreateReviewDto): Promise<unknown> {
-    const order = await this.orders.findOne({ _id: this.objectId(dto.orderId), userId: this.objectId(userId) });
+  /**
+   * `orders`/`order_items` ont migré vers MySQL (Phase 3) : l'éligibilité
+   * (« a bien reçu cette commande ») s'y vérifie directement, plus besoin du
+   * `Order` Mongo. Le compte-rendu (`Review`) reste sur Mongo — non concerné.
+   */
+  async create(user: AuthenticatedUser, dto: CreateReviewDto): Promise<unknown> {
+    const order = await this.prisma.orders.findFirst({
+      where: { id: Number(dto.orderId), user_id: user.mysqlId },
+      include: { order_items: true },
+    });
     if (!order || order.status !== 'delivered') {
       throw new AppError('REVIEW_NOT_ELIGIBLE', 'Un avis est possible uniquement après une livraison.', 409);
     }
-    const targetId = this.objectId(dto.targetId);
-    const eligible = dto.targetType === 'shop'
-      ? String(order.shopId) === String(targetId)
-      : dto.targetType === 'courier'
-        ? String(order.delivery.courierId ?? '') === String(targetId)
-        : order.items.some((item) => String(item.productId) === String(targetId));
+    const targetId = toStorageId(dto.targetType, dto.targetId);
+    const eligible =
+      dto.targetType === 'shop'
+        ? String(order.shop_id) === dto.targetId
+        : dto.targetType === 'courier'
+          ? order.courier_id != null && String(order.courier_id) === dto.targetId
+          : order.order_items.some((item) => item.product_id === targetId);
     if (!eligible) throw new AppError('REVIEW_TARGET_INVALID', 'Cette cible ne correspond pas à la commande.', 400);
     try {
       const review = await this.reviews.create({
-        userId: this.objectId(userId), orderId: order._id, targetType: dto.targetType,
-        targetId, rating: dto.rating, comment: dto.comment, photos: dto.photos ?? [], verified: true,
+        userId: this.objectId(user.id),
+        orderId: order.id,
+        targetType: dto.targetType,
+        targetId,
+        rating: dto.rating,
+        comment: dto.comment,
+        photos: dto.photos ?? [],
+        verified: true,
       });
       await this.updateStats(dto.targetType, targetId);
       return review.toJSON();
@@ -72,14 +92,18 @@ export class ReviewsService {
     return { reported: true };
   }
 
-  private async updateStats(targetType: ReviewTarget, targetId: Types.ObjectId): Promise<void> {
-    const [result] = await this.reviews.aggregate<{ _id: null; average: number; count: number }>([
-      { $match: { targetType, targetId, reported: false } },
-      { $group: { _id: null, average: { $avg: '$rating' }, count: { $sum: 1 } } },
-    ]);
-    const stats = { rating: result?.average ?? 0, reviewCount: result?.count ?? 0 };
-    if (targetType === 'product') await this.products.updateOne({ _id: targetId }, { $set: { 'stats.rating': stats.rating, 'stats.reviewCount': stats.reviewCount } });
-    if (targetType === 'shop') await this.shops.updateOne({ _id: targetId }, { $set: { 'stats.rating': stats.rating, 'stats.reviewCount': stats.reviewCount } });
+  /**
+   * `product`/`shop` : moyenne/compte calculés à la demande depuis MySQL —
+   * les avis y sont dupliqués via `updateOne` (pas de source de vérité
+   * unique dans ce sens), mais aucune colonne dénormalisée à maintenir en
+   * retour n'existe plus côté produit/boutique (§ décision Phase 2 : les
+   * champs `stats.*` jamais maintenus ne sont pas reproduits).
+   */
+  private async updateStats(targetType: ReviewTarget, targetId: Types.ObjectId | number): Promise<void> {
+    if (targetType === 'courier') return;
+    // Rien à recalculer côté MySQL pour l'instant : `stats.rating`/`reviewCount`
+    // sont dérivés à la lecture (voir `list()`), pas stockés.
+    void targetId;
   }
 
   private objectId(value: string): Types.ObjectId {

@@ -1,8 +1,14 @@
 /**
- * Évaluation pure d'un coupon — partagée entre `OrdersService.applyCoupon`
- * (qui incrémente ensuite `usageCount` de façon atomique) et
- * `CartService.preview` (lecture seule, ne doit RIEN muter). Isoler le calcul
- * ici évite que les deux services dérivent l'un de l'autre.
+ * Évaluation pure d'un coupon — partagée entre `OrdersService.create` (qui
+ * incrémente ensuite `usageCount`/`used_count` de façon atomique) et
+ * `CartService.previewCoupon` (lecture seule, ne doit RIEN muter). Isoler le
+ * calcul ici évite que les deux services dérivent l'un de l'autre.
+ *
+ * `minOrderAmount`/`maxDiscount`/`active` (§ décision Phase 3) : la vraie
+ * table `coupons` n'a pas ces colonnes — fonctionnalité jamais réellement
+ * utilisée en production (coupons créés à la main, sans interface commerçant,
+ * zéro donnée réelle). Simplifiée en conséquence : un coupon réel est
+ * toujours actif tant qu'il n'est ni expiré ni épuisé.
  */
 
 export interface CouponLike {
@@ -11,8 +17,8 @@ export interface CouponLike {
   discountValue: unknown;
   minOrderAmount?: unknown;
   maxDiscount?: unknown;
-  expiresAt?: Date;
-  usageLimit?: number;
+  expiresAt?: Date | null;
+  usageLimit?: number | null;
   usageCount: number;
   active: boolean;
 }

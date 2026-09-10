@@ -12,9 +12,7 @@ import {
 import type { Server, Socket } from 'socket.io';
 
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
-import { Order, type OrderDocument } from '../orders/schemas/order.schema';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 
 /** Catalogue des événements temps réel — §7.5. */
 export const RealtimeEvent = {
@@ -50,7 +48,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
-    @InjectModel(Order.name) private readonly orders: Model<OrderDocument>,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -99,17 +97,13 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('delivery:subscribe')
   async subscribeDelivery(client: Socket, @MessageBody() body: { orderId: string }) {
-    const user = client.data.user as AuthenticatedUser & { sub: string };
-    if (!Types.ObjectId.isValid(body.orderId) || !Types.ObjectId.isValid(user.sub)) {
-      return { ok: false };
-    }
-    const order = await this.orders.findOne({
-      _id: new Types.ObjectId(body.orderId),
-      $or: [
-        { userId: new Types.ObjectId(user.sub) },
-        { 'delivery.courierId': new Types.ObjectId(user.sub) },
-      ],
-    }).select('delivery shopId');
+    const user = client.data.user as AuthenticatedUser;
+    const orderId = Number(body.orderId);
+    if (!Number.isInteger(orderId)) return { ok: false };
+    const order = await this.prisma.orders.findFirst({
+      where: { id: orderId, OR: [{ user_id: user.mysqlId }, { courier_id: user.mysqlId }] },
+      select: { id: true },
+    });
     if (!order) return { ok: false };
     await client.join(`delivery:${body.orderId}`);
     return { ok: true };
@@ -120,32 +114,29 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client: Socket,
     @MessageBody() body: { orderId: string; latitude: number; longitude: number; remainingDistance?: number; etaMinutes?: number },
   ) {
-    const user = client.data.user as AuthenticatedUser & { sub: string };
-    if (!Types.ObjectId.isValid(body.orderId) || !Types.ObjectId.isValid(user.sub) ||
+    const user = client.data.user as AuthenticatedUser;
+    const orderId = Number(body.orderId);
+    if (!Number.isInteger(orderId) ||
         !Number.isFinite(body.latitude) || !Number.isFinite(body.longitude) ||
         body.latitude < -90 || body.latitude > 90 || body.longitude < -180 || body.longitude > 180) {
       return { ok: false };
     }
-    const order = await this.orders.findOne({
-      _id: new Types.ObjectId(body.orderId),
-      'delivery.courierId': new Types.ObjectId(user.sub),
-    }).select('userId');
+    const order = await this.prisma.orders.findFirst({
+      where: { id: orderId, courier_id: user.mysqlId },
+      select: { user_id: true },
+    });
     if (!order) return { ok: false };
     const payload = { ...body, updatedAt: new Date().toISOString() };
-    await this.orders.updateOne(
-      { _id: new Types.ObjectId(body.orderId), 'delivery.courierId': new Types.ObjectId(user.sub) },
-      {
-        $set: {
-          'delivery.courierLocation': {
-            type: 'Point',
-            coordinates: [body.longitude, body.latitude],
-          },
-          'delivery.courierLocationUpdatedAt': new Date(),
-        },
+    await this.prisma.orders.updateMany({
+      where: { id: orderId, courier_id: user.mysqlId },
+      data: {
+        courier_latitude: body.latitude,
+        courier_longitude: body.longitude,
+        courier_location_updated_at: new Date(),
       },
-    );
+    });
     this.server.to(`delivery:${body.orderId}`).emit(RealtimeEvent.DeliveryPosition, payload);
-    this.emitToUser(String(order.userId), RealtimeEvent.DeliveryPosition, payload);
+    this.emitToUser(String(order.user_id), RealtimeEvent.DeliveryPosition, payload);
     return { ok: true };
   }
 }

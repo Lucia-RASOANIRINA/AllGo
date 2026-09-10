@@ -1,352 +1,246 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { ClientSession, Connection, Model, Types } from 'mongoose';
-import { Decimal128 } from 'mongodb';
+import type { Prisma } from '@prisma/client';
 
 import { AppError } from '../../common/http/app-error';
-import { encodeCursor, decodeCursor, cursorFilter } from '../../common/pagination/cursor';
+import { encodeCursor, decodeCursor, prismaCursorFilter } from '../../common/pagination/cursor';
 import type { Paginated } from '../../common/http/response.interceptor';
-import { Product, type ProductDocument } from '../catalog/schemas/product.schema';
-import { StockMovement, type StockMovementDocument } from '../stock/schemas/stock-movement.schema';
-import { Cart, type CartDocument } from './schemas/cart.schema';
-import { Counter, type CounterDocument } from './schemas/counter.schema';
-import { Coupon, type CouponDocument } from './schemas/coupon.schema';
-import { Dispute, type DisputeDocument } from './schemas/dispute.schema';
-import { Promotion, type PromotionDocument } from '../campaigns/schemas/promotion.schema';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { FinanceService } from '../finance/finance.service';
+import { PaymentsService } from '../payments/payments.service';
 import { EventsGateway, RealtimeEvent } from '../realtime/events.gateway';
-import {
-  ORDER_TRANSITIONS,
-  Order,
-  type OrderDocument,
-  type OrderStatus,
-} from './schemas/order.schema';
+import { ORDER_TRANSITIONS, ORDER_STATUSES, type OrderStatus } from './schemas/order.schema';
 import type { CreateOrderDto } from './dto/create-order.dto';
 import { evaluateCoupon } from './utils/evaluate-coupon';
-import { markCouponRedeemed, resolveCouponByCode, type ResolvedCoupon } from './utils/resolve-coupon';
+import { markCouponRedeemed, resolveCouponByCode } from './utils/resolve-coupon';
 
-/** Somme de montants `Decimal128` sans jamais passer par un flottant. */
-function toDecimal(value: number | string): Decimal128 {
-  return Decimal128.fromString(String(value));
-}
+type CartRow = Prisma.cartGetPayload<{ include: { products: true } }>;
 
 @Injectable()
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
 
   constructor(
-    @InjectConnection() private readonly connection: Connection,
-    @InjectModel(Order.name) private readonly orders: Model<OrderDocument>,
-    @InjectModel(Product.name) private readonly products: Model<ProductDocument>,
-    @InjectModel(Cart.name) private readonly carts: Model<CartDocument>,
-    @InjectModel(Counter.name) private readonly counters: Model<CounterDocument>,
-    @InjectModel(StockMovement.name)
-    private readonly stockMovements: Model<StockMovementDocument>,
-    @InjectModel(Coupon.name) private readonly coupons: Model<CouponDocument>,
-    @InjectModel(Promotion.name) private readonly promotions: Model<PromotionDocument>,
-    @InjectModel(Dispute.name) private readonly disputes: Model<DisputeDocument>,
+    private readonly prisma: PrismaService,
     private readonly finance: FinanceService,
+    private readonly payments: PaymentsService,
     private readonly realtime: EventsGateway,
   ) {}
 
   /**
-   * Création de commande — **transactionnelle** (§6.3).
+   * Création de commande — **transactionnelle** (§6.3), désormais une vraie
+   * transaction InnoDB plutôt qu'une session Mongo à replica set.
    *
-   * Corrige directement le constat §8.2 du document système : la création de
-   * commande du web n'est encapsulée dans aucune transaction. Une erreur après
-   * l'insertion de la commande y laisse une commande sans lignes, avec un stock
-   * déjà décrémenté.
-   *
-   * Quatre collections évoluent ensemble, ou aucune :
-   *   `orders` (une par boutique) · `products.stock` · `stockMovements` · `carts`
-   *
-   * Le replica set est indispensable : les transactions multi-documents
-   * n'existent pas sur une instance MongoDB isolée.
+   * Une commande par boutique représentée dans le panier ; `order_items`,
+   * décrément de stock et première ligne d'historique évoluent ensemble, ou
+   * rien n'est créé.
    */
   async create(
-    userId: string,
+    userId: number,
     dto: CreateOrderDto,
-    customer: { name: string; phone: string },
+    customerPhone: string,
   ): Promise<{ orders: unknown[] }> {
-    const session = await this.connection.startSession();
-
-    try {
-      let created: OrderDocument[] = [];
-
-      await session.withTransaction(async () => {
-        const cart = await this.carts.findById(userId).session(session);
-        if (!cart || cart.items.length === 0) {
-          throw new AppError('CART_EMPTY', 'Votre panier est vide.', 400);
-        }
-
-        // Un code promo invalide, expiré ou épuisé refuse la commande entière —
-        // ces trois raisons ne dépendent d'aucune boutique en particulier
-        // (§ commentaire `evaluateCoupon`). `NOT_APPLICABLE` et `MIN_AMOUNT` en
-        // revanche ne concernent qu'UNE commande d'un panier qui peut en
-        // produire plusieurs : ils sont réévalués boutique par boutique plus bas.
-        let resolvedCoupon: ResolvedCoupon | null = null;
-        if (dto.couponCode) {
-          resolvedCoupon = await resolveCouponByCode(this.coupons, this.promotions, dto.couponCode, session);
-          if (!resolvedCoupon || !resolvedCoupon.active) {
-            throw new AppError('COUPON_INVALID', 'Ce code promo est introuvable.', 400);
-          }
-          if (resolvedCoupon.expiresAt && resolvedCoupon.expiresAt < new Date()) {
-            throw new AppError('COUPON_EXPIRED', 'Ce code promo a expiré.', 400);
-          }
-          if (resolvedCoupon.usageLimit != null && resolvedCoupon.usageCount >= resolvedCoupon.usageLimit) {
-            throw new AppError('COUPON_LIMIT_REACHED', 'Ce code promo a atteint sa limite d’utilisation.', 400);
-          }
-        }
-
-        created = [];
-        let couponApplied = false;
-
-        // Un retrait en boutique n'a pas de livreur à remercier ; le pourboire
-        // ne s'applique qu'à une livraison. Un panier multi-boutiques applique
-        // le même montant à chaque commande générée — répartir un pourboire
-        // unique entre plusieurs livreurs distincts n'est pas modélisé.
-        const tip = dto.delivery.method === 'pickup' ? 0 : (dto.tip ?? 0);
-
-        for (const [shopId, items] of OrdersService.groupByShop(cart.items)) {
-          const { lines, subtotal } = await this.consumeStock(shopId, items, userId, session);
-
-          let discount = 0;
-          let appliedCoupon: { code: string; type: string; value: unknown } | undefined;
-          if (resolvedCoupon) {
-            const evaluation = evaluateCoupon(resolvedCoupon, shopId, subtotal);
-            if (evaluation.valid) {
-              discount = evaluation.discount;
-              appliedCoupon = {
-                code: dto.couponCode!.trim().toUpperCase(),
-                type: resolvedCoupon.discountType,
-                value: resolvedCoupon.discountValue,
-              };
-              couponApplied = true;
-            }
-          }
-
-          created.push(
-            await this.persistOrder(
-              { userId, customer, shopId, items, lines, subtotal, discount, tip, appliedCoupon, dto },
-              session,
-            ),
-          );
-        }
-
-        // L'utilisation n'est comptée qu'une fois, après coup : une transaction
-        // annulée plus loin n'aurait sinon consommé un usage pour rien.
-        if (resolvedCoupon && couponApplied) {
-          await markCouponRedeemed(this.coupons, this.promotions, resolvedCoupon, session);
-        }
-
-        // Le panier n'est vidé qu'une fois toutes les commandes créées.
-        await this.carts.updateOne({ _id: userId }, { $set: { items: [] } }, { session });
-      });
-
-      // Les effets externes (Socket.IO, FCM) sont émis APRÈS validation de la
-      // transaction : notifier une commande qui vient d'être annulée serait pire
-      // que ne pas notifier du tout.
-      for (const order of created) {
-        this.realtime.emitToShop(String(order.shopId), RealtimeEvent.OrderNew, {
-          orderId: String(order._id),
-          orderNumber: order.orderNumber,
-          at: new Date().toISOString(),
-        });
-      }
-
-      return { orders: created.map((o) => o.toJSON()) };
-    } finally {
-      await session.endSession();
+    const cartRows = await this.prisma.cart.findMany({
+      where: { user_id: userId },
+      include: { products: true },
+    });
+    if (cartRows.length === 0) {
+      throw new AppError('CART_EMPTY', 'Votre panier est vide.', 400);
     }
+
+    // Ne jamais créer une commande `unpaid` que le client ne pourra de toute
+    // façon jamais payer — vérifié avant toute écriture (§ décision du
+    // 2026-09-09, mise en marché). `cod` n'a pas de fournisseur, toujours autorisé.
+    if (dto.paymentMethod !== 'cod' && !this.payments.provider(dto.paymentMethod)?.isAvailable()) {
+      throw new AppError(
+        'PROVIDER_UNAVAILABLE',
+        'Ce moyen de paiement est momentanément indisponible. Choisissez un autre mode de paiement.',
+        503,
+        { provider: dto.paymentMethod },
+      );
+    }
+
+    let resolvedCoupon: Awaited<ReturnType<typeof resolveCouponByCode>> = null;
+    if (dto.couponCode) {
+      resolvedCoupon = await resolveCouponByCode(this.prisma, dto.couponCode);
+      if (!resolvedCoupon || !resolvedCoupon.active) {
+        throw new AppError('COUPON_INVALID', 'Ce code promo est introuvable.', 400);
+      }
+      if (resolvedCoupon.expiresAt && resolvedCoupon.expiresAt < new Date()) {
+        throw new AppError('COUPON_EXPIRED', 'Ce code promo a expiré.', 400);
+      }
+      if (resolvedCoupon.usageLimit != null && resolvedCoupon.usageCount >= resolvedCoupon.usageLimit) {
+        throw new AppError('COUPON_LIMIT_REACHED', 'Ce code promo a atteint sa limite d’utilisation.', 400);
+      }
+    }
+
+    // Un retrait en boutique n'a pas de livreur à remercier ; le pourboire ne
+    // s'applique qu'à une livraison. Un panier multi-boutiques applique le
+    // même montant à chaque commande générée.
+    const tip = dto.delivery.method === 'pickup' ? 0 : (dto.tip ?? 0);
+    const shippingFee = dto.delivery.method === 'pickup' ? 0 : (dto.shippingFee ?? 0);
+
+    const byShop = OrdersService.groupByShop(cartRows);
+    let couponApplied = false;
+    const createdIds: number[] = [];
+
+    for (const [shopId, items] of byShop) {
+      // `timeout` par défaut de Prisma (5 s) trop court pour une transaction à
+      // plusieurs allers-retours dès une latence réseau non négligeable vers
+      // la base (§ constaté en exécution).
+      const created = await this.prisma.$transaction(async (tx) => {
+        const { lines, subtotal } = await this.consumeStock(tx, items);
+
+        let discount = 0;
+        let couponId: number | undefined;
+        if (resolvedCoupon) {
+          const evaluation = evaluateCoupon(resolvedCoupon, String(shopId), subtotal);
+          if (evaluation.valid) {
+            discount = evaluation.discount;
+            couponId = resolvedCoupon.source === 'coupon' ? Number(resolvedCoupon.refId) : undefined;
+            couponApplied = true;
+          }
+        }
+
+        const total = Math.max(0, subtotal + shippingFee + tip - discount);
+
+        const order = await tx.orders.create({
+          data: {
+            user_id: userId,
+            shop_id: shopId,
+            order_number: `PENDING-${Date.now()}-${shopId}`,
+            total_amount: total,
+            status: 'pending',
+            payment_method: dto.paymentMethod as never,
+            payment_status: 'unpaid',
+            delivery_method: dto.delivery.method,
+            delivery_address: dto.delivery.address,
+            delivery_city: dto.delivery.city,
+            delivery_phone: dto.delivery.phone ?? customerPhone,
+            note: dto.delivery.note,
+            shipping_fee: shippingFee,
+            tip_amount: tip,
+            coupon_id: couponId,
+            discount_amount: discount,
+            delivery_workflow_status: dto.delivery.method === 'delivery' ? 'received' : undefined,
+            order_items: { create: lines },
+          },
+        });
+
+        const orderNumber = `ALG-${new Date().getUTCFullYear()}-${String(order.id).padStart(4, '0')}`;
+        await tx.orders.update({ where: { id: order.id }, data: { order_number: orderNumber } });
+        await tx.order_status_history.create({ data: { order_id: order.id, status: 'pending' } });
+
+        return order.id;
+      }, { timeout: 15_000 });
+      createdIds.push(created);
+    }
+
+    await this.prisma.cart.deleteMany({ where: { user_id: userId } });
+    if (resolvedCoupon && couponApplied) {
+      await markCouponRedeemed(this.prisma, resolvedCoupon);
+    }
+
+    const orders = await this.prisma.orders.findMany({
+      where: { id: { in: createdIds } },
+      include: { order_items: true },
+    });
+
+    // Les effets externes (Socket.IO) sont émis APRÈS validation de chaque
+    // transaction : notifier une commande qui vient d'être annulée serait pire
+    // que ne pas notifier du tout.
+    for (const order of orders) {
+      this.realtime.emitToShop(String(order.shop_id), RealtimeEvent.OrderNew, {
+        orderId: String(order.id),
+        orderNumber: order.order_number,
+        at: new Date().toISOString(),
+      });
+    }
+
+    return { orders: orders.map((o) => this.toJson(o)) };
   }
 
-  /**
-   * Un panier peut contenir des articles de plusieurs boutiques : une commande
-   * est créée par boutique, chacune ayant son propre suivi et sa propre livraison.
-   */
-  private static groupByShop<T extends { snapshot: { shopId: unknown } }>(
-    items: T[],
-  ): Map<string, T[]> {
-    const byShop = new Map<string, T[]>();
-    for (const item of items) {
-      const key = String(item.snapshot.shopId);
-      byShop.set(key, [...(byShop.get(key) ?? []), item]);
+  private static groupByShop(rows: CartRow[]): Map<number, CartRow[]> {
+    const byShop = new Map<number, CartRow[]>();
+    for (const row of rows) {
+      const key = row.products.shop_id;
+      byShop.set(key, [...(byShop.get(key) ?? []), row]);
     }
     return byShop;
   }
 
   /**
-   * Décrémente le stock de chaque article et construit les lignes de commande.
-   *
-   * Toute défaillance ici (produit retiré, stock insuffisant) annule la
-   * transaction entière : aucun stock n'est consommé pour une commande qui
-   * n'existera pas.
+   * Décrémente le stock de chaque article et construit les lignes de
+   * commande, à l'intérieur de la transaction appelante.
    */
   private async consumeStock(
-    shopId: string,
-    items: CartDocument['items'],
-    userId: string,
-    session: ClientSession,
-  ): Promise<{ lines: OrderDocument['items']; subtotal: number }> {
-    const lines: OrderDocument['items'] = [];
+    tx: Prisma.TransactionClient,
+    items: CartRow[],
+  ): Promise<{ lines: Prisma.order_itemsCreateWithoutOrdersInput[]; subtotal: number }> {
+    const lines: Prisma.order_itemsCreateWithoutOrdersInput[] = [];
     let subtotal = 0;
 
     for (const item of items) {
-      // Le prix est relu depuis `products`, jamais pris dans le panier :
-      // l'instantané du panier sert l'affichage, pas la facturation.
-      const product = await this.products.findById(item.productId).session(session);
+      const product = await tx.products.findUnique({ where: { id: item.product_id } });
       if (!product || product.status !== 'published') {
         throw new AppError(
           'PRODUCT_UNAVAILABLE',
-          `« ${item.snapshot.name} » n'est plus disponible.`,
+          `« ${item.products.name} » n'est plus disponible.`,
           409,
-          { productId: String(item.productId) },
+          { productId: item.product_id },
         );
       }
 
-      const stockBefore = product.stock;
-
       /**
-       * Décrément **conditionnel** et atomique (§6.4).
-       *
-       * `matchedCount === 0` signifie stock insuffisant : la transaction est
-       * annulée. Le web exécute `UPDATE products SET stock = stock - :qty` sans
-       * condition — le stock y devient négatif quand deux clients commandent
-       * simultanément le dernier article.
+       * Décrément **conditionnel** et atomique (§6.4) : `count === 0` signifie
+       * stock insuffisant, la transaction entière est annulée. Le web exécute
+       * `UPDATE products SET stock = stock - :qty` sans condition — le stock y
+       * devient négatif quand deux clients commandent simultanément le
+       * dernier article.
        */
-      const decrement = await this.products.updateOne(
-        { _id: product._id, stock: { $gte: item.quantity } },
-        { $inc: { stock: -item.quantity, 'stats.sales': item.quantity } },
-        { session },
-      );
-
-      if (decrement.matchedCount === 0) {
-        throw AppError.insufficientStock(product.name, stockBefore, item.quantity);
+      const decrement = await tx.products.updateMany({
+        where: { id: product.id, stock: { gte: item.quantity } },
+        data: { stock: { decrement: item.quantity } },
+      });
+      if (decrement.count === 0) {
+        throw AppError.insufficientStock(product.name, product.stock ?? 0, item.quantity);
       }
 
-      const unitPrice = Number(String(product.promoPrice ?? product.price));
+      const unitPrice = Number(product.promo_price ?? product.price);
       const lineTotal = unitPrice * item.quantity;
       subtotal += lineTotal;
 
       lines.push({
-        productId: product._id as Types.ObjectId,
-        variantId: item.variantId,
-        // Instantané contractuel : figé au moment de l'achat, jamais réécrit.
-        name: product.name,
-        image: product.media.find((m) => m.isMain)?.thumbUrl ?? product.media[0]?.thumbUrl,
-        unitPrice: toDecimal(unitPrice),
+        products: { connect: { id: product.id } },
+        product_variants: item.variant_id ? { connect: { id: item.variant_id } } : undefined,
         quantity: item.quantity,
-        subtotal: toDecimal(lineTotal),
-      } as OrderDocument['items'][number]);
-
-      await this.stockMovements.create(
-        [
-          {
-            at: new Date(),
-            shopId: new Types.ObjectId(shopId),
-            productId: product._id,
-            type: 'out',
-            reason: 'order',
-            quantity: item.quantity,
-            stockBefore,
-            stockAfter: stockBefore - item.quantity,
-            userId: new Types.ObjectId(userId),
-          },
-        ],
-        { session },
-      );
+        unit_price: unitPrice,
+      });
     }
 
     return { lines, subtotal };
   }
 
-  private async persistOrder(
-    input: {
-      userId: string;
-      customer: { name: string; phone: string };
-      shopId: string;
-      items: CartDocument['items'];
-      lines: OrderDocument['items'];
-      subtotal: number;
-      discount: number;
-      tip: number;
-      appliedCoupon?: { code: string; type: string; value: unknown };
-      dto: CreateOrderDto;
-    },
-    session: ClientSession,
-  ): Promise<OrderDocument> {
-    const { userId, customer, shopId, items, lines, subtotal, discount, tip, appliedCoupon, dto } = input;
-
-    const shippingFee = dto.delivery.method === 'pickup' ? 0 : (dto.shippingFee ?? 0);
-    const shopName = items[0].snapshot.shopName;
-    const total = Math.max(0, subtotal + shippingFee + tip - discount);
-
-    const [order] = await this.orders.create(
-      [
-        {
-          orderNumber: await this.nextOrderNumber(session),
-          userId: new Types.ObjectId(userId),
-          customer,
-          shopId: new Types.ObjectId(shopId),
-          shop: { name: shopName, slug: '', logo: undefined },
-          items: lines,
-          amounts: {
-            subtotal: toDecimal(subtotal),
-            shippingFee: toDecimal(shippingFee),
-            discount: toDecimal(discount),
-            tip: toDecimal(tip),
-            total: toDecimal(total),
-          },
-          coupon: appliedCoupon,
-          delivery: { ...dto.delivery, tip: tip > 0 ? toDecimal(tip) : undefined },
-          payment: { method: dto.paymentMethod, status: 'unpaid' },
-          status: 'pending',
-          timeline: [{ status: 'pending', at: new Date(), byUserId: userId }],
-        },
-      ],
-      { session },
-    );
-
-    return order;
-  }
-
-  /**
-   * Numéro de commande : séquence atomique `ALG-<année>-<n>`.
-   * Remplace `JM-<année>-<uniqid()>`, dont les collisions n'étaient même pas
-   * détectées faute de contrainte d'unicité (§6.2).
-   */
-  private async nextOrderNumber(session: ClientSession): Promise<string> {
-    const year = new Date().getUTCFullYear();
-    const counter = await this.counters.findOneAndUpdate(
-      { _id: `order:${year}` },
-      { $inc: { seq: 1 } },
-      { upsert: true, new: true, session },
-    );
-    return `ALG-${year}-${String(counter.seq).padStart(4, '0')}`;
-  }
-
   /** Commandes de l'utilisateur, paginées par curseur. */
-  async listForUser(userId: string, limit: number, cursor?: string): Promise<Paginated<unknown>> {
-    const filter: Record<string, unknown> = { userId: new Types.ObjectId(userId) };
-    if (cursor) Object.assign(filter, cursorFilter('createdAt', decodeCursor(cursor)));
+  async listForUser(userId: number, limit: number, cursor?: string): Promise<Paginated<unknown>> {
+    const where: Prisma.ordersWhereInput = { user_id: userId };
+    if (cursor) Object.assign(where, prismaCursorFilter('created_at', decodeCursor(cursor)));
 
-    // limit + 1 : le document surnuméraire indique s'il reste une page,
-    // sans exiger un `countDocuments()` sur toute la collection.
-    const docs = await this.orders
-      .find(filter)
-      .sort({ createdAt: -1, _id: -1 })
-      .limit(limit + 1)
-      .lean();
-
-    return this.paginate(docs, limit);
+    const rows = await this.prisma.orders.findMany({
+      where,
+      include: { order_items: true },
+      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+    });
+    return this.paginate(rows, limit);
   }
 
-  async findForUser(userId: string, orderId: string): Promise<unknown> {
-    const order = await this.orders
-      .findOne({ _id: new Types.ObjectId(orderId), userId: new Types.ObjectId(userId) })
-      .lean();
+  async findForUser(userId: number, orderId: string): Promise<unknown> {
+    const order = await this.prisma.orders.findFirst({
+      where: { id: Number(orderId), user_id: userId },
+      include: { order_items: true },
+    });
     if (!order) throw AppError.notFound('Commande');
-    return order;
+    return this.toJson(order);
   }
 
   /** Commandes d'une boutique, filtrables par statut. */
@@ -357,76 +251,67 @@ export class OrdersService {
     cursor?: string,
     q?: string,
   ): Promise<Paginated<unknown>> {
-    const filter: Record<string, unknown> = { shopId: new Types.ObjectId(shopId) };
-    if (status) filter.status = status;
-    if (q) filter.$or = [{ orderNumber: { $regex: q, $options: 'i' } }, { 'customer.phone': { $regex: q, $options: 'i' } }];
-    if (cursor) Object.assign(filter, cursorFilter('createdAt', decodeCursor(cursor)));
+    const where: Prisma.ordersWhereInput = { shop_id: Number(shopId) };
+    if (status) where.status = status;
+    if (q) where.OR = [{ order_number: { contains: q } }, { delivery_phone: { contains: q } }];
+    if (cursor) Object.assign(where, prismaCursorFilter('created_at', decodeCursor(cursor)));
 
-    const docs = await this.orders
-      .find(filter)
-      .sort({ createdAt: -1, _id: -1 })
-      .limit(limit + 1)
-      .lean();
-
-    return this.paginate(docs, limit);
+    const rows = await this.prisma.orders.findMany({
+      where,
+      include: { order_items: true },
+      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+    });
+    return this.paginate(rows, limit);
   }
 
   /**
-   * Changement de statut, contraint par la machine à états `ORDER_TRANSITIONS`.
-   * Une commande livrée ne peut plus changer d'état ; une commande annulée non plus.
+   * Changement de statut, contraint par la machine à états `ORDER_TRANSITIONS`
+   * (structure de données pure, portée telle quelle). Une commande livrée ne
+   * peut plus changer d'état ; une commande annulée non plus.
    */
   async updateStatus(
     orderId: string,
     shopId: string,
     next: OrderStatus,
-    byUserId: string,
+    byUserId: number,
     note?: string,
   ): Promise<unknown> {
-    const order = await this.orders.findOne({
-      _id: new Types.ObjectId(orderId),
-      shopId: new Types.ObjectId(shopId),
-    });
+    const order = await this.prisma.orders.findFirst({ where: { id: Number(orderId), shop_id: Number(shopId) } });
     if (!order) throw AppError.notFound('Commande');
 
-    if (!ORDER_TRANSITIONS[order.status].includes(next)) {
+    const current = (order.status ?? 'pending') as OrderStatus;
+    if (!ORDER_TRANSITIONS[current].includes(next)) {
       throw new AppError(
         'INVALID_STATUS_TRANSITION',
-        `Une commande « ${order.status} » ne peut pas passer à « ${next} ».`,
+        `Une commande « ${current} » ne peut pas passer à « ${next} ».`,
         409,
-        { from: order.status, to: next, allowed: ORDER_TRANSITIONS[order.status] },
+        { from: current, to: next, allowed: ORDER_TRANSITIONS[current] },
       );
     }
 
-    order.status = next;
-    order.timeline.push({
-      status: next,
-      at: new Date(),
-      byUserId: new Types.ObjectId(byUserId),
-      note,
-    });
-    await order.save();
-    if (next === 'delivered') await this.finance.recordDeliveryRevenue(order);
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.orders.update({ where: { id: order.id }, data: { status: next } }),
+      this.prisma.order_status_history.create({ data: { order_id: order.id, status: next, note, changed_by: byUserId } }),
+    ]);
+
+    if (next === 'delivered') await this.finance.recordDeliveryRevenue(order.id);
 
     // Sans cet événement, le client doit tirer manuellement l'écran de
     // commande pour voir un changement de statut décidé par la boutique ou
     // le livreur — un délai qui n'a aucune raison d'exister (§7.5).
-    const payload = { orderId: String(order._id), status: next, at: new Date().toISOString() };
-    this.realtime.emitToUser(String(order.userId), RealtimeEvent.OrderStatus, payload);
-    this.realtime.emitToShop(String(order.shopId), RealtimeEvent.OrderStatus, payload);
-    if (order.delivery?.courierId) {
-      this.realtime.emitToUser(String(order.delivery.courierId), RealtimeEvent.OrderStatus, payload);
-    }
+    const payload = { orderId: String(order.id), status: next, at: new Date().toISOString() };
+    this.realtime.emitToUser(String(order.user_id), RealtimeEvent.OrderStatus, payload);
+    this.realtime.emitToShop(String(order.shop_id), RealtimeEvent.OrderStatus, payload);
+    if (order.courier_id) this.realtime.emitToUser(String(order.courier_id), RealtimeEvent.OrderStatus, payload);
 
-    return order.toJSON();
+    return this.toJson(updated);
   }
 
-  async cancelForUser(orderId: string, userId: string): Promise<unknown> {
-    const order = await this.orders.findOne({
-      _id: orderId,
-      userId: new Types.ObjectId(userId),
-    });
+  async cancelForUser(orderId: string, userId: number): Promise<unknown> {
+    const order = await this.prisma.orders.findFirst({ where: { id: Number(orderId), user_id: userId } });
     if (!order) throw AppError.notFound('Commande');
-    if (order.payment.status === 'paid') {
+    if (order.payment_status === 'paid') {
       throw new AppError(
         'REFUND_REQUIRED',
         'Cette commande est déjà payée et doit être remboursée par la boutique.',
@@ -434,149 +319,231 @@ export class OrdersService {
       );
     }
 
-    if (!ORDER_TRANSITIONS[order.status].includes('cancelled')) {
-      throw new AppError(
-        'INVALID_STATUS_TRANSITION',
-        'Cette commande ne peut plus être annulée.',
-        409,
-      );
+    const current = (order.status ?? 'pending') as OrderStatus;
+    if (!ORDER_TRANSITIONS[current].includes('cancelled')) {
+      throw new AppError('INVALID_STATUS_TRANSITION', 'Cette commande ne peut plus être annulée.', 409);
     }
-    order.status = 'cancelled';
-    order.payment.status = 'cancelled';
-    order.timeline.push({
-      status: 'cancelled',
-      at: new Date(),
-      byUserId: new Types.ObjectId(userId),
-      note: 'Annulée par le client.',
-    });
-    await order.save();
+
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.orders.update({ where: { id: order.id }, data: { status: 'cancelled' } }),
+      this.prisma.order_status_history.create({
+        data: { order_id: order.id, status: 'cancelled', note: 'Annulée par le client.', changed_by: userId },
+      }),
+    ]);
 
     // La boutique voit l'annulation en direct plutôt que de la découvrir en
     // rafraîchissant sa liste de commandes (§7.5).
-    this.realtime.emitToShop(String(order.shopId), RealtimeEvent.OrderStatus, {
-      orderId: String(order._id),
+    this.realtime.emitToShop(String(order.shop_id), RealtimeEvent.OrderStatus, {
+      orderId: String(order.id),
       status: 'cancelled',
       at: new Date().toISOString(),
     });
 
-    return order.toJSON();
+    return this.toJson(updated);
   }
 
   /**
    * Ouverture d'un litige — le client seul peut en ouvrir un sur SA commande ;
-   * le traitement (résolution/rejet) est réservé à la modération plateforme
-   * (`AdministrationService`, `Permission.PlatformModerate`).
+   * le traitement (résolution/rejet) est réservé à la modération plateforme.
    */
-  async raiseDispute(orderId: string, userId: string, reason: string): Promise<unknown> {
-    const order = await this.orders.findOne({
-      _id: new Types.ObjectId(orderId),
-      userId: new Types.ObjectId(userId),
-    });
+  async raiseDispute(orderId: string, userId: number, reason: string): Promise<unknown> {
+    const order = await this.prisma.orders.findFirst({ where: { id: Number(orderId), user_id: userId } });
     if (!order) throw AppError.notFound('Commande');
-    const dispute = await this.disputes.create({
-      orderId: order._id,
-      raisedBy: new Types.ObjectId(userId),
-      reason,
+    const dispute = await this.prisma.order_disputes.create({
+      data: { order_id: order.id, raised_by: userId, reason },
     });
-    return dispute.toJSON();
+    return { id: String(dispute.id), orderId: String(dispute.order_id), status: dispute.status, createdAt: dispute.created_at };
   }
 
-  async cancelForShop(orderId: string, shopId: string, userId: string): Promise<unknown> {
-    const order = await this.orders.findOne({
-      _id: new Types.ObjectId(orderId),
-      shopId: new Types.ObjectId(shopId),
-    });
+  async cancelForShop(orderId: string, shopId: string, userId: number): Promise<unknown> {
+    const order = await this.prisma.orders.findFirst({ where: { id: Number(orderId), shop_id: Number(shopId) } });
     if (!order) throw AppError.notFound('Commande');
-    if (!ORDER_TRANSITIONS[order.status].includes('cancelled')) {
+    const current = (order.status ?? 'pending') as OrderStatus;
+    if (!ORDER_TRANSITIONS[current].includes('cancelled')) {
       throw new AppError('INVALID_STATUS_TRANSITION', 'Cette commande ne peut plus être refusée.', 409);
     }
 
-    order.status = 'cancelled';
-    order.timeline.push({
-      status: 'cancelled',
-      at: new Date(),
-      byUserId: new Types.ObjectId(userId),
-      note: 'Refusée par la boutique.',
-    });
-    await order.save();
-    return order.toJSON();
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.orders.update({ where: { id: order.id }, data: { status: 'cancelled' } }),
+      this.prisma.order_status_history.create({
+        data: { order_id: order.id, status: 'cancelled', note: 'Refusée par la boutique.', changed_by: userId },
+      }),
+    ]);
+    return this.toJson(updated);
   }
 
   /**
-   * Confirme l'encaissement d'un paiement à la livraison — jusqu'ici
-   * `Permission.PaymentCollect` n'était vérifiée par aucune route : un
-   * commerçant n'avait aucun moyen de faire passer une commande contre-
-   * remboursement d'`unpaid` à `paid`.
+   * Confirme l'encaissement d'un paiement à la livraison — réservé aux
+   * commandes contre-remboursement ; un paiement mobile money suit le webhook
+   * du fournisseur (voir `PaymentsService`), jamais cette route.
    */
   async collectPayment(orderId: string, shopId: string): Promise<unknown> {
-    const order = await this.orders.findOne({
-      _id: new Types.ObjectId(orderId),
-      shopId: new Types.ObjectId(shopId),
-    });
+    const order = await this.prisma.orders.findFirst({ where: { id: Number(orderId), shop_id: Number(shopId) } });
     if (!order) throw AppError.notFound('Commande');
-    if (order.payment.method !== 'cod') {
+    if (order.payment_method !== 'cod') {
       throw new AppError('NOT_COD', 'Seule une commande contre-remboursement peut être encaissée manuellement.', 409);
     }
-    if (order.payment.status === 'paid') {
+    if (order.payment_status === 'paid') {
       throw new AppError('ALREADY_PAID', 'Cette commande est déjà marquée payée.', 409);
     }
-    order.payment.status = 'paid';
-    order.payment.paidAt = new Date();
-    await order.save();
-    return order.toJSON();
+    const updated = await this.prisma.orders.update({ where: { id: order.id }, data: { payment_status: 'paid' } });
+    return this.toJson(updated);
   }
 
-  async courierMissions(userId: string): Promise<unknown[]> {
-    return this.orders.find({ $or: [{ 'delivery.courierId': new Types.ObjectId(userId) }, { 'delivery.courierId': { $exists: false }, status: { $in: ['confirmed', 'preparing'] } }] }).sort({ createdAt: -1 }).limit(50).lean();
+  // --- Flux livreur -------------------------------------------------------
+
+  async courierMissions(userId: number): Promise<unknown[]> {
+    const rows = await this.prisma.orders.findMany({
+      where: {
+        OR: [
+          { courier_id: userId },
+          { courier_id: null, status: { in: ['confirmed', 'preparing'] } },
+        ],
+      },
+      orderBy: { created_at: 'desc' },
+      take: 50,
+      include: { order_items: true },
+    });
+    return rows.map((r) => this.toJson(r));
   }
 
-  async acceptMission(orderId: string, userId: string): Promise<unknown> {
-    const order = await this.orders.findOneAndUpdate({ _id: orderId, 'delivery.courierId': { $exists: false }, status: { $in: ['confirmed', 'preparing'] } }, { $set: { 'delivery.courierId': new Types.ObjectId(userId), 'delivery.workflowStatus': 'accepted', 'delivery.acceptedAt': new Date(), 'delivery.otpCode': String(Math.floor(1000 + Math.random() * 9000)) } }, { new: true });
-    if (!order) throw AppError.notFound('Mission');
-    return order.toJSON();
+  async acceptMission(orderId: string, userId: number): Promise<unknown> {
+    const otp = String(Math.floor(1000 + Math.random() * 9000));
+    const result = await this.prisma.orders.updateMany({
+      where: { id: Number(orderId), courier_id: null, status: { in: ['confirmed', 'preparing'] } },
+      data: { courier_id: userId, delivery_workflow_status: 'accepted', delivery_accepted_at: new Date(), delivery_otp_code: otp },
+    });
+    if (!result.count) throw AppError.notFound('Mission');
+    const order = await this.prisma.orders.findUnique({ where: { id: Number(orderId) }, include: { order_items: true } });
+    return this.toJson(order!);
   }
 
-  async refuseMission(orderId: string, userId: string): Promise<{ refused: true }> {
-    const result = await this.orders.updateOne({ _id: orderId, 'delivery.courierId': new Types.ObjectId(userId) }, { $unset: { 'delivery.courierId': 1 }, $set: { 'delivery.workflowStatus': 'received' } });
-    if (!result.modifiedCount) throw AppError.notFound('Mission');
+  async refuseMission(orderId: string, userId: number): Promise<{ refused: true }> {
+    const result = await this.prisma.orders.updateMany({
+      where: { id: Number(orderId), courier_id: userId },
+      data: { courier_id: null, delivery_workflow_status: 'received' },
+    });
+    if (!result.count) throw AppError.notFound('Mission');
     return { refused: true };
   }
 
-  async updateCourierWorkflow(orderId: string, userId: string, status: string): Promise<unknown> {
+  async updateCourierWorkflow(orderId: string, userId: number, status: string): Promise<unknown> {
     const allowed = ['to_shop', 'picked_up', 'to_client', 'client_found'];
     if (!allowed.includes(status)) throw new AppError('INVALID_WORKFLOW', 'Étape de livraison invalide.', 400);
-    const order = await this.orders.findOneAndUpdate({ _id: orderId, 'delivery.courierId': new Types.ObjectId(userId) }, { $set: { 'delivery.workflowStatus': status } }, { new: true });
-    if (!order) throw AppError.notFound('Mission');
-    return order.toJSON();
+    const result = await this.prisma.orders.updateMany({
+      where: { id: Number(orderId), courier_id: userId },
+      data: { delivery_workflow_status: status },
+    });
+    if (!result.count) throw AppError.notFound('Mission');
+    const order = await this.prisma.orders.findUnique({ where: { id: Number(orderId) }, include: { order_items: true } });
+    return this.toJson(order!);
   }
 
-  async completeDelivery(orderId: string, userId: string, otp: string, photoUrl?: string): Promise<unknown> {
-    const order = await this.orders.findOne({ _id: orderId, 'delivery.courierId': new Types.ObjectId(userId) });
+  async completeDelivery(orderId: string, userId: number, otp: string, photoUrl?: string): Promise<unknown> {
+    const order = await this.prisma.orders.findFirst({ where: { id: Number(orderId), courier_id: userId } });
     if (!order) throw AppError.notFound('Mission');
-    if (order.delivery.otpCode && order.delivery.otpCode !== otp) throw new AppError('OTP_INVALID', 'Code OTP invalide.', 400);
-    order.status = 'delivered';
-    order.delivery.workflowStatus = 'delivered';
-    order.delivery.proof = photoUrl ? { photoUrl, capturedAt: new Date() } : undefined;
-    await order.save();
-    await this.finance.recordDeliveryRevenue(order);
-    return order.toJSON();
+    if (order.delivery_otp_code && order.delivery_otp_code !== otp) {
+      throw new AppError('OTP_INVALID', 'Code OTP invalide.', 400);
+    }
+
+    const updated = await this.prisma.orders.update({
+      where: { id: order.id },
+      data: {
+        status: 'delivered',
+        delivery_workflow_status: 'delivered',
+        delivery_proof_photo: photoUrl,
+        delivery_proof_captured_at: photoUrl ? new Date() : undefined,
+      },
+      include: { order_items: true },
+    });
+    await this.prisma.order_status_history.create({
+      data: { order_id: order.id, status: 'delivered', changed_by: userId },
+    });
+    await this.finance.recordDeliveryRevenue(order.id);
+    return this.toJson(updated);
   }
 
   private paginate(
-    docs: Array<{ _id: unknown; createdAt: Date }>,
+    rows: Array<{ id: number; created_at: Date | null }>,
     limit: number,
   ): Paginated<unknown> {
-    const hasMore = docs.length > limit;
-    const items = hasMore ? docs.slice(0, limit) : docs;
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
     const last = items[items.length - 1];
 
     return {
-      items,
+      items: items.map((r) => this.toJson(r as Parameters<typeof this.toJson>[0])),
       hasMore,
       nextCursor:
-        hasMore && last
-          ? encodeCursor({ value: last.createdAt.toISOString(), id: String(last._id) })
-          : null,
+        hasMore && last ? encodeCursor({ value: last.created_at!.toISOString(), id: String(last.id) }) : null,
+    };
+  }
+
+  private toJson(order: {
+    id: number;
+    user_id: number;
+    shop_id: number;
+    order_number: string;
+    total_amount: unknown;
+    status: string | null;
+    payment_method: string | null;
+    payment_status: string | null;
+    delivery_method: string | null;
+    delivery_address: string | null;
+    delivery_city: string | null;
+    delivery_phone: string | null;
+    shipping_fee: unknown;
+    tip_amount: unknown;
+    discount_amount: unknown;
+    note: string | null;
+    courier_id: number | null;
+    delivery_workflow_status: string | null;
+    delivery_otp_code: string | null;
+    delivery_proof_photo: string | null;
+    created_at: Date | null;
+    updated_at: Date | null;
+    order_items?: Array<{
+      id: number;
+      product_id: number;
+      variant_id: number | null;
+      quantity: number;
+      unit_price: unknown;
+    }>;
+  }): unknown {
+    return {
+      id: String(order.id),
+      orderNumber: order.order_number,
+      userId: String(order.user_id),
+      shopId: String(order.shop_id),
+      items: (order.order_items ?? []).map((item) => ({
+        id: String(item.id),
+        productId: String(item.product_id),
+        variantId: item.variant_id ? String(item.variant_id) : undefined,
+        quantity: item.quantity,
+        unitPrice: item.unit_price,
+        subtotal: Number(item.unit_price) * item.quantity,
+      })),
+      amounts: {
+        shippingFee: order.shipping_fee ?? 0,
+        discount: order.discount_amount ?? 0,
+        tip: order.tip_amount ?? 0,
+        total: order.total_amount,
+      },
+      delivery: {
+        method: order.delivery_method,
+        address: order.delivery_address ?? undefined,
+        city: order.delivery_city ?? undefined,
+        phone: order.delivery_phone ?? undefined,
+        note: order.note ?? undefined,
+        courierId: order.courier_id ? String(order.courier_id) : undefined,
+        workflowStatus: order.delivery_workflow_status ?? undefined,
+        otpCode: order.delivery_otp_code ?? undefined,
+        proof: order.delivery_proof_photo ? { photoUrl: order.delivery_proof_photo } : undefined,
+      },
+      payment: { method: order.payment_method, status: order.payment_status },
+      status: order.status,
+      createdAt: order.created_at,
+      updatedAt: order.updated_at,
     };
   }
 }

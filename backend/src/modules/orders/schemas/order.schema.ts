@@ -36,8 +36,9 @@ export const ORDER_TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
  */
 @Schema({ _id: false })
 export class OrderItem {
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Product', required: true }) productId!: Types.ObjectId;
-  @Prop({ type: MongooseSchema.Types.ObjectId }) variantId?: Types.ObjectId;
+  /** Identifiant entier MySQL (`products.id`) depuis la migration du Catalogue (Phase 2). */
+  @Prop({ type: Number, required: true }) productId!: number;
+  @Prop({ type: Number }) variantId?: number;
   @Prop({ required: true }) name!: string;
   @Prop() image?: string;
   @Prop({ type: MongooseSchema.Types.Decimal128, required: true }) unitPrice!: unknown;

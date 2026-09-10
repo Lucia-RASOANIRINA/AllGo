@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { IsArray, IsIn, IsMongoId, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { IsArray, IsIn, IsMongoId, IsNumberString, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators';
@@ -15,9 +15,9 @@ export class CreateConversationDto {
   @IsMongoId()
   participantId?: string;
 
-  @ApiPropertyOptional({ description: 'Boutique — pour « Envoyer un message » depuis une fiche boutique.' })
+  @ApiPropertyOptional({ description: 'Boutique (identifiant numérique MySQL) — pour « Envoyer un message » depuis une fiche boutique.' })
   @IsOptional()
-  @IsMongoId()
+  @IsNumberString()
   shopId?: string;
 }
 
@@ -56,7 +56,7 @@ export class MessagingController {
   @Get()
   @RequirePermission(Permission.MessageRead)
   list(@CurrentUser() user: AuthenticatedUser, @Query('archived') archived?: string) {
-    return this.messaging.list(user.id, archived === 'true');
+    return this.messaging.list(user.mysqlId, archived === 'true');
   }
 
   @Post()
@@ -68,7 +68,7 @@ export class MessagingController {
   @Get(':id/messages')
   @RequirePermission(Permission.MessageRead)
   messages(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Query() query: PaginationQueryDto) {
-    return this.messaging.listMessages(id, user.id, query.limit);
+    return this.messaging.listMessages(id, user.mysqlId, query.limit);
   }
 
   @Post(':id/messages')
@@ -81,42 +81,42 @@ export class MessagingController {
   @RequirePermission(Permission.MessageBlock)
   @ApiOperation({ summary: 'Bloquer une conversation — ferme le canal dans les deux sens.' })
   block(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.messaging.block(id, user.id);
+    return this.messaging.block(id, user.mysqlId);
   }
 
   @Delete(':id/block')
   @RequirePermission(Permission.MessageBlock)
   @ApiOperation({ summary: 'Débloquer une conversation que j’avais bloquée.' })
   unblock(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.messaging.unblock(id, user.id);
+    return this.messaging.unblock(id, user.mysqlId);
   }
 
   @Post(':id/report')
   @RequirePermission(Permission.MessageReport)
   @ApiOperation({ summary: 'Signaler une conversation à la modération.' })
   report(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: ReportConversationDto) {
-    return this.messaging.report(id, user.id, dto.reason);
+    return this.messaging.report(id, user.id, user.mysqlId, dto.reason);
   }
 
   @Post(':id/read')
   @RequirePermission(Permission.MessageRead)
   @ApiOperation({ summary: 'Marquer toute la conversation comme lue.' })
   markRead(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.messaging.markRead(id, user.id);
+    return this.messaging.markRead(id, user.mysqlId);
   }
 
   @Post(':id/archive')
   @RequirePermission(Permission.MessageRead)
   @ApiOperation({ summary: 'Archiver la conversation — la retire de ma liste principale.' })
   archive(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.messaging.setArchived(id, user.id, true);
+    return this.messaging.setArchived(id, user.mysqlId, true);
   }
 
   @Delete(':id/archive')
   @RequirePermission(Permission.MessageRead)
   @ApiOperation({ summary: 'Désarchiver — ramène la conversation dans ma liste principale.' })
   unarchive(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.messaging.setArchived(id, user.id, false);
+    return this.messaging.setArchived(id, user.mysqlId, false);
   }
 
   @Patch(':id/messages/:messageId')
@@ -128,7 +128,7 @@ export class MessagingController {
     @Param('messageId') messageId: string,
     @Body() dto: EditMessageDto,
   ) {
-    return this.messaging.editMessage(id, messageId, user.id, dto.content);
+    return this.messaging.editMessage(id, messageId, user.mysqlId, dto.content);
   }
 
   @Delete(':id/messages/:messageId')
@@ -139,6 +139,6 @@ export class MessagingController {
     @Param('id') id: string,
     @Param('messageId') messageId: string,
   ) {
-    return this.messaging.deleteMessage(id, messageId, user.id);
+    return this.messaging.deleteMessage(id, messageId, user.mysqlId);
   }
 }

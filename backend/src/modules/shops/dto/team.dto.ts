@@ -6,6 +6,7 @@ export const SHOP_TEAM_ROLES = [
   'shop_sales',
   'shop_cashier',
   'shop_stock',
+  'shop_courier',
   'shop_marketing',
 ] as const;
 

@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { IsInt, IsMongoId, IsOptional, Max, Min } from 'class-validator';
+import { IsInt, IsNumberString, IsOptional, Max, Min } from 'class-validator';
 
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators';
 import { Permission } from '../../common/rbac/permissions';
@@ -8,13 +8,13 @@ import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { CartService } from './cart.service';
 
 export class AddCartItemDto {
-  @ApiProperty()
-  @IsMongoId()
+  @ApiProperty({ description: 'Identifiant numérique MySQL du produit.' })
+  @IsNumberString()
   productId!: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Identifiant numérique MySQL de la variante.' })
   @IsOptional()
-  @IsMongoId()
+  @IsNumberString()
   variantId?: string;
 
   @ApiProperty({ minimum: 1, maximum: 999, default: 1 })
@@ -41,14 +41,14 @@ export class CartController {
   @RequirePermission(Permission.CartManage)
   @ApiOperation({ summary: 'Consulter le panier.' })
   get(@CurrentUser() user: AuthenticatedUser) {
-    return this.cart.get(user.id);
+    return this.cart.get(user.mysqlId);
   }
 
   @Post('items')
   @RequirePermission(Permission.CartManage)
   @ApiOperation({ summary: 'Ajouter un article au panier.' })
   add(@CurrentUser() user: AuthenticatedUser, @Body() dto: AddCartItemDto) {
-    return this.cart.addItem(user.id, dto.productId, dto.quantity, dto.variantId);
+    return this.cart.addItem(user.mysqlId, dto.productId, dto.quantity, dto.variantId);
   }
 
   @Patch('items/:id')
@@ -59,20 +59,20 @@ export class CartController {
     @Param('id') id: string,
     @Body() dto: UpdateCartItemDto,
   ) {
-    return this.cart.updateQuantity(user.id, id, dto.quantity);
+    return this.cart.updateQuantity(user.mysqlId, id, dto.quantity);
   }
 
   @Delete('items/:id')
   @RequirePermission(Permission.CartManage)
   @ApiOperation({ summary: 'Retirer une ligne du panier.' })
   remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.cart.removeItem(user.id, id);
+    return this.cart.removeItem(user.mysqlId, id);
   }
 
   @Get('coupon')
   @RequirePermission(Permission.CartManage)
   @ApiOperation({ summary: 'Prévisualiser une réduction avant de commander, boutique par boutique.' })
   previewCoupon(@CurrentUser() user: AuthenticatedUser, @Query('code') code: string) {
-    return this.cart.previewCoupon(user.id, code);
+    return this.cart.previewCoupon(user.mysqlId, code);
   }
 }

@@ -8,7 +8,8 @@ export class Conversation extends Document {
     userId: Types.ObjectId;
     name: string;
     avatar?: string;
-    shopId?: Types.ObjectId;
+    /** Entier MySQL (`shops.id`) depuis la migration du module Boutiques (Phase 2). */
+    shopId?: number;
   }>;
 
   /** Instantané du dernier message : la liste des conversations se rend sans jointure. */

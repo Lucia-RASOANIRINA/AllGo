@@ -40,6 +40,6 @@ export class AdministrationController {
     @Param('courierId') courierId: string,
     @Body() body: { amount: number; reason: string },
   ) {
-    return this.administration.grantCourierBonus(courierId, body.amount, body.reason, user);
+    return this.administration.grantCourierBonus(Number(courierId), body.amount, body.reason, user);
   }
 }

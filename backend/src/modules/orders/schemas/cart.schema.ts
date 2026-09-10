@@ -3,8 +3,12 @@ import { HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
 
 @Schema({ _id: true })
 export class CartItem {
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Product', required: true }) productId!: Types.ObjectId;
-  @Prop({ type: MongooseSchema.Types.ObjectId }) variantId?: Types.ObjectId;
+  /**
+   * Identifiant entier MySQL (`products.id`) — pas un ObjectId Mongo depuis la
+   * migration du Catalogue (§ décision du 2026-09-09, Phase 2).
+   */
+  @Prop({ type: Number, required: true }) productId!: number;
+  @Prop({ type: Number }) variantId?: number;
   @Prop({ required: true, min: 1 }) quantity!: number;
   @Prop({ type: Date, default: () => new Date() }) addedAt!: Date;
 
@@ -18,7 +22,8 @@ export class CartItem {
     name: string;
     image?: string;
     price: unknown;
-    shopId: Types.ObjectId;
+    /** Identifiant entier MySQL (`shops.id`). */
+    shopId: number;
     shopName: string;
   };
 }

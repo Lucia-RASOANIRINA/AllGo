@@ -109,6 +109,9 @@ model comments {
   parent_id      Int?
   content        String     @db.Text
   created_at     DateTime?  @default(now()) @db.DateTime(0)
+  /// Ajoutées manuellement (mobile, Phase 4) — hors `prisma db pull`, voir refresh_tokens.
+  reported       Boolean    @default(false)
+  report_reason  String?    @db.VarChar(300)
   posts          posts      @relation(fields: [post_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "comments_ibfk_1")
   users          users      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "comments_ibfk_2")
   comments       comments?  @relation("commentsTocomments", fields: [parent_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "comments_ibfk_3")
@@ -133,6 +136,8 @@ model conversations {
   id                                     Int        @id @default(autoincrement())
   user_one_id                            Int
   user_two_id                            Int
+  /// Ajoutée manuellement (mobile, Phase 4) — hors `prisma db pull`, voir refresh_tokens.
+  shop_id                                Int?
   created_at                             DateTime?  @default(now()) @db.DateTime(0)
   blocked_by_user_one_at                 DateTime?  @db.DateTime(0)
   blocked_by_user_two_at                 DateTime?  @db.DateTime(0)
@@ -140,10 +145,12 @@ model conversations {
   archived_by_user_two_at                DateTime?  @db.DateTime(0)
   users_conversations_user_one_idTousers users      @relation("conversations_user_one_idTousers", fields: [user_one_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "conversations_ibfk_1")
   users_conversations_user_two_idTousers users      @relation("conversations_user_two_idTousers", fields: [user_two_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "conversations_ibfk_2")
+  shops                                  shops?     @relation(fields: [shop_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "fk_conversations_shop")
   messages                               messages[]
 
   @@unique([user_one_id, user_two_id], map: "unique_conversation")
   @@index([user_two_id], map: "user_two_id")
+  @@index([shop_id], map: "idx_conversations_shop")
 }
 
 model coupons {
@@ -156,6 +163,7 @@ model coupons {
   usage_limit    Int?
   used_count     Int?                   @default(0)
   shops          shops?                 @relation(fields: [shop_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "coupons_ibfk_1")
+  orders         orders[]
 
   @@index([shop_id], map: "shop_id")
 }
@@ -301,19 +309,108 @@ model orders {
   shipping_fee     Decimal?                @default(0.00) @db.Decimal(12, 2)
   address_id       Int?
   note             String?                 @db.Text
+  /// Ajoutées manuellement (mobile, Phase 3) — hors `prisma db pull`, voir refresh_tokens.
+  courier_id                 Int?
+  delivery_workflow_status   String?   @db.VarChar(20)
+  delivery_otp_code          String?   @db.VarChar(4)
+  delivery_accepted_at       DateTime? @db.DateTime(0)
+  delivery_proof_photo       String?   @db.VarChar(255)
+  delivery_proof_captured_at DateTime? @db.DateTime(0)
+  /// Position live du livreur — mise à jour fréquente via WebSocket, jamais relue en historique.
+  courier_latitude            Decimal?  @db.Decimal(10, 7)
+  courier_longitude           Decimal?  @db.Decimal(10, 7)
+  courier_location_updated_at DateTime? @db.DateTime(0)
+  tip_amount       Decimal?                @default(0.00) @db.Decimal(12, 2)
+  coupon_id        Int?
+  discount_amount  Decimal?                @default(0.00) @db.Decimal(12, 2)
   created_at       DateTime?               @default(now()) @db.DateTime(0)
   updated_at       DateTime?               @default(now()) @db.DateTime(0)
   order_items      order_items[]
+  order_status_history order_status_history[]
+  order_disputes   order_disputes[]
   users            users                   @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "orders_ibfk_1")
   shops            shops                   @relation(fields: [shop_id], references: [id], onUpdate: Restrict, map: "orders_ibfk_2")
   addresses        addresses?              @relation(fields: [address_id], references: [id], onUpdate: Restrict, map: "orders_ibfk_3")
+  coupons          coupons?                @relation(fields: [coupon_id], references: [id], onUpdate: Restrict, map: "fk_orders_coupon")
+  courier          users?                  @relation("orders_courier", fields: [courier_id], references: [id], onUpdate: Restrict, map: "fk_orders_courier")
   payments         payments[]
   refunds          refunds[]
   sales_invoices   sales_invoices[]
+  transactions     transactions[]
 
   @@index([address_id], map: "address_id")
   @@index([shop_id], map: "shop_id")
   @@index([user_id], map: "user_id")
+  @@index([courier_id], map: "courier_id")
+  @@index([coupon_id], map: "coupon_id")
+}
+
+model order_status_history {
+  id         Int       @id @default(autoincrement())
+  order_id   Int
+  status     String    @db.VarChar(20)
+  note       String?   @db.Text
+  changed_by Int?
+  created_at DateTime  @default(now()) @db.DateTime(0)
+  orders     orders    @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "order_status_history_ibfk_1")
+  users      users?    @relation(fields: [changed_by], references: [id], onUpdate: Restrict, map: "order_status_history_ibfk_2")
+
+  @@index([order_id], map: "order_id")
+}
+
+model order_disputes {
+  id           Int                     @id @default(autoincrement())
+  order_id     Int
+  raised_by    Int
+  reason       String                  @db.Text
+  status       order_disputes_status   @default(open)
+  resolution   String?                 @db.Text
+  resolved_by  Int?
+  resolved_at  DateTime?               @db.DateTime(0)
+  created_at   DateTime                @default(now()) @db.DateTime(0)
+  orders       orders                  @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "order_disputes_ibfk_1")
+  raiser       users                   @relation("order_disputes_raised_by", fields: [raised_by], references: [id], onUpdate: Restrict, map: "order_disputes_ibfk_2")
+  resolver     users?                  @relation("order_disputes_resolved_by", fields: [resolved_by], references: [id], onUpdate: Restrict, map: "order_disputes_ibfk_3")
+
+  @@index([order_id], map: "order_id")
+  @@index([status], map: "status")
+}
+
+model transactions {
+  id         Int                  @id @default(autoincrement())
+  type       transactions_type
+  amount     Decimal              @db.Decimal(12, 2)
+  order_id   Int?
+  shop_id    Int?
+  status     transactions_status  @default(completed)
+  note       String?              @db.Text
+  created_at DateTime             @default(now()) @db.DateTime(0)
+  orders     orders?              @relation(fields: [order_id], references: [id], onUpdate: Restrict, map: "transactions_ibfk_1")
+  shops      shops?               @relation(fields: [shop_id], references: [id], onUpdate: Restrict, map: "transactions_ibfk_2")
+
+  @@index([order_id], map: "order_id")
+  @@index([shop_id], map: "shop_id")
+  @@index([type], map: "type")
+}
+
+enum order_disputes_status {
+  open
+  resolved
+  rejected
+}
+
+enum transactions_type {
+  commission
+  delivery_fee
+  refund
+  merchant_withdrawal
+  courier_withdrawal
+}
+
+enum transactions_status {
+  pending
+  completed
+  failed
 }
 
 model password_resets {
@@ -374,6 +471,8 @@ model posts {
   user_id          Int
   shop_id          Int?
   product_id       Int?
+  /// Ajoutées manuellement (mobile, Phase 4) — hors `prisma db pull`, voir refresh_tokens.
+  promotion_id     Int?
   content          String?            @db.Text
   type             posts_type?
   title            String?            @db.VarChar(255)
@@ -383,11 +482,15 @@ model posts {
   budget           Decimal?           @db.Decimal(10, 2)
   desired_date     DateTime?          @db.Date
   urgency          posts_urgency?     @default(normal)
+  request_status   posts_request_status?
   location         String?            @db.VarChar(255)
   visibility       posts_visibility?  @default(public)
   is_announcement  Boolean?           @default(false)
   created_at       DateTime?          @default(now()) @db.DateTime(0)
   updated_at       DateTime?          @default(now()) @db.DateTime(0)
+  response_count   Int                @default(0)
+  reported         Boolean            @default(false)
+  report_reason    String?            @db.VarChar(300)
   comments         comments[]
   post_hashtags    post_hashtags[]
   post_media       post_media[]
@@ -396,6 +499,7 @@ model posts {
   users            users              @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "posts_ibfk_1")
   shops            shops?             @relation(fields: [shop_id], references: [id], onUpdate: Restrict, map: "posts_ibfk_2")
   products         products?          @relation(fields: [product_id], references: [id], onUpdate: Restrict, map: "posts_ibfk_3")
+  promotions       promotions?        @relation(fields: [promotion_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "fk_posts_promotion")
   reactions        reactions[]
   saved_posts      saved_posts[]
   shares           shares[]
@@ -451,11 +555,18 @@ model products {
   category_id      Int?
   name             String             @db.VarChar(200)
   slug             String             @db.VarChar(220)
+  /// Ajoutées manuellement (mobile) — hors `prisma db pull`, voir refresh_tokens.
+  sku              String?            @db.VarChar(100)
+  barcode          String?            @db.VarChar(100)
   description      String?            @db.Text
   price            Decimal            @db.Decimal(12, 2)
   promo_price      Decimal?           @db.Decimal(12, 2)
   stock            Int?               @default(0)
+  min_stock        Int?               @default(0)
   status           products_status?   @default(published)
+  is_available     Boolean            @default(true)
+  is_featured      Boolean            @default(false)
+  is_hidden        Boolean            @default(false)
   views            Int?               @default(0)
   created_at       DateTime?          @default(now()) @db.DateTime(0)
   updated_at       DateTime?          @default(now()) @db.DateTime(0)
@@ -466,6 +577,8 @@ model products {
   product_images   product_images[]
   product_reviews  product_reviews[]
   product_variants product_variants[]
+  promotions       promotions[]
+  stories          stories[]
   shops            shops              @relation(fields: [shop_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "products_ibfk_1")
   categories       categories?        @relation(fields: [category_id], references: [id], onUpdate: Restrict, map: "products_ibfk_2")
 
@@ -474,14 +587,32 @@ model products {
 }
 
 model promotions {
-  id          Int       @id @default(autoincrement())
-  shop_id     Int
-  title       String    @db.VarChar(150)
-  description String?   @db.Text
-  starts_at   DateTime? @db.DateTime(0)
-  ends_at     DateTime? @db.DateTime(0)
-  created_at  DateTime? @default(now()) @db.DateTime(0)
-  shops       shops     @relation(fields: [shop_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "promotions_ibfk_1")
+  id              Int                  @id @default(autoincrement())
+  shop_id         Int
+  title           String               @db.VarChar(150)
+  /// Ajoutées manuellement (mobile, Phase 4) — hors `prisma db pull`, voir refresh_tokens.
+  type            promotions_type      @default(percent)
+  value           Decimal              @default(0.00) @db.Decimal(12, 2)
+  product_id      Int?
+  description     String?              @db.Text
+  starts_at       DateTime?            @db.DateTime(0)
+  ends_at         DateTime?            @db.DateTime(0)
+  created_at      DateTime?            @default(now()) @db.DateTime(0)
+  quantity_limit  Int?
+  redeemed_count  Int                  @default(0)
+  coupon_code     String?              @unique(map: "unique_promotion_coupon") @db.VarChar(40)
+  flash           Boolean              @default(false)
+  special_offer   Boolean              @default(false)
+  active          Boolean              @default(true)
+  latitude        Decimal?             @db.Decimal(10, 7)
+  longitude       Decimal?             @db.Decimal(10, 7)
+  radius_km       Decimal?             @db.Decimal(6, 2)
+  updated_at      DateTime?            @default(now()) @db.DateTime(0)
+  shops           shops                @relation(fields: [shop_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "promotions_ibfk_1")
+  products        products?            @relation(fields: [product_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "fk_promotions_product")
+  posts           posts[]
+  stories         stories[]
+  saved_promotions saved_promotions[]
 
   @@index([shop_id], map: "shop_id")
 }
@@ -603,6 +734,32 @@ model saved_posts {
   @@index([user_id], map: "user_id")
 }
 
+/// Ajoutée manuellement (mobile, Phase 4) — hors `prisma db pull`, voir refresh_tokens.
+model saved_promotions {
+  id           Int        @id @default(autoincrement())
+  promotion_id Int
+  user_id      Int
+  created_at   DateTime?  @default(now()) @db.DateTime(0)
+  promotions   promotions @relation(fields: [promotion_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_saved_promotions_promotion")
+  users        users      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_saved_promotions_user")
+
+  @@unique([promotion_id, user_id], map: "unique_saved_promotion")
+  @@index([user_id], map: "idx_saved_promotions_user")
+}
+
+/// Ajoutée manuellement (mobile, Phase 4) — hors `prisma db pull`, voir refresh_tokens.
+model shop_favorites {
+  id         Int       @id @default(autoincrement())
+  shop_id    Int
+  user_id    Int
+  created_at DateTime? @default(now()) @db.DateTime(0)
+  shops      shops     @relation(fields: [shop_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_shop_favorites_shop")
+  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_shop_favorites_user")
+
+  @@unique([shop_id, user_id], map: "unique_shop_favorite")
+  @@index([user_id], map: "idx_shop_favorites_user")
+}
+
 model settings {
   id            Int       @id @default(autoincrement())
   setting_key   String    @unique(map: "setting_key") @db.VarChar(100)
@@ -632,6 +789,20 @@ model shop_followers {
 
   @@unique([shop_id, user_id], map: "unique_follow")
   @@index([user_id], map: "user_id")
+}
+
+/// Nouvelle table (mobile) — `shops.opening_hours` réel est un texte libre,
+/// insuffisant pour le filtre « ouvert maintenant ». Ajoutée manuellement,
+/// voir refresh_tokens.
+model shop_opening_hours {
+  id          Int      @id @default(autoincrement())
+  shop_id     Int
+  day_of_week Int      @db.TinyInt
+  opens_at    DateTime @db.Time(0)
+  closes_at   DateTime @db.Time(0)
+  shops       shops    @relation(fields: [shop_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "shop_opening_hours_ibfk_1")
+
+  @@index([shop_id], map: "shop_id")
 }
 
 model shop_team_members {
@@ -666,6 +837,9 @@ model shops {
   latitude           Decimal?            @db.Decimal(10, 7)
   longitude          Decimal?            @db.Decimal(10, 7)
   delivery_radius_km Decimal?            @default(5.0) @db.Decimal(5, 1)
+  /// Ajoutées manuellement (mobile) — hors `prisma db pull`, voir refresh_tokens.
+  delivery_available Boolean             @default(true)
+  pickup_available   Boolean             @default(false)
   opening_hours      String?             @db.VarChar(255)
   status             shops_status?       @default(pending)
   is_featured        Boolean?            @default(false)
@@ -680,7 +854,11 @@ model shops {
   refunds            refunds[]
   sales_invoices     sales_invoices[]
   shop_followers     shop_followers[]
+  shop_opening_hours shop_opening_hours[]
+  transactions       transactions[]
   shop_team_members  shop_team_members[]
+  shop_favorites     shop_favorites[]
+  conversations      conversations[]
   categories         categories?         @relation(fields: [category_id], references: [id], onUpdate: Restrict, map: "fk_shops_category")
   users              users               @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "shops_ibfk_1")
   statistics         statistics[]
@@ -705,10 +883,15 @@ model stories {
   id              Int               @id @default(autoincrement())
   user_id         Int
   media_path      String            @db.VarChar(255)
+  /// Ajoutées manuellement (mobile, Phase 4) — hors `prisma db pull`, voir refresh_tokens.
+  product_id      Int?
+  promotion_id    Int?
   type            stories_type?     @default(image)
   expires_at      DateTime          @db.DateTime(0)
   created_at      DateTime?         @default(now()) @db.DateTime(0)
   users           users             @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "stories_ibfk_1")
+  products        products?         @relation(fields: [product_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "fk_stories_product")
+  promotions      promotions?       @relation(fields: [promotion_id], references: [id], onDelete: SetNull, onUpdate: Restrict, map: "fk_stories_promotion")
   story_reactions story_reactions[]
   story_views     story_views[]
 
@@ -745,6 +928,19 @@ model user_presence {
   is_online Boolean   @default(false)
   last_seen DateTime? @default(now()) @db.DateTime(0)
   users     users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "user_presence_ibfk_1")
+}
+
+/// Ajoutée manuellement (mobile, Phase 4) — hors `prisma db pull`, voir refresh_tokens.
+model user_blocks {
+  id                                  Int      @id @default(autoincrement())
+  blocker_id                          Int
+  blocked_id                          Int
+  created_at                          DateTime? @default(now()) @db.DateTime(0)
+  users_user_blocks_blocker_idTousers users    @relation("user_blocks_blocker_idTousers", fields: [blocker_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_user_blocks_blocker")
+  users_user_blocks_blocked_idTousers users    @relation("user_blocks_blocked_idTousers", fields: [blocked_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_user_blocks_blocked")
+
+  @@unique([blocker_id, blocked_id], map: "unique_user_block")
+  @@index([blocked_id], map: "idx_user_blocks_blocked")
 }
 
 model users {
@@ -787,6 +983,10 @@ model users {
   messages                                       messages[]
   notifications                                  notifications[]
   orders                                         orders[]
+  orders_courier                                 orders[]           @relation("orders_courier")
+  order_status_history                           order_status_history[]
+  order_disputes_raised_by                       order_disputes[]   @relation("order_disputes_raised_by")
+  order_disputes_resolved_by                     order_disputes[]   @relation("order_disputes_resolved_by")
   post_preferences                               post_preferences[]
   posts                                          posts[]
   product_reviews                                product_reviews[]
@@ -794,8 +994,12 @@ model users {
   refresh_tokens                                 refresh_tokens[]
   reports                                        reports[]
   saved_posts                                    saved_posts[]
+  saved_promotions                               saved_promotions[]
   shares                                         shares[]
+  shop_favorites                                 shop_favorites[]
   shop_followers                                 shop_followers[]
+  user_blocks_user_blocks_blocker_idTousers      user_blocks[]      @relation("user_blocks_blocker_idTousers")
+  user_blocks_user_blocks_blocked_idTousers      user_blocks[]      @relation("user_blocks_blocked_idTousers")
   shop_team_members                              shop_team_members?
   shops                                          shops[]
   stories                                        stories[]
@@ -895,6 +1099,9 @@ enum posts_type {
 enum orders_status {
   pending
   confirmed
+  /// Ajoutée manuellement (mobile, Phase 3) — absente du web, qui ne distingue
+  /// pas « acceptée » de « en préparation ». Voir order.schema.ts#ORDER_STATUSES.
+  preparing
   shipped
   delivered
   cancelled
@@ -995,6 +1202,21 @@ enum users_status {
 enum posts_visibility {
   public
   followers
+}
+
+/// Ajoutée manuellement (mobile, Phase 4) — hors `prisma db pull`, voir refresh_tokens.
+enum posts_request_status {
+  active
+  discussing
+  done
+  expired
+}
+
+/// Ajoutée manuellement (mobile, Phase 4) — hors `prisma db pull`, voir refresh_tokens.
+enum promotions_type {
+  percent
+  fixed
+  price
 }
 
 enum shops_status {

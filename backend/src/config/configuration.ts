@@ -30,6 +30,11 @@ export interface AppConfig {
     from: string;
     verificationUrl: string;
   };
+  sms: {
+    gatewayUrl?: string;
+    apiKey?: string;
+    senderId?: string;
+  };
 }
 
 function required(name: string): string {
@@ -76,5 +81,13 @@ export default (): AppConfig => ({
     password: process.env.SMTP_PASSWORD,
     from: process.env.SMTP_FROM ?? 'no-reply@allgo.mg',
     verificationUrl: process.env.EMAIL_VERIFICATION_URL ?? 'https://app.allgo.mg/verifier-email',
+  },
+  // Absent tant qu'aucun fournisseur SMS n'est branché : `SmsService` répond
+  // alors une indisponibilité explicite en production (§ décision du
+  // 2026-09-09, mise en marché) plutôt qu'un faux succès silencieux.
+  sms: {
+    gatewayUrl: process.env.SMS_GATEWAY_URL,
+    apiKey: process.env.SMS_GATEWAY_API_KEY,
+    senderId: process.env.SMS_SENDER_ID,
   },
 });

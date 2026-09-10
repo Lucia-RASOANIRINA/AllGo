@@ -15,6 +15,21 @@ const TEAM_ROLE_MAP: Record<string, Role> = {
   marketing: Role.ShopMarketing,
 };
 
+/**
+ * Sens inverse — écriture d'une affectation d'équipe (`ShopsService.addTeamMember`
+ * et consorts) : le mobile choisit parmi les valeurs `SHOP_TEAM_ROLES` (DTO,
+ * vocabulaire `Role` unifié), la colonne réelle `team_role` attend le
+ * vocabulaire français hérité du site web.
+ */
+export const ROLE_TO_TEAM_ROLE: Partial<Record<Role, string>> = {
+  [Role.ShopManager]: 'manager',
+  [Role.ShopSales]: 'commercial',
+  [Role.ShopCashier]: 'caissier',
+  [Role.ShopStock]: 'stock',
+  [Role.ShopCourier]: 'livreur',
+  [Role.ShopMarketing]: 'marketing',
+};
+
 export interface MysqlRoleInputs {
   /** `users.role_id` — 1=admin, 2=merchant, 3=client (table `roles` réelle). */
   roleId: number;

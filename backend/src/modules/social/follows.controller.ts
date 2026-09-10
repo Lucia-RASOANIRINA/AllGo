@@ -16,27 +16,27 @@ export class FollowsController {
   @RequirePermission(Permission.ProfileRead)
   @ApiOperation({ summary: 'Boutiques suivies, enrichies (pour l’écran Favoris).' })
   list(@CurrentUser() user: AuthenticatedUser, @Query() query: PaginationQueryDto) {
-    return this.follows.listFollowedShops(user.id, query.limit, query.cursor);
+    return this.follows.listFollowedShops(user.mysqlId, query.limit, query.cursor);
   }
 
   @Get('ids')
   @RequirePermission(Permission.ProfileRead)
   @ApiOperation({ summary: 'Identifiants des boutiques suivies.' })
   ids(@CurrentUser() user: AuthenticatedUser) {
-    return this.follows.followedShopIds(user.id);
+    return this.follows.followedShopIds(user.mysqlId);
   }
 
   @Post(':shopId')
   @RequirePermission(Permission.FollowToggle)
   @ApiOperation({ summary: 'Suivre une boutique.' })
   follow(@CurrentUser() user: AuthenticatedUser, @Param('shopId') shopId: string) {
-    return this.follows.followShop(user.id, shopId);
+    return this.follows.followShop(user.mysqlId, shopId);
   }
 
   @Delete(':shopId')
   @RequirePermission(Permission.FollowToggle)
   @ApiOperation({ summary: 'Ne plus suivre une boutique.' })
   unfollow(@CurrentUser() user: AuthenticatedUser, @Param('shopId') shopId: string) {
-    return this.follows.unfollowShop(user.id, shopId);
+    return this.follows.unfollowShop(user.mysqlId, shopId);
   }
 }

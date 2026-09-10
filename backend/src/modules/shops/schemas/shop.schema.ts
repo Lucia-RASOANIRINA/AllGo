@@ -33,7 +33,20 @@ export const OpeningHoursSchema = SchemaFactory.createForClass(OpeningHours);
 
 @Schema({ collection: 'shops', timestamps: true })
 export class Shop extends Document {
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) ownerId!: Types.ObjectId;
+  /**
+   * Pont d'identité transitoire — migration Mongo → MySQL (§ décision du
+   * 2026-09-09). La boutique canonique vit désormais dans `shops` (MySQL,
+   * `PrismaService`, voir `ShopsService`) ; ce document Mongo devient un
+   * MIROIR minimal, tenu à jour à la création/modification, conservé pour
+   * les modules pas encore migrés (Commandes, Panier, Publications,
+   * Promotions) dont les schémas référencent une boutique par ObjectId.
+   * Disparaît avec le dernier module migré.
+   */
+  @Prop({ type: Number })
+  mysqlId?: number;
+
+  /** Optionnel depuis le miroir MySQL (§ décision du 2026-09-09) : la propriété réelle vit dans `shops.user_id`. */
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User' }) ownerId?: Types.ObjectId;
 
   @Prop({ required: true, lowercase: true, trim: true }) slug!: string;
   @Prop({ required: true, trim: true }) name!: string;
@@ -97,6 +110,7 @@ export type ShopDocument = HydratedDocument<Shop>;
 export const ShopSchema = SchemaFactory.createForClass(Shop);
 
 ShopSchema.index({ slug: 1 }, { unique: true });
+ShopSchema.index({ mysqlId: 1 }, { unique: true, sparse: true });
 ShopSchema.index({ location: '2dsphere' });
 ShopSchema.index({ status: 1, isFeatured: -1 });
 ShopSchema.index({ 'team.userId': 1 });

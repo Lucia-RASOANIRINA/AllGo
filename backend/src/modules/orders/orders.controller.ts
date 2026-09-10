@@ -59,38 +59,35 @@ export class OrdersController {
       'stock, écriture des mouvements, vidage du panier — tout ou rien.',
   })
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateOrderDto) {
-    return this.orders.create(user.id, dto, {
-      name: user.phone,
-      phone: user.phone,
-    });
+    return this.orders.create(user.mysqlId, dto, user.phone);
   }
 
   @Get('orders')
   @RequirePermission(Permission.OrderReadOwn)
   @ApiOperation({ summary: 'Lister mes commandes, de la plus récente à la plus ancienne.' })
   listMine(@CurrentUser() user: AuthenticatedUser, @Query() query: PaginationQueryDto) {
-    return this.orders.listForUser(user.id, query.limit, query.cursor);
+    return this.orders.listForUser(user.mysqlId, query.limit, query.cursor);
   }
 
   @Get('orders/:id')
   @RequirePermission(Permission.OrderReadOwn)
   @ApiOperation({ summary: 'Consulter une commande.' })
   async findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.orders.findForUser(user.id, id);
+    return this.orders.findForUser(user.mysqlId, id);
   }
 
   @Patch('orders/:id/cancel')
   @RequirePermission(Permission.OrderCancel)
   @ApiOperation({ summary: 'Annuler une commande non payée.' })
   cancel(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.orders.cancelForUser(id, user.id);
+    return this.orders.cancelForUser(id, user.mysqlId);
   }
 
   @Post('orders/:id/dispute')
   @RequirePermission(Permission.OrderDispute)
   @ApiOperation({ summary: 'Ouvrir un litige sur une commande, traité par la modération.' })
   dispute(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: RaiseDisputeDto) {
-    return this.orders.raiseDispute(id, user.id, dto.reason);
+    return this.orders.raiseDispute(id, user.mysqlId, dto.reason);
   }
 
   // --- Espace commerçant : la portée est nommée par `:shopId` (§3.2) ---
@@ -116,13 +113,13 @@ export class OrdersController {
     @Body() dto: UpdateOrderStatusDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.orders.updateStatus(id, shopId, dto.status, user.id, dto.note);
+    return this.orders.updateStatus(id, shopId, dto.status, user.mysqlId, dto.note);
   }
 
   @Patch('shop/:shopId/orders/:id/cancel')
   @RequirePermission(Permission.OrderCancel, 'shopId')
   cancelForShop(@Param('shopId') shopId: string, @Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.orders.cancelForShop(id, shopId, user.id);
+    return this.orders.cancelForShop(id, shopId, user.mysqlId);
   }
 
   @Patch('shop/:shopId/orders/:id/collect-payment')
@@ -137,21 +134,21 @@ export class OrdersController {
 
   @Get('courier/missions')
   @RequirePermission(Permission.DeliveryReadOwn)
-  missions(@CurrentUser() user: AuthenticatedUser) { return this.orders.courierMissions(user.id); }
+  missions(@CurrentUser() user: AuthenticatedUser) { return this.orders.courierMissions(user.mysqlId); }
 
   @Patch('courier/missions/:id/accept')
   @RequirePermission(Permission.DeliveryUpdate)
-  acceptMission(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.orders.acceptMission(id, user.id); }
+  acceptMission(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.orders.acceptMission(id, user.mysqlId); }
 
   @Patch('courier/missions/:id/refuse')
   @RequirePermission(Permission.DeliveryUpdate)
-  refuseMission(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.orders.refuseMission(id, user.id); }
+  refuseMission(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.orders.refuseMission(id, user.mysqlId); }
 
   @Patch('courier/missions/:id/workflow')
   @RequirePermission(Permission.DeliveryUpdate)
-  workflow(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body('status') status: string) { return this.orders.updateCourierWorkflow(id, user.id, status); }
+  workflow(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body('status') status: string) { return this.orders.updateCourierWorkflow(id, user.mysqlId, status); }
 
   @Post('courier/missions/:id/complete')
   @RequirePermission(Permission.DeliveryProof)
-  complete(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: { otp: string; photoUrl?: string }) { return this.orders.completeDelivery(id, user.id, body.otp, body.photoUrl); }
+  complete(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: { otp: string; photoUrl?: string }) { return this.orders.completeDelivery(id, user.mysqlId, body.otp, body.photoUrl); }
 }

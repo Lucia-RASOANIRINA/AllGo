@@ -2,7 +2,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
 
 /** Cibles signalables — §29. Une par type de contenu ou de compte modérable. */
-export const REPORT_TARGET_TYPES = ['post', 'comment', 'user', 'shop', 'product'] as const;
+export const REPORT_TARGET_TYPES = ['post', 'comment', 'user', 'shop', 'product', 'conversation'] as const;
 export type ReportTargetType = (typeof REPORT_TARGET_TYPES)[number];
 
 export const REPORT_REASON_CODES = [
@@ -35,7 +35,8 @@ export class Report extends Document {
   /** `null` pour un signalement déposé par le filtre automatique, pas un compte. */
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', default: null }) reporterId!: Types.ObjectId | null;
   @Prop({ type: String, enum: REPORT_TARGET_TYPES, required: true }) targetType!: ReportTargetType;
-  @Prop({ type: MongooseSchema.Types.ObjectId, required: true }) targetId!: Types.ObjectId;
+  /** Entier MySQL pour `product`/`shop` (Phase 2) ; ObjectId (miroir) pour `post`/`comment`/`user`. */
+  @Prop({ type: MongooseSchema.Types.Mixed, required: true }) targetId!: Types.ObjectId | number;
   @Prop({ required: true, trim: true, maxlength: 500 }) reason!: string;
   @Prop({ type: String, enum: REPORT_REASON_CODES, default: 'other' }) reasonCode!: ReportReasonCode;
   @Prop({ type: Boolean, default: false }) automatic!: boolean;

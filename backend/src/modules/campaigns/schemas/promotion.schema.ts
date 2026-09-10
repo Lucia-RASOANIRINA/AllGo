@@ -14,7 +14,8 @@ export class Promotion extends Document {
   @Prop({ default: false }) flash!: boolean;
   @Prop({ default: false }) specialOffer!: boolean;
   @Prop({ type: Object }) location?: { latitude: number; longitude: number; radiusKm: number };
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Product' }) productId?: Types.ObjectId;
+  /** Entier MySQL (`products.id`) depuis la migration du Catalogue (Phase 2). */
+  @Prop({ type: Number }) productId?: number;
   @Prop({ default: true }) active!: boolean;
 
   /** Nombre de fois où `couponCode` a été rédimé — plafonné par `quantityLimit` (§21). */

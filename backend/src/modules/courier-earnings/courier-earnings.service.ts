@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { Model } from 'mongoose';
 import { AppError } from '../../common/http/app-error';
-import { Order, type OrderDocument } from '../orders/schemas/order.schema';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CourierWithdrawal, type CourierWithdrawalDocument } from './schemas/withdrawal.schema';
 import { CourierBonus, type CourierBonusDocument } from './schemas/bonus.schema';
 
@@ -11,13 +11,12 @@ const COMMISSION_RATE = 0.2;
 @Injectable()
 export class CourierEarningsService {
   constructor(
-    @InjectModel(Order.name) private readonly orders: Model<OrderDocument>,
+    private readonly prisma: PrismaService,
     @InjectModel(CourierWithdrawal.name) private readonly withdrawals: Model<CourierWithdrawalDocument>,
     @InjectModel(CourierBonus.name) private readonly bonuses: Model<CourierBonusDocument>,
   ) {}
 
-  async summary(userId: string): Promise<Record<string, unknown>> {
-    const courierId = new Types.ObjectId(userId);
+  async summary(courierId: number): Promise<Record<string, unknown>> {
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOfWeek = new Date(startOfDay);
@@ -48,74 +47,74 @@ export class CourierEarningsService {
    * lui-même, d'où l'absence de route dans ce contrôleur (elle vit côté
    * `AdministrationController`, qui seul détient `Permission.PlatformModerate`).
    */
-  async grantBonus(courierId: string, amount: number, reason: string, grantedBy: string): Promise<unknown> {
+  async grantBonus(courierId: number, amount: number, reason: string, grantedByMysqlId: number): Promise<unknown> {
     if (!Number.isFinite(amount) || amount <= 0 || !reason?.trim()) {
       throw new AppError('INVALID_BONUS', 'Montant et motif de bonus invalides.', 400);
     }
     const bonus = await this.bonuses.create({
-      courierId: new Types.ObjectId(courierId),
+      courierId,
       amount,
       reason: reason.trim(),
-      grantedBy: new Types.ObjectId(grantedBy),
+      grantedBy: grantedByMysqlId,
     });
     return bonus.toJSON();
   }
 
-  async history(userId: string): Promise<unknown[]> {
-    return this.orders.find({ 'delivery.courierId': new Types.ObjectId(userId), status: 'delivered' })
-      .sort({ updatedAt: -1 }).limit(100)
-      .select('orderNumber amounts.shippingFee updatedAt shop delivery.workflowStatus').lean();
+  async history(courierId: number): Promise<unknown[]> {
+    const rows = await this.prisma.orders.findMany({
+      where: { courier_id: courierId, status: 'delivered' },
+      orderBy: { updated_at: 'desc' },
+      take: 100,
+      select: {
+        order_number: true, shipping_fee: true, updated_at: true, shop_id: true,
+        delivery_workflow_status: true, shops: { select: { name: true } },
+      },
+    });
+    return rows.map((r) => ({
+      orderNumber: r.order_number,
+      shippingFee: r.shipping_fee,
+      updatedAt: r.updated_at,
+      shop: { name: r.shops.name },
+      workflowStatus: r.delivery_workflow_status,
+    }));
   }
 
-  async withdrawalsList(userId: string): Promise<unknown[]> {
-    return this.withdrawals.find({ courierId: new Types.ObjectId(userId) }).sort({ createdAt: -1 }).limit(100).lean();
+  async withdrawalsList(courierId: number): Promise<unknown[]> {
+    return this.withdrawals.find({ courierId }).sort({ createdAt: -1 }).limit(100).lean();
   }
 
-  async requestWithdrawal(userId: string, amount: number, method: string, account: string): Promise<unknown> {
+  async requestWithdrawal(courierId: number, amount: number, method: string, account: string): Promise<unknown> {
     if (!Number.isFinite(amount) || amount <= 0 || !method?.trim() || !account?.trim()) {
       throw new AppError('INVALID_WITHDRAWAL', 'Montant et coordonnées de retrait invalides.', 400);
     }
-    const summary = await this.summary(userId);
+    const summary = await this.summary(courierId);
     if (amount > Number(summary.balance)) throw new AppError('INSUFFICIENT_BALANCE', 'Solde insuffisant.', 400);
-    return this.withdrawals.create({ courierId: new Types.ObjectId(userId), amount, method: method.trim(), account: account.trim() });
+    return this.withdrawals.create({ courierId, amount, method: method.trim(), account: account.trim() });
   }
 
-  private async aggregate(courierId: Types.ObjectId, from?: Date) {
-    const match: Record<string, unknown> = { 'delivery.courierId': courierId, status: 'delivered' };
-    if (from) match.updatedAt = { $gte: from };
-    const bonusMatch: Record<string, unknown> = { courierId };
-    if (from) bonusMatch.createdAt = { $gte: from };
-
-    const [[row], [bonusRow]] = await Promise.all([
-      this.orders.aggregate([
-        { $match: match },
-        {
-          $project: {
-            shipping: { $toDouble: '$amounts.shippingFee' },
-            // Un pourboire absent (`tip` non défini) est traité comme 0 :
-            // seule une minorité de commandes en portent un.
-            tip: { $toDouble: { $ifNull: ['$delivery.tip', 0] } },
-          },
-        },
-        { $group: { _id: null, deliveries: { $sum: 1 }, gross: { $sum: '$shipping' }, tips: { $sum: '$tip' } } },
-      ]),
+  private async aggregate(courierId: number, from?: Date) {
+    const [deliveries, bonusRow] = await Promise.all([
+      this.prisma.orders.findMany({
+        where: { courier_id: courierId, status: 'delivered', ...(from ? { updated_at: { gte: from } } : {}) },
+        select: { shipping_fee: true, tip_amount: true },
+      }),
       this.bonuses.aggregate([
-        { $match: bonusMatch },
+        { $match: { courierId, ...(from ? { createdAt: { $gte: from } } : {}) } },
         { $group: { _id: null, total: { $sum: '$amount' } } },
       ]),
     ]);
 
-    const gross = Number(row?.gross ?? 0);
+    const gross = deliveries.reduce((sum, o) => sum + Number(o.shipping_fee ?? 0), 0);
     // La commission de plateforme porte sur les frais de livraison, jamais
     // sur le pourboire ni sur un bonus accordé par la modération : ces deux
     // montants reviennent intégralement au livreur.
     const commission = gross * COMMISSION_RATE;
-    const tips = Number(row?.tips ?? 0);
-    const bonuses = Number(bonusRow?.total ?? 0);
+    const tips = deliveries.reduce((sum, o) => sum + Number(o.tip_amount ?? 0), 0);
+    const bonuses = Number(bonusRow[0]?.total ?? 0);
 
     return {
       total: gross - commission + tips + bonuses,
-      deliveries: row?.deliveries ?? 0,
+      deliveries: deliveries.length,
       commissions: commission,
       bonuses,
       tips,

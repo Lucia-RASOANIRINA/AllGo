@@ -1,18 +1,20 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { User, UserSchema } from '../users/schemas/user.schema';
-import { Shop, ShopSchema } from '../shops/schemas/shop.schema';
-import { Product, ProductSchema } from '../catalog/schemas/product.schema';
-import { Order, OrderSchema } from '../orders/schemas/order.schema';
-import { Dispute, DisputeSchema } from '../orders/schemas/dispute.schema';
 import { CourierEarningsModule } from '../courier-earnings/courier-earnings.module';
 import { FinanceModule } from '../finance/finance.module';
 import { Review, ReviewSchema } from '../reviews/schemas/review.schema';
 import { Post, PostSchema } from '../social/schemas/post.schema';
+import { Report, ReportSchema } from '../moderation/schemas/report.schema';
 import { AdminLogsModule } from '../admin-logs/admin-logs.module';
 import { AdministrationController } from './administration.controller';
 import { AdministrationService } from './administration.service';
 
+/**
+ * `Order`/`Dispute` ont migré vers MySQL (Phase 3) : `ordersList`/
+ * `disputesList`/`resolveDispute` passent désormais par `PrismaService`
+ * (`@Global()`), plus besoin de les enregistrer ici.
+ */
 @Module({
   imports: [
     CourierEarningsModule,
@@ -20,12 +22,9 @@ import { AdministrationService } from './administration.service';
     AdminLogsModule,
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
-      { name: Shop.name, schema: ShopSchema },
-      { name: Product.name, schema: ProductSchema },
-      { name: Order.name, schema: OrderSchema },
-      { name: Dispute.name, schema: DisputeSchema },
       { name: Review.name, schema: ReviewSchema },
       { name: Post.name, schema: PostSchema },
+      { name: Report.name, schema: ReportSchema },
     ]),
   ],
   controllers: [AdministrationController],

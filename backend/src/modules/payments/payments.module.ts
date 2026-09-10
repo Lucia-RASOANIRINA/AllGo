@@ -1,7 +1,5 @@
 import { Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
 
-import { Order, OrderSchema } from '../orders/schemas/order.schema';
 import { PAYMENT_PROVIDERS, type PaymentProvider } from './payment-provider.interface';
 import { AirtelMoneyProvider } from './providers/airtel-money.provider';
 import { MvolaProvider } from './providers/mvola.provider';
@@ -15,7 +13,6 @@ import { PaymentsService } from './payments.service';
  * endroit à modifier pour en brancher une nouvelle.
  */
 @Module({
-  imports: [MongooseModule.forFeature([{ name: Order.name, schema: OrderSchema }])],
   controllers: [PaymentsController],
   providers: [
     PaymentsService,

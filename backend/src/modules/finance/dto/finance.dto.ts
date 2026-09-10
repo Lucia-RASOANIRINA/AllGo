@@ -1,8 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsIn, IsInt, IsMongoId, IsNumber, IsOptional, IsPositive, IsString, MaxLength, Min } from 'class-validator';
+import { IsIn, IsInt, IsNumber, IsNumberString, IsOptional, IsPositive, IsString, MaxLength, Min } from 'class-validator';
 
 export class RequestWithdrawalDto {
-  @ApiProperty() @IsMongoId() shopId!: string;
+  @ApiProperty({ description: 'Identifiant numérique MySQL de la boutique.' }) @IsNumberString() shopId!: string;
   @ApiProperty() @IsNumber() @IsPositive() amount!: number;
   @ApiProperty() @IsString() method!: string;
   @ApiProperty() @IsString() account!: string;
@@ -15,7 +15,7 @@ export class ResolveWithdrawalDto {
 }
 
 export class CreateRefundDto {
-  @ApiProperty() @IsMongoId() orderId!: string;
+  @ApiProperty({ description: 'Identifiant numérique MySQL de la commande.' }) @IsNumberString() orderId!: string;
   @ApiProperty({ required: false, description: 'Montant partiel — le total de la commande par défaut.' })
   @IsOptional() @IsNumber() @IsPositive()
   amount?: number;

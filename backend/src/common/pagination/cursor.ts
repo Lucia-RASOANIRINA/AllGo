@@ -53,3 +53,25 @@ export function cursorFilter(
     ],
   };
 }
+
+/**
+ * Équivalent Prisma de `cursorFilter` — même sémantique (reprise après
+ * curseur, égalités départagées par `id`), forme `WHERE` Prisma au lieu du
+ * filtre Mongo. `id` est un entier MySQL, pas un ObjectId : le curseur encode
+ * toujours une chaîne (`encodeCursor`/`decodeCursor` restent inchangés), donc
+ * on la reconvertit ici.
+ */
+export function prismaCursorFilter(
+  field: string,
+  cursor: CursorPayload,
+  direction: 'asc' | 'desc' = 'desc',
+): Record<string, unknown> {
+  const strict = direction === 'desc' ? 'lt' : 'gt';
+  const id = Number(cursor.id);
+  return {
+    OR: [
+      { [field]: { [strict]: cursor.value } },
+      { [field]: cursor.value, id: { [strict]: id } },
+    ],
+  };
+}

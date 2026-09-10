@@ -45,13 +45,13 @@ export class ShopsController {
   @Post('shops')
   @RequirePermission(Permission.ShopCreate)
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateShopDto) {
-    return this.shops.create(user.id, dto);
+    return this.shops.create(user.mysqlId, dto);
   }
 
   @Patch('shop/:shopId')
   @RequirePermission(Permission.ShopUpdate, 'shopId')
   update(@CurrentUser() user: AuthenticatedUser, @Param('shopId') shopId: string, @Body() dto: UpdateShopDto) {
-    return this.shops.update(user.id, shopId, dto);
+    return this.shops.update(user.mysqlId, shopId, dto);
   }
 
   @Public()
@@ -66,7 +66,7 @@ export class ShopsController {
   @RequirePermission(Permission.ProfileRead)
   @ApiOperation({ summary: 'Boutiques où je détiens un rôle (sélecteur de profil).' })
   mine(@CurrentUser() user: AuthenticatedUser) {
-    return this.shops.myShops(user.id);
+    return this.shops.myShops(user.mysqlId);
   }
 
   @Public()

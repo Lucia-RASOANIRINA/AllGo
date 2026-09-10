@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { IsIn, IsMongoId, IsOptional } from 'class-validator';
+import { IsIn, IsNumberString, IsOptional } from 'class-validator';
 
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
@@ -15,8 +15,8 @@ export class AddFavoriteDto {
   @IsIn(FAVORITABLE_TYPES)
   targetType?: FavoriteTargetType;
 
-  @ApiProperty()
-  @IsMongoId()
+  @ApiProperty({ description: 'Identifiant entier MySQL de la cible (product/shop/promotion/post).' })
+  @IsNumberString()
   targetId!: string;
 }
 
@@ -42,7 +42,7 @@ export class FavoritesController {
   @RequirePermission(Permission.ProfileRead)
   @ApiOperation({ summary: 'Lister mes favoris d’un type donné (produit par défaut).' })
   list(@CurrentUser() user: AuthenticatedUser, @Query() query: FavoritesQueryDto) {
-    return this.favorites.list(user.id, query.type ?? 'product', query.limit, query.cursor);
+    return this.favorites.list(user.mysqlId, query.type ?? 'product', query.limit, query.cursor);
   }
 
   @Get('ids')
@@ -54,7 +54,7 @@ export class FavoritesController {
       'transporter les fiches complètes.',
   })
   ids(@CurrentUser() user: AuthenticatedUser, @Query('type') type?: FavoriteTargetType) {
-    return this.favorites.ids(user.id, type ?? 'product');
+    return this.favorites.ids(user.mysqlId, type ?? 'product');
   }
 
   @Post()
@@ -64,7 +64,7 @@ export class FavoritesController {
     description: 'Idempotent : ajouter deux fois la même cible ne crée qu’une entrée.',
   })
   add(@CurrentUser() user: AuthenticatedUser, @Body() dto: AddFavoriteDto) {
-    return this.favorites.add(user.id, dto.targetType ?? 'product', dto.targetId);
+    return this.favorites.add(user.mysqlId, dto.targetType ?? 'product', dto.targetId);
   }
 
   @Delete(':targetId')
@@ -75,6 +75,6 @@ export class FavoritesController {
     @Param('targetId') targetId: string,
     @Query('type') type?: FavoriteTargetType,
   ) {
-    return this.favorites.remove(user.id, type ?? 'product', targetId);
+    return this.favorites.remove(user.mysqlId, type ?? 'product', targetId);
   }
 }

@@ -1,15 +1,10 @@
 import mongoose, { Connection, Types } from 'mongoose';
 
 import { AppError } from '../../common/http/app-error';
-import { CommentSchema, Comment as CommentModel } from '../social/schemas/interactions.schema';
-import { Post as PostModel, PostSchema } from '../social/schemas/post.schema';
-import { Product as ProductModel, ProductSchema } from '../catalog/schemas/product.schema';
-import { Shop as ShopModel, ShopSchema } from '../shops/schemas/shop.schema';
 import { User as UserModel, UserSchema } from '../users/schemas/user.schema';
 import { BannedWord as BannedWordModel, BannedWordSchema } from './schemas/banned-word.schema';
 import { Report as ReportModel, ReportSchema } from './schemas/report.schema';
 import { Sanction as SanctionModel, SanctionSchema } from './schemas/sanction.schema';
-import { UserBlock as UserBlockModel, UserBlockSchema } from './schemas/user-block.schema';
 import { ModerationService } from './moderation.service';
 
 /**
@@ -17,24 +12,33 @@ import { ModerationService } from './moderation.service';
  * `routes-guard.integration-spec.ts`). Lancer `docker compose up -d` au
  * préalable ; `npm run test:integration`, pas `npm test`.
  *
- * Base dédiée (`allgo_test_moderation`, jamais `allgo`) sur le même serveur :
- * la logique de ce service — file de signalements, seuil de masquage
- * automatique, dispatch de suppression par type de cible — tient tout entière
- * dans ses requêtes MongoDB. La simuler avec des modèles factices aurait fini
- * par retester les mocks, pas le service.
+ * `product`/`shop` (Phase 2) et `post`/`comment`/`user_blocks` (Phase 4) ont
+ * migré vers MySQL : `PrismaService` est ici un double de test (`jest.fn()`),
+ * les assertions sur ces cibles portent sur l'appel Prisma plutôt que sur un
+ * document Mongo relu — cohérent avec `auth.service.spec.ts`. `Report`/
+ * `Sanction`/`BannedWord` restent sur Mongo (pas de table réelle
+ * équivalente) : testés contre une vraie base dédiée (`allgo_test_moderation`).
+ * `User` (miroir) reste aussi sur Mongo (Phase 6) : seedé ici uniquement pour
+ * vérifier la résolution ObjectId miroir → entier MySQL avant suspension réelle.
  */
-describe('ModerationService (intégration Mongo)', () => {
+describe('ModerationService (Prisma en double, Mongo réel pour Report/Sanction/BannedWord)', () => {
   let connection: Connection;
   let service: ModerationService;
+  let prisma: {
+    posts: { update: jest.Mock; delete: jest.Mock };
+    comments: { update: jest.Mock; delete: jest.Mock };
+    products: { update: jest.Mock };
+    shops: { update: jest.Mock };
+    users: { update: jest.Mock; findMany: jest.Mock };
+    user_blocks: { upsert: jest.Mock; deleteMany: jest.Mock; count: jest.Mock; findMany: jest.Mock };
+  };
+
+  /** Fausse table `user_blocks` en mémoire — assez fidèle pour couvrir la dé-duplication et les requêtes des deux sens, sans base réelle. */
+  let blockRows: Array<{ blocker_id: number; blocked_id: number }>;
 
   let reports: mongoose.Model<any>;
   let sanctions: mongoose.Model<any>;
-  let blocks: mongoose.Model<any>;
   let bannedWords: mongoose.Model<any>;
-  let posts: mongoose.Model<any>;
-  let comments: mongoose.Model<any>;
-  let products: mongoose.Model<any>;
-  let shops: mongoose.Model<any>;
   let users: mongoose.Model<any>;
 
   beforeAll(async () => {
@@ -45,25 +49,8 @@ describe('ModerationService (intégration Mongo)', () => {
 
     reports = connection.model(ReportModel.name, ReportSchema);
     sanctions = connection.model(SanctionModel.name, SanctionSchema);
-    blocks = connection.model(UserBlockModel.name, UserBlockSchema);
     bannedWords = connection.model(BannedWordModel.name, BannedWordSchema);
-    posts = connection.model(PostModel.name, PostSchema);
-    comments = connection.model(CommentModel.name, CommentSchema);
-    products = connection.model(ProductModel.name, ProductSchema);
-    shops = connection.model(ShopModel.name, ShopSchema);
     users = connection.model(UserModel.name, UserSchema);
-
-    service = new ModerationService(
-      reports as any,
-      sanctions as any,
-      blocks as any,
-      bannedWords as any,
-      posts as any,
-      comments as any,
-      products as any,
-      shops as any,
-      users as any,
-    );
   });
 
   afterAll(async () => {
@@ -71,12 +58,40 @@ describe('ModerationService (intégration Mongo)', () => {
     await connection.close();
   });
 
+  beforeEach(() => {
+    blockRows = [];
+    prisma = {
+      posts: { update: jest.fn(), delete: jest.fn() },
+      comments: { update: jest.fn(), delete: jest.fn() },
+      products: { update: jest.fn() },
+      shops: { update: jest.fn() },
+      users: { update: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+      user_blocks: {
+        upsert: jest.fn(({ create }: { create: { blocker_id: number; blocked_id: number } }) => {
+          if (!blockRows.some((r) => r.blocker_id === create.blocker_id && r.blocked_id === create.blocked_id)) {
+            blockRows.push(create);
+          }
+          return Promise.resolve(create);
+        }),
+        deleteMany: jest.fn(({ where }: { where: { blocker_id: number; blocked_id: number } }) => {
+          blockRows = blockRows.filter((r) => !(r.blocker_id === where.blocker_id && r.blocked_id === where.blocked_id));
+          return Promise.resolve({ count: 1 });
+        }),
+        count: jest.fn(({ where }: { where: { OR: Array<{ blocker_id: number; blocked_id: number }> } }) =>
+          Promise.resolve(
+            blockRows.filter((r) => where.OR.some((c) => c.blocker_id === r.blocker_id && c.blocked_id === r.blocked_id)).length,
+          ),
+        ),
+        findMany: jest.fn(({ where }: { where: { blocker_id: number } }) =>
+          Promise.resolve(blockRows.filter((r) => r.blocker_id === where.blocker_id).map((r) => ({ blocked_id: r.blocked_id }))),
+        ),
+      },
+    };
+    service = new ModerationService(reports as any, sanctions as any, bannedWords as any, users as any, prisma as any);
+  });
+
   afterEach(async () => {
-    await Promise.all(
-      [reports, sanctions, blocks, bannedWords, posts, comments, products, shops, users].map((model) =>
-        model.collection.deleteMany({}),
-      ),
-    );
+    await Promise.all([reports, sanctions, bannedWords, users].map((model) => model.collection.deleteMany({})));
   });
 
   function oid(): string {
@@ -88,6 +103,11 @@ describe('ModerationService (intégration Mongo)', () => {
     const _id = new Types.ObjectId();
     await model.collection.insertOne({ _id, ...doc });
     return _id.toString();
+  }
+
+  /** Miroir d'un utilisateur MySQL — nécessaire pour tout test résolvant `targetId`/`userId` 'user' vers un entier réel. */
+  async function seedMirror(mysqlId: number): Promise<string> {
+    return seed(users, { mysqlId, status: 'active' });
   }
 
   describe('fileReport', () => {
@@ -107,14 +127,15 @@ describe('ModerationService (intégration Mongo)', () => {
     });
 
     it('accepte des signalements du même contenu par des signalants distincts', async () => {
-      const targetId = oid();
+      // `shop` : entier MySQL depuis la migration (Phase 2).
+      const targetId = '42';
       await service.fileReport({ reporterId: oid(), targetType: 'shop', targetId, reason: 'a' });
       await service.fileReport({ reporterId: oid(), targetType: 'shop', targetId, reason: 'b' });
-      await expect(reports.countDocuments({ targetId: new Types.ObjectId(targetId) })).resolves.toBe(2);
+      await expect(reports.countDocuments({ targetId: 42 })).resolves.toBe(2);
     });
 
     it('accepte un signalement système sans signalant (`reporterId: null`)', async () => {
-      const targetId = oid();
+      const targetId = '7';
       await service.fileReport({ reporterId: null, targetType: 'post', targetId, automatic: true });
       const [stored] = await reports.find({}).lean();
       expect(stored.reporterId).toBeNull();
@@ -123,53 +144,49 @@ describe('ModerationService (intégration Mongo)', () => {
     });
 
     it('masque automatiquement une publication dès son 3ᵉ signalement en attente', async () => {
-      const postId = await seed(posts, { reported: false, counters: { comments: 0 } });
+      const postId = '11';
       await service.fileReport({ reporterId: oid(), targetType: 'post', targetId: postId, reason: '1' });
       await service.fileReport({ reporterId: oid(), targetType: 'post', targetId: postId, reason: '2' });
-      await expect(posts.findById(postId).lean()).resolves.toMatchObject({ reported: false });
+      expect(prisma.posts.update).not.toHaveBeenCalled();
 
       await service.fileReport({ reporterId: oid(), targetType: 'post', targetId: postId, reason: '3' });
-      await expect(posts.findById(postId).lean()).resolves.toMatchObject({ reported: true });
-    });
-
-    it('masque un produit après le seuil, via `isHidden`/`isReported` plutôt que `reported`', async () => {
-      const productId = await seed(products, { isHidden: false, isReported: false });
-      for (let i = 0; i < 3; i += 1) {
-        await service.fileReport({ reporterId: oid(), targetType: 'product', targetId: productId, reason: String(i) });
-      }
-      await expect(products.findById(productId).lean()).resolves.toMatchObject({
-        isHidden: true,
-        isReported: true,
+      expect(prisma.posts.update).toHaveBeenCalledWith({
+        where: { id: 11 },
+        data: { reported: true, report_reason: expect.stringContaining('3 signalements') },
       });
     });
 
+    it('masque un produit après le seuil, via Prisma (`is_hidden`) plutôt que `reported`', async () => {
+      const productId = '7';
+      for (let i = 0; i < 3; i += 1) {
+        await service.fileReport({ reporterId: oid(), targetType: 'product', targetId: productId, reason: String(i) });
+      }
+      expect(prisma.products.update).toHaveBeenCalledWith({ where: { id: 7 }, data: { is_hidden: true } });
+    });
+
     it("n'applique aucun masquage automatique à un compte ou une boutique — seuls le contenu peut être masqué, pas un compte", async () => {
-      const userId = await seed(users, { status: 'active' });
+      const userId = oid();
       for (let i = 0; i < 5; i += 1) {
         await service.fileReport({ reporterId: oid(), targetType: 'user', targetId: userId, reason: String(i) });
       }
-      await expect(users.findById(userId).lean()).resolves.toMatchObject({ status: 'active' });
+      expect(prisma.users.update).not.toHaveBeenCalled();
     });
   });
 
   describe('resolveReport', () => {
     it('classer sans suite ne change ni le contenu ni le compte visé', async () => {
-      const postId = await seed(posts, { reported: false, counters: { comments: 0 } });
-      const report = await reports.create({ reporterId: oid(), targetType: 'post', targetId: postId, reason: 'x' });
+      const report = await reports.create({ reporterId: oid(), targetType: 'post', targetId: 11, reason: 'x' });
 
       const resolved = await service.resolveReport(String(report._id), oid(), { status: 'dismissed' });
       expect(resolved.status).toBe('dismissed');
       expect(resolved.action).toBe('none');
-      await expect(posts.findById(postId).lean()).resolves.toMatchObject({ reported: false });
+      expect(prisma.posts.delete).not.toHaveBeenCalled();
     });
 
     it('action « content_removed » supprime réellement la publication visée', async () => {
-      const postId = await seed(posts, { reported: false, counters: { comments: 0 } });
-      const report = await reports.create({ reporterId: oid(), targetType: 'post', targetId: postId, reason: 'x' });
-
+      const report = await reports.create({ reporterId: oid(), targetType: 'post', targetId: 11, reason: 'x' });
       await service.resolveReport(String(report._id), oid(), { status: 'actioned', action: 'content_removed' });
-
-      await expect(posts.findById(postId)).resolves.toBeNull();
+      expect(prisma.posts.delete).toHaveBeenCalledWith({ where: { id: 11 } });
     });
 
     it('exige `sanctionUserId` pour sanctionner un compte — un signalement porte sur un contenu, pas forcément sur son auteur', async () => {
@@ -179,37 +196,37 @@ describe('ModerationService (intégration Mongo)', () => {
       ).rejects.toThrow('Précisez le compte');
     });
 
-    it('action « suspension » avec durée pose une sanction expirante et suspend le compte', async () => {
-      const userId = await seed(users, { status: 'active' });
-      const report = await reports.create({ reporterId: oid(), targetType: 'user', targetId: userId, reason: 'x' });
+    it('action « suspension » avec durée pose une sanction expirante et suspend le compte réel (résolu depuis le miroir)', async () => {
+      const mirrorId = await seedMirror(501);
+      const report = await reports.create({ reporterId: oid(), targetType: 'user', targetId: mirrorId, reason: 'x' });
 
       await service.resolveReport(String(report._id), oid(), {
         status: 'actioned',
         action: 'suspension',
-        sanctionUserId: userId,
+        sanctionUserId: mirrorId,
         suspensionDays: 7,
         resolution: 'Comportement suspect confirmé',
       });
 
-      await expect(users.findById(userId).lean()).resolves.toMatchObject({ status: 'suspended' });
-      const [sanction] = await sanctions.find({ userId: new Types.ObjectId(userId) }).lean();
+      expect(prisma.users.update).toHaveBeenCalledWith({ where: { id: 501 }, data: { status: 'suspended' } });
+      const [sanction] = await sanctions.find({ userId: new Types.ObjectId(mirrorId) }).lean();
       expect(sanction.type).toBe('suspension');
       expect(sanction.expiresAt).toBeInstanceOf(Date);
       expect(sanction.reportId.toString()).toBe(String(report._id));
     });
 
     it('un avertissement (« warning ») sanctionne sans jamais suspendre le compte', async () => {
-      const userId = await seed(users, { status: 'active' });
-      const report = await reports.create({ reporterId: oid(), targetType: 'user', targetId: userId, reason: 'x' });
+      const mirrorId = await seedMirror(502);
+      const report = await reports.create({ reporterId: oid(), targetType: 'user', targetId: mirrorId, reason: 'x' });
 
       await service.resolveReport(String(report._id), oid(), {
         status: 'actioned',
         action: 'warning',
-        sanctionUserId: userId,
+        sanctionUserId: mirrorId,
       });
 
-      await expect(users.findById(userId).lean()).resolves.toMatchObject({ status: 'active' });
-      await expect(sanctions.countDocuments({ userId: new Types.ObjectId(userId) })).resolves.toBe(1);
+      expect(prisma.users.update).not.toHaveBeenCalled();
+      await expect(sanctions.countDocuments({ userId: new Types.ObjectId(mirrorId) })).resolves.toBe(1);
     });
 
     it('un signalement introuvable est un 404 explicite', async () => {
@@ -219,116 +236,101 @@ describe('ModerationService (intégration Mongo)', () => {
 
   describe('removeContent', () => {
     it('post : suppression définitive', async () => {
-      const postId = await seed(posts, { reported: false, counters: { comments: 0 } });
-      await service.removeContent('post', postId);
-      await expect(posts.findById(postId)).resolves.toBeNull();
+      await service.removeContent('post', '11');
+      expect(prisma.posts.delete).toHaveBeenCalledWith({ where: { id: 11 } });
     });
 
-    it('comment : suppression et décrément du compteur de la publication parente', async () => {
-      const postId = await seed(posts, { reported: false, counters: { comments: 3 } });
-      const commentId = await seed(comments, { postId: new Types.ObjectId(postId), reported: false });
-
-      await service.removeContent('comment', commentId);
-
-      await expect(comments.findById(commentId)).resolves.toBeNull();
-      await expect(posts.findById(postId).lean()).resolves.toMatchObject({ counters: { comments: 2 } });
+    it('comment : suppression, sans compteur dénormalisé à décrémenter', async () => {
+      await service.removeContent('comment', '9');
+      expect(prisma.comments.delete).toHaveBeenCalledWith({ where: { id: 9 } });
     });
 
     it('product : archivé et masqué, jamais supprimé (un historique de commandes peut le référencer)', async () => {
-      const productId = await seed(products, { status: 'published', isHidden: false, isReported: false });
-      await service.removeContent('product', productId);
-      await expect(products.findById(productId).lean()).resolves.toMatchObject({
-        status: 'archived',
-        isHidden: true,
-        isReported: true,
+      await service.removeContent('product', '7');
+      expect(prisma.products.update).toHaveBeenCalledWith({
+        where: { id: 7 },
+        data: { status: 'archived', is_hidden: true },
       });
     });
 
     it('shop : suspendue, jamais supprimée', async () => {
-      const shopId = await seed(shops, { status: 'approved' });
-      await service.removeContent('shop', shopId);
-      await expect(shops.findById(shopId).lean()).resolves.toMatchObject({ status: 'suspended' });
+      await service.removeContent('shop', '42');
+      expect(prisma.shops.update).toHaveBeenCalledWith({ where: { id: 42 }, data: { status: 'suspended' } });
     });
 
-    it('user : compte suspendu, jamais supprimé', async () => {
-      const userId = await seed(users, { status: 'active' });
-      await service.removeContent('user', userId);
-      await expect(users.findById(userId).lean()).resolves.toMatchObject({ status: 'suspended' });
+    it('user : compte réel suspendu (résolu depuis le miroir), jamais supprimé', async () => {
+      const mirrorId = await seedMirror(503);
+      await service.removeContent('user', mirrorId);
+      expect(prisma.users.update).toHaveBeenCalledWith({ where: { id: 503 }, data: { status: 'suspended' } });
+    });
+
+    it('user : miroir introuvable — ne tente aucune écriture', async () => {
+      await service.removeContent('user', oid());
+      expect(prisma.users.update).not.toHaveBeenCalled();
     });
   });
 
-  describe('blocage compte-à-compte', () => {
+  describe('blocage compte-à-compte (table réelle `user_blocks`, Prisma en double)', () => {
     it('refuse qu’un compte se bloque lui-même', async () => {
-      const id = oid();
-      await expect(service.blockUser(id, id)).rejects.toThrow('vous-même');
+      await expect(service.blockUser(1, 1)).rejects.toThrow('vous-même');
     });
 
     it('bloquer puis débloquer retire bien le blocage', async () => {
-      const a = oid();
-      const b = oid();
-      await service.blockUser(a, b);
-      await expect(service.listBlockedUsers(a)).resolves.toHaveLength(1);
+      await service.blockUser(1, 2);
+      await expect(service.listBlockedUsers(1)).resolves.toHaveLength(1);
 
-      await service.unblockUser(a, b);
-      await expect(service.listBlockedUsers(a)).resolves.toHaveLength(0);
+      await service.unblockUser(1, 2);
+      await expect(service.listBlockedUsers(1)).resolves.toHaveLength(0);
     });
 
     it('bloquer deux fois la même personne ne crée pas de doublon (upsert)', async () => {
-      const a = oid();
-      const b = oid();
-      await service.blockUser(a, b);
-      await service.blockUser(a, b);
-      await expect(blocks.countDocuments({})).resolves.toBe(1);
+      await service.blockUser(1, 2);
+      await service.blockUser(1, 2);
+      expect(blockRows).toHaveLength(1);
     });
 
     it('isBlockedEitherWay est vrai quel que soit le sens du blocage', async () => {
-      const a = oid();
-      const b = oid();
-      const c = oid();
-      await service.blockUser(a, b);
-
-      await expect(service.isBlockedEitherWay(a, b)).resolves.toBe(true);
-      await expect(service.isBlockedEitherWay(b, a)).resolves.toBe(true);
-      await expect(service.isBlockedEitherWay(a, c)).resolves.toBe(false);
+      await service.blockUser(1, 2);
+      await expect(service.isBlockedEitherWay(1, 2)).resolves.toBe(true);
+      await expect(service.isBlockedEitherWay(2, 1)).resolves.toBe(true);
+      await expect(service.isBlockedEitherWay(1, 3)).resolves.toBe(false);
     });
 
     it('blockedAuthorIds renvoie les cibles bloquées par un compte donné, pour filtrer un fil', async () => {
-      const me = oid();
-      const blocked1 = oid();
-      const blocked2 = oid();
-      await service.blockUser(me, blocked1);
-      await service.blockUser(me, blocked2);
-
-      const ids = (await service.blockedAuthorIds(me)).map(String).sort();
-      expect(ids).toEqual([blocked1, blocked2].sort());
+      await service.blockUser(1, 2);
+      await service.blockUser(1, 3);
+      const ids = (await service.blockedAuthorIds(1)).sort();
+      expect(ids).toEqual([2, 3]);
     });
   });
 
   describe('sanctions et liste noire', () => {
     it('sanctionsFor renvoie l’historique du plus récent au plus ancien', async () => {
-      const userId = oid();
-      await service.sanctionUser({ userId, type: 'warning', reason: 'a', issuedBy: oid() });
-      await service.sanctionUser({ userId, type: 'suspension', reason: 'b', issuedBy: oid() });
+      const mirrorId = await seedMirror(504);
+      await service.sanctionUser({ userId: mirrorId, type: 'warning', reason: 'a', issuedBy: oid() });
+      await service.sanctionUser({ userId: mirrorId, type: 'suspension', reason: 'b', issuedBy: oid() });
 
-      const history = await service.sanctionsFor(userId);
+      const history = await service.sanctionsFor(mirrorId);
       expect(history).toHaveLength(2);
       expect(history[0].reason).toBe('b');
     });
 
     it('une suspension antérieure reste dans l’historique même après réactivation du compte', async () => {
-      const userId = await seed(users, { status: 'suspended' });
-      await service.sanctionUser({ userId, type: 'suspension', reason: 'a', issuedBy: oid() });
-      await users.updateOne({ _id: new Types.ObjectId(userId) }, { $set: { status: 'active' } });
+      const mirrorId = await seedMirror(505);
+      await service.sanctionUser({ userId: mirrorId, type: 'suspension', reason: 'a', issuedBy: oid() });
+      await users.updateOne({ _id: new Types.ObjectId(mirrorId) }, { $set: { status: 'active' } });
 
-      await expect(service.sanctionsFor(userId)).resolves.toHaveLength(1);
+      await expect(service.sanctionsFor(mirrorId)).resolves.toHaveLength(1);
     });
 
-    it('blacklist ne liste que les comptes suspendus', async () => {
-      await seed(users, { status: 'active', phone: '+261340000010' });
-      const suspendedId = await seed(users, { status: 'suspended', phone: '+261340000011' });
+    it('blacklist liste les comptes réellement suspendus (MySQL, via Prisma)', async () => {
+      prisma.users.findMany.mockResolvedValue([
+        { id: 9, phone: '+261340000011', email: 'a@a.mg', firstname: 'A', lastname: 'B', status: 'suspended', created_at: new Date() },
+      ]);
 
       const list = await service.blacklist();
-      expect(list.map((u: any) => u._id.toString())).toEqual([suspendedId]);
+      expect(prisma.users.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { status: 'suspended' } }));
+      expect(list).toHaveLength(1);
     });
   });
 
@@ -349,21 +351,22 @@ describe('ModerationService (intégration Mongo)', () => {
     });
 
     it("autoModerate ne fait rien quand le contenu est propre", async () => {
-      const postId = await seed(posts, { reported: false, counters: { comments: 0 } });
-      const result = await service.autoModerate('post', postId, 'Un contenu tout à fait normal');
+      const result = await service.autoModerate('post', '11', 'Un contenu tout à fait normal');
       expect(result).toBeNull();
-      await expect(posts.findById(postId).lean()).resolves.toMatchObject({ reported: false });
+      expect(prisma.posts.update).not.toHaveBeenCalled();
       await expect(reports.countDocuments({})).resolves.toBe(0);
     });
 
     it('autoModerate masque le contenu et dépose un signalement système au premier mot interdit', async () => {
       await service.addBannedWord('arnaque', oid());
-      const postId = await seed(posts, { reported: false, counters: { comments: 0 } });
 
-      const result = await service.autoModerate('post', postId, 'Attention, grosse arnaque à éviter');
+      const result = await service.autoModerate('post', '11', 'Attention, grosse arnaque à éviter');
 
       expect(result).toMatchObject({ reported: true });
-      await expect(posts.findById(postId).lean()).resolves.toMatchObject({ reported: true });
+      expect(prisma.posts.update).toHaveBeenCalledWith({
+        where: { id: 11 },
+        data: expect.objectContaining({ reported: true }),
+      });
       const [report] = await reports.find({}).lean();
       expect(report.automatic).toBe(true);
       expect(report.reporterId).toBeNull();

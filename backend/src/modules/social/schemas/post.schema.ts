@@ -51,7 +51,8 @@ export class Post extends Document {
   @Prop({ maxlength: 5000 }) content?: string;
   @Prop({ type: [MediaSchema], default: [] }) media!: Media[];
 
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Product' }) productId?: Types.ObjectId;
+  /** Entier MySQL (`products.id`) depuis la migration du Catalogue (Phase 2). */
+  @Prop({ type: Number }) productId?: number;
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Promotion' }) promotionId?: Types.ObjectId;
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Shop' }) shopId?: Types.ObjectId;
   @Prop({ type: Date }) scheduledAt?: Date;

@@ -7,9 +7,11 @@ export type ReviewTarget = (typeof REVIEW_TARGETS)[number];
 @Schema({ collection: 'reviews', timestamps: true })
 export class Review extends Document {
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true }) userId!: Types.ObjectId;
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Order', required: true }) orderId!: Types.ObjectId;
+  /** Identifiant entier MySQL (`orders.id`) depuis la migration des Commandes (Phase 3). */
+  @Prop({ type: Number, required: true }) orderId!: number;
   @Prop({ type: String, enum: REVIEW_TARGETS, required: true }) targetType!: ReviewTarget;
-  @Prop({ type: MongooseSchema.Types.ObjectId, required: true }) targetId!: Types.ObjectId;
+  /** Entier MySQL pour `product`/`shop` (Phase 2) ; ObjectId (miroir) pour `courier`. */
+  @Prop({ type: MongooseSchema.Types.Mixed, required: true }) targetId!: Types.ObjectId | number;
   @Prop({ required: true, min: 1, max: 5 }) rating!: number;
   @Prop({ trim: true, maxlength: 2000 }) comment?: string;
   @Prop({ type: [String], default: [] }) photos!: string[];

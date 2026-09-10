@@ -1,30 +1,19 @@
 import { Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
-import {
-  Conversation,
-  ConversationSchema,
-  Message,
-  MessageSchema,
-} from './schemas/conversation.schema';
 import { MessagingController } from './messaging.controller';
 import { MessagingService } from './messaging.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ModerationModule } from '../moderation/moderation.module';
-import { Shop, ShopSchema } from '../shops/schemas/shop.schema';
+import { AuthModule } from '../auth/auth.module';
 
-/** Messagerie temps réel — lot **L4**. Schémas et index déclarés dès L0. */
+/**
+ * Messagerie temps réel — `conversations`/`messages`/`message_attachments`
+ * sont des tables MySQL réelles depuis la Phase 4, plus de schéma Mongoose à
+ * enregistrer ici. `AuthModule` fournit `resolveMirrorId()`/`resolveMysqlId()`.
+ */
 @Module({
-  imports: [
-    NotificationsModule,
-    ModerationModule,
-    MongooseModule.forFeature([
-      { name: Conversation.name, schema: ConversationSchema },
-      { name: Message.name, schema: MessageSchema },
-      { name: Shop.name, schema: ShopSchema },
-    ]),
-  ],
+  imports: [NotificationsModule, ModerationModule, AuthModule],
   controllers: [MessagingController],
   providers: [MessagingService],
-  exports: [MongooseModule, MessagingService],
+  exports: [MessagingService],
 })
 export class MessagingModule {}

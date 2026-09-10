@@ -5,7 +5,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import * as argon2 from 'argon2';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import type Redis from 'ioredis';
 import type { users as MysqlUser } from '@prisma/client';
 
@@ -16,6 +16,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { buildRoleAssignments } from '../users/mysql-role-mapper';
 import { User, type UserDocument } from '../users/schemas/user.schema';
 import { EmailService } from './email.service';
+import { SmsService } from './sms.service';
 import type { LoginDto, RegisterDto } from './dto/auth.dto';
 
 export interface TokenPair {
@@ -53,6 +54,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly email: EmailService,
+    private readonly sms: SmsService,
   ) {}
 
   // ─────────────────────────────────────────────────────────── Inscription ──
@@ -187,6 +189,34 @@ export class AuthService {
     return tokens;
   }
 
+  /**
+   * Résout l'ObjectId du miroir Mongo pour un utilisateur MySQL donné — pour
+   * les modules pas encore migrés qui référencent un utilisateur par ObjectId
+   * (ex. `MessagingService.resolveShopParticipant`). Ne CRÉE jamais de miroir
+   * ici (contrairement à `ShopsService.resolveMirrorId`) : un miroir
+   * utilisateur exige des champs obligatoires (téléphone, mot de passe...)
+   * qu'on ne peut pas fabriquer à partir du seul id — s'il n'existe pas,
+   * c'est que cet utilisateur ne s'est jamais connecté depuis la migration.
+   */
+  async resolveMirrorId(mysqlId: number): Promise<string | null> {
+    const doc = await this.mirror.findOne({ mysqlId }).select('_id').lean();
+    return doc ? String(doc._id) : null;
+  }
+
+  /**
+   * Sens inverse — pour les champs déjà migrés vers MySQL (auteur d'une
+   * publication, expéditeur d'un message, cible d'un blocage...) qui doivent
+   * néanmoins continuer à s'exposer au format miroir tant que
+   * `AuthenticatedUser.id` (session courante) n'a pas basculé sur l'entier
+   * MySQL direct (Phase 6) : le mobile compare ces champs à `/me.id` pour ses
+   * « est-ce moi » (`isMine`), ils doivent rester dans le même référentiel.
+   */
+  async resolveMysqlId(mirrorId: string): Promise<number | null> {
+    if (!Types.ObjectId.isValid(mirrorId)) return null;
+    const doc = await this.mirror.findById(mirrorId).select('mysqlId').lean();
+    return doc?.mysqlId ?? null;
+  }
+
   async logout(sid: string): Promise<void> {
     await this.prisma.refresh_tokens.updateMany({
       where: { sid },
@@ -213,6 +243,10 @@ export class AuthService {
    * servir à énumérer les comptes.
    */
   async sendOtp(rawPhone: string): Promise<{ expiresIn: number }> {
+    // Vérifié AVANT toute écriture Redis : pas de code généré pour un canal
+    // qui ne le délivrera jamais (§ décision du 2026-09-09, mise en marché).
+    this.sms.assertAvailable();
+
     const phone = AuthService.normalisePhone(rawPhone);
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
 
@@ -223,11 +257,7 @@ export class AuthService {
       OTP_TTL_SECONDS,
     );
 
-    // TODO(L0) : brancher la passerelle SMS. En développement, le code est
-    // journalisé — jamais en production, où ce journal serait une faille.
-    if (this.config.get('env') !== 'production') {
-      this.logger.debug(`OTP pour ${phone} : ${code}`);
-    }
+    await this.sms.send(phone, `Votre code AllGo : ${code} (valable ${OTP_TTL_SECONDS / 60} minutes).`);
 
     return { expiresIn: OTP_TTL_SECONDS };
   }
@@ -280,6 +310,13 @@ export class AuthService {
    * Réponse constante : l'existence d'un compte n'est jamais divulguée.
    */
   async forgotPassword(rawPhone: string): Promise<void> {
+    // Même garde qu'à l'envoi d'OTP, et pour la même raison — vérifiée avant
+    // toute requête, y compris avant de savoir si le compte existe : l'état
+    // d'indisponibilité de la plateforme ne dépend jamais d'un compte
+    // particulier, la propriété « réponse constante » anti-énumération reste
+    // intacte.
+    this.sms.assertAvailable();
+
     const phone = AuthService.normalisePhone(rawPhone);
     const candidates = await this.prisma.users.findMany({
       where: { phone: { endsWith: AuthService.last9Digits(phone) } },
@@ -290,9 +327,7 @@ export class AuthService {
     const token = randomBytes(32).toString('base64url');
     await this.redis.set(`pwreset:${AuthService.hashToken(token)}`, String(user.id), 'EX', 30 * 60);
 
-    if (this.config.get('env') !== 'production') {
-      this.logger.debug(`Jeton de réinitialisation pour ${phone} : ${token}`);
-    }
+    await this.sms.send(phone, `Réinitialisez votre mot de passe AllGo : ${token} (valable 30 minutes).`);
   }
 
   async resetPassword(token: string, password: string): Promise<void> {

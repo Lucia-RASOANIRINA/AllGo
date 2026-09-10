@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { IsIn, IsInt, IsMongoId, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsIn, IsInt, IsNumberString, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators';
 import { Permission } from '../../common/rbac/permissions';
@@ -8,7 +8,7 @@ import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { StockService } from './stock.service';
 
 export class MoveStockDto {
-  @ApiProperty() @IsMongoId() productId!: string;
+  @ApiProperty({ description: 'Identifiant numérique MySQL du produit.' }) @IsNumberString() productId!: string;
 
   @ApiProperty({
     enum: ['in', 'out', 'correction'],

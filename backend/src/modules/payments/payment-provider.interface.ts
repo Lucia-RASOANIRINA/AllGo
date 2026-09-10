@@ -42,6 +42,14 @@ export interface PaymentContext {
 export interface PaymentProvider {
   readonly name: 'mvola' | 'orange_money' | 'airtel_money';
 
+  /**
+   * `true` si un paiement réel peut aboutir — clé API réelle configurée, ou
+   * mode démo explicitement autorisé (jamais en production, voir
+   * `PAYMENTS_DEMO_MODE`). §14.4 : le mode dégradé ne doit jamais se
+   * substituer silencieusement à un vrai paiement en production.
+   */
+  isAvailable(): boolean;
+
   initiate(context: PaymentContext): Promise<InitiateResult>;
 
   /**

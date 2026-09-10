@@ -16,7 +16,7 @@ export class ReviewsController {
   }
   @Post() @RequirePermission(Permission.ReviewCreate)
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateReviewDto & { orderId: string }) {
-    return this.reviews.create(user.id, dto);
+    return this.reviews.create(user, dto);
   }
   @Patch(':id') @RequirePermission(Permission.ReviewUpdate)
   update(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: UpdateReviewDto) {
