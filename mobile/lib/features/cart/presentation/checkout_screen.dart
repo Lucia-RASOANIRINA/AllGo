@@ -4,10 +4,46 @@ import 'package:allgo/features/account/presentation/addresses_providers.dart';
 import 'package:allgo/features/auth/presentation/session_controller.dart';
 import 'package:allgo/features/cart/presentation/cart_controller.dart';
 import 'package:allgo/features/geo/presentation/geo_providers.dart';
+import 'package:collection/collection.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
+/// Moyens de paiement réellement proposés par le serveur (`GET
+/// /payments/methods`) — jamais une liste devinée côté client. MVola/Orange
+/// Money/Airtel Money sont des ossatures pas encore branchées à un vrai
+/// fournisseur (§ `payments/providers/*.provider.ts`) : les proposer comme
+/// s'ils fonctionnaient laissait l'utilisateur passer commande avant de
+/// découvrir l'échec, une fois la commande déjà créée.
+final paymentMethodsProvider =
+    FutureProvider.autoDispose<List<PaymentMethodOption>>((ref) async {
+  final response = await ref.watch(apiClientProvider).get<Map<String, dynamic>>('/payments/methods');
+  final items = (response.data?['data'] as List<dynamic>? ?? const <dynamic>[])
+      .whereType<Map<String, dynamic>>();
+  return items
+      .map((json) => PaymentMethodOption(
+            key: json['key'] as String,
+            label: json['label'] as String,
+            available: json['available'] as bool? ?? false,
+            message: json['message'] as String?,
+          ))
+      .toList();
+});
+
+class PaymentMethodOption {
+  const PaymentMethodOption({
+    required this.key,
+    required this.label,
+    required this.available,
+    this.message,
+  });
+
+  final String key;
+  final String label;
+  final bool available;
+  final String? message;
+}
 
 class CheckoutScreen extends ConsumerStatefulWidget {
   const CheckoutScreen({super.key});
@@ -56,14 +92,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     _cityController.text = address.city.isEmpty ? _cityController.text : address.city;
     _addressPrefilled = true;
   }
-
-  static const List<_PaymentMethodOption> _paymentOptions =
-      <_PaymentMethodOption>[
-    _PaymentMethodOption('cod', 'Paiement à la livraison'),
-    _PaymentMethodOption('mvola', 'MVola'),
-    _PaymentMethodOption('orange_money', 'Orange Money'),
-    _PaymentMethodOption('airtel_money', 'Airtel Money'),
-  ];
 
   @override
   void dispose() {
@@ -117,7 +145,22 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
+    // Un moyen de paiement non disponible ne doit jamais atteindre le
+    // serveur : la liste peut avoir fini de charger entre le moment où
+    // l'utilisateur l'a choisi et celui où il confirme.
+    final methods = ref.read(paymentMethodsProvider).valueOrNull;
+    final selected = methods?.firstWhereOrNull((m) => m.key == _paymentMethod);
+    if (selected != null && !selected.available) {
+      setState(() => _paymentMethod = 'cod');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(selected.message ?? 'Ce moyen de paiement n’est plus disponible.')),
+      );
+      return;
+    }
+
     setState(() => _submitting = true);
+
+    List<Map<String, dynamic>> orderList;
     try {
       final delivery = <String, dynamic>{
         'method': _deliveryMethod,
@@ -163,11 +206,32 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       final responseBody = response.data?['data'];
       final orders =
           responseBody is Map<String, dynamic> ? responseBody['orders'] : null;
-      final orderList = orders is List<dynamic>
+      orderList = orders is List<dynamic>
           ? orders.whereType<Map<String, dynamic>>().toList()
           : const <Map<String, dynamic>>[];
+    } on DioException catch (error) {
+      // Échec AVANT toute création : rien n'existe côté serveur, le message
+      // générique reste correct ici.
+      if (mounted) {
+        final message = error.response?.data is Map<String, dynamic>
+            ? ((error.response!.data as Map<String, dynamic>)['message']
+                as String?)
+            : null;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message ?? 'Impossible de confirmer la commande.')),
+        );
+        setState(() => _submitting = false);
+      }
+      return;
+    }
 
-      if (_paymentMethod != 'cod') {
+    // La ou les commandes existent désormais côté serveur : un échec à partir
+    // d'ici ne doit plus jamais être présenté comme si rien ne s'était passé.
+    ref.invalidate(cartControllerProvider);
+
+    String? paymentError;
+    if (_paymentMethod != 'cod') {
+      try {
         for (var index = 0; index < orderList.length; index++) {
           final orderId = orderList[index]['_id'] ?? orderList[index]['id'];
           if (orderId is! String || orderId.isEmpty) {
@@ -190,52 +254,60 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 ),
               );
         }
+      } on DioException catch (error) {
+        paymentError = error.response?.data is Map<String, dynamic>
+            ? ((error.response!.data as Map<String, dynamic>)['message'] as String?)
+            : null;
+        paymentError ??= 'Le paiement n’a pas pu être déclenché.';
+      } catch (_) {
+        paymentError = 'Le paiement n’a pas pu être déclenché.';
       }
-
-      ref.invalidate(cartControllerProvider);
-      if (!mounted) return;
-      final count = orderList.length;
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          title: Text(_paymentMethod == 'cod'
-              ? 'Commande confirmée'
-              : 'Commande et paiement initiés'),
-          content: Text(
-            count > 1
-                ? '$count commandes ont été créées, une par boutique.'
-                : _paymentMethod == 'cod'
-                    ? 'Votre commande a été enregistrée. Vous pouvez suivre son état dans Commandes.'
-                    : 'Votre commande a bien été enregistrée et le paiement a été déclenché. Vérifiez votre téléphone pour confirmer la transaction.',
-          ),
-          actions: <Widget>[
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Voir mes commandes'),
-            ),
-          ],
-        ),
-      );
-      if (mounted) context.go('/commandes');
-    } on DioException catch (error) {
-      if (!mounted) return;
-      final message = error.response?.data is Map<String, dynamic>
-          ? ((error.response!.data as Map<String, dynamic>)['message']
-              as String?)
-          : null;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(message ?? 'Impossible de confirmer la commande.')),
-      );
-    } finally {
-      if (mounted) setState(() => _submitting = false);
     }
+
+    if (!mounted) {
+      _submitting = false;
+      return;
+    }
+    final count = orderList.length;
+    final countPrefix = count > 1 ? '$count commandes ont été créées, une par boutique. ' : '';
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text(
+          paymentError != null
+              ? 'Commande enregistrée, paiement à réessayer'
+              : _paymentMethod == 'cod'
+                  ? 'Commande confirmée'
+                  : 'Commande et paiement initiés',
+        ),
+        content: Text(
+          paymentError != null
+              ? '${countPrefix}Votre commande a bien été enregistrée, mais le paiement '
+                  'n’a pas pu être déclenché : $paymentError Vous pouvez réessayer '
+                  'depuis Mes commandes.'
+              : count > 1
+                  ? '${countPrefix}Vous pouvez suivre leur état dans Commandes.'
+                  : _paymentMethod == 'cod'
+                      ? 'Votre commande a été enregistrée. Vous pouvez suivre son état dans Commandes.'
+                      : 'Votre commande a bien été enregistrée et le paiement a été déclenché. Vérifiez votre téléphone pour confirmer la transaction.',
+        ),
+        actions: <Widget>[
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Voir mes commandes'),
+          ),
+        ],
+      ),
+    );
+    setState(() => _submitting = false);
+    if (mounted) context.go('/commandes');
   }
 
   @override
   Widget build(BuildContext context) {
     final cart = ref.watch(cartControllerProvider).valueOrNull;
+    final paymentMethods = ref.watch(paymentMethodsProvider);
 
     // Le client a déjà donné son numéro et ses adresses ailleurs dans
     // l'application : les redemander à chaque commande est une friction
@@ -313,20 +385,58 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             ),
             const SizedBox(height: AllGoTokens.space6),
             Text('Paiement', style: Theme.of(context).textTheme.titleMedium),
-            RadioGroup<String>(
-              groupValue: _paymentMethod,
-              onChanged: (value) {
-                if (!_submitting) setState(() => _paymentMethod = value!);
-              },
-              child: Column(
-                children: _paymentOptions
-                    .map(
-                      (option) => RadioListTile<String>(
-                        value: option.key,
-                        title: Text(option.label),
-                      ),
-                    )
-                    .toList(),
+            paymentMethods.when(
+              data: (methods) => RadioGroup<String>(
+                groupValue: _paymentMethod,
+                onChanged: (value) {
+                  if (_submitting || value == null) return;
+                  final option = methods.firstWhereOrNull((m) => m.key == value);
+                  if (option != null && !option.available) return;
+                  setState(() => _paymentMethod = value);
+                },
+                child: Column(
+                  children: methods
+                      .map(
+                        (option) => RadioListTile<String>(
+                          value: option.key,
+                          enabled: option.available,
+                          title: Text(option.label),
+                          subtitle: option.available
+                              ? null
+                              : Text(
+                                  option.message ?? 'Bientôt disponible.',
+                                  style: TextStyle(
+                                    color: Theme.of(context).colorScheme.error,
+                                  ),
+                                ),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+              loading: () => const Padding(
+                padding: EdgeInsets.symmetric(vertical: AllGoTokens.space4),
+                child: Center(
+                  child: SizedBox.square(
+                    dimension: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              ),
+              // Hors ligne ou erreur serveur : seul le paiement à la
+              // livraison ne dépend d'aucun appel réseau supplémentaire,
+              // c'est le seul qu'on peut proposer sans confirmation serveur.
+              error: (_, __) => RadioGroup<String>(
+                groupValue: 'cod',
+                onChanged: (_) {},
+                child: const Column(
+                  children: <Widget>[
+                    RadioListTile<String>(
+                      value: 'cod',
+                      title: Text('Paiement à la livraison'),
+                    ),
+                  ],
+                ),
               ),
             ),
             if (_deliveryMethod == 'delivery') ...<Widget>[
@@ -403,11 +513,4 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       ),
     );
   }
-}
-
-class _PaymentMethodOption {
-  const _PaymentMethodOption(this.key, this.label);
-
-  final String key;
-  final String label;
 }

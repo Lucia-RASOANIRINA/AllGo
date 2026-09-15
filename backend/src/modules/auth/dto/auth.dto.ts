@@ -8,6 +8,7 @@ import {
   Matches,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
 /**
@@ -54,10 +55,18 @@ export class RegisterDto {
 }
 
 export class LoginDto {
-  @ApiProperty({ example: '+261341234567' })
+  // Exactement un des deux doit être fourni — le mobile propose désormais les
+  // deux voies d'accès du web (téléphone ou email), jamais les deux à la fois.
+  @ApiPropertyOptional({ example: '+261341234567' })
+  @ValidateIf((o: LoginDto) => !o.email)
   @IsString()
-  @IsNotEmpty()
-  phone!: string;
+  @IsNotEmpty({ message: 'Indiquez un numéro de téléphone ou une adresse email.' })
+  phone?: string;
+
+  @ApiPropertyOptional({ example: 'utilisateur@example.mg' })
+  @ValidateIf((o: LoginDto) => !o.phone)
+  @IsEmail({}, { message: 'L’adresse email n’est pas valide.' })
+  email?: string;
 
   @ApiProperty()
   @IsString()
@@ -105,6 +114,12 @@ export class ForgotPasswordDto {
   @ApiProperty({ example: '+261341234567' })
   @IsString()
   phone!: string;
+}
+
+export class ForgotPasswordEmailDto {
+  @ApiProperty({ example: 'utilisateur@example.mg' })
+  @IsEmail({}, { message: 'L’adresse email n’est pas valide.' })
+  email!: string;
 }
 
 export class ResetPasswordDto {

@@ -25,6 +25,9 @@ const MAX_LOGIN_ATTEMPTS = 5;
 const LOGIN_WINDOW_SECONDS = 15 * 60;
 const OTP_TTL_SECONDS = 5 * 60;
 const OTP_MAX_ATTEMPTS = 3;
+const TEMP_PASSWORD_TTL_SECONDS = 30 * 60;
+const TEMP_PASSWORD_MAX_PER_DAY = 2;
+const TEMP_PASSWORD_WINDOW_SECONDS = 24 * 60 * 60;
 
 @Injectable()
 export class AuthService {
@@ -65,7 +68,7 @@ export class AuthService {
         lastname: dto.lastName,
         email,
         phone: localPhone,
-        password: await bcrypt.hash(dto.password, 12),
+        password: await AuthService.hashPassword(dto.password),
         status: 'active',
       },
     });
@@ -76,16 +79,22 @@ export class AuthService {
   // ───────────────────────────────────────────────────────────── Connexion ──
 
   async login(dto: LoginDto, context: { ip?: string; userAgent?: string }): Promise<TokenPair> {
-    const phone = AuthService.normalisePhone(dto.phone);
-    await this.assertNotLockedOut(phone, context.ip);
+    // Le mobile propose désormais les deux voies d'accès du site web : numéro
+    // de téléphone (historique) ou email + mot de passe. Le DTO garantit
+    // qu'exactement un des deux est fourni.
+    const byEmail = Boolean(dto.email);
+    const identifier = byEmail ? dto.email!.toLowerCase().trim() : AuthService.normalisePhone(dto.phone!);
+    await this.assertNotLockedOut(identifier, context.ip);
 
     // Plusieurs comptes réels partagent le même suffixe de téléphone (doublons
     // constatés en base) : on essaie chaque candidat plutôt que de supposer
     // l'unicité — `findFirst`/`findUnique` masqueraient silencieusement les
-    // autres comptes valides.
-    const candidates = await this.prisma.users.findMany({
-      where: { phone: { endsWith: AuthService.last9Digits(phone) } },
-    });
+    // autres comptes valides. L'email, lui, est `UNIQUE` côté MySQL.
+    const candidates = byEmail
+      ? await this.prisma.users.findMany({ where: { email: identifier } })
+      : await this.prisma.users.findMany({
+          where: { phone: { endsWith: AuthService.last9Digits(identifier) } },
+        });
 
     let matched: MysqlUser | undefined;
     for (const candidate of candidates) {
@@ -95,18 +104,41 @@ export class AuthService {
       }
     }
 
+    // Mot de passe temporaire envoyé par email (voie « mot de passe oublié »,
+    // §12.1) : vérifié séparément de `users.password`, jamais écrit dedans
+    // tant que l'utilisateur ne choisit pas explicitement un nouveau mot de
+    // passe définitif — un compte compromis pendant la fenêtre de 30 minutes
+    // ne fait donc pas perdre le mot de passe réel de son propriétaire.
+    let usedTempPasswordUserId: number | undefined;
+    if (!matched) {
+      for (const candidate of candidates) {
+        const tempHash = await this.redis.get(`pwtemp:${candidate.id}`);
+        if (tempHash && (await AuthService.bcryptCompare(dto.password, tempHash))) {
+          matched = candidate;
+          usedTempPasswordUserId = candidate.id;
+          break;
+        }
+      }
+    }
+
     if (!matched) {
       // Vérification à durée constante même si aucun compte ne correspond :
-      // sans ce leurre, le temps de réponse révèle quels numéros existent.
+      // sans ce leurre, le temps de réponse révèle quels comptes existent.
       await AuthService.bcryptCompare(dto.password, await bcrypt.hash('decoy', 10));
-      await this.recordFailedAttempt(phone, context.ip);
+      await this.recordFailedAttempt(identifier, context.ip);
       throw AppError.invalidCredentials();
     }
     if (matched.status !== 'active') {
       throw new AppError('ACCOUNT_SUSPENDED', 'Ce compte est suspendu.', 403);
     }
 
-    await this.clearFailedAttempts(phone, context.ip);
+    // À usage unique : une fois utilisé pour se connecter, le mot de passe
+    // temporaire ne doit plus servir une seconde fois pendant sa fenêtre.
+    if (usedTempPasswordUserId !== undefined) {
+      await this.redis.del(`pwtemp:${usedTempPasswordUserId}`);
+    }
+
+    await this.clearFailedAttempts(identifier, context.ip);
 
     return this.issueTokens(matched, { ...context, deviceId: dto.deviceId });
   }
@@ -295,7 +327,7 @@ export class AuthService {
     await this.prisma.users.update({
       where: { id: userId },
       data: {
-        password: await bcrypt.hash(password, 12),
+        password: await AuthService.hashPassword(password),
         // Invalide immédiatement tous les jetons d'accès déjà émis.
         sessions_invalid_before: new Date(),
       },
@@ -304,6 +336,42 @@ export class AuthService {
     // Réinitialiser un mot de passe déconnecte partout : si le compte était
     // compromis, l'attaquant perd son accès au même instant.
     await this.revokeAllSessions(userId);
+  }
+
+  /**
+   * Mot de passe oublié — voie email (§ décision : le SMS n'est pas encore
+   * branché, `SmsService.assertAvailable`). Contrairement à [forgotPassword]
+   * (jeton + lien), cette voie envoie directement un mot de passe temporaire,
+   * valable 30 minutes et à usage unique — l'utilisateur n'a besoin de suivre
+   * aucun lien, ce qui compte pour un premier accès sans navigateur par défaut
+   * configuré.
+   *
+   * Limité à 2 demandes par jour et par adresse email — la limite s'applique
+   * AVANT de savoir si le compte existe, pour ne jamais permettre de la
+   * contourner en sondant des adresses au hasard.
+   */
+  async forgotPasswordByEmail(rawEmail: string): Promise<void> {
+    const email = rawEmail.toLowerCase().trim();
+
+    const rateLimitKey = `pwtempemail:ratelimit:${email}`;
+    const count = await this.redis.incr(rateLimitKey);
+    if (count === 1) await this.redis.expire(rateLimitKey, TEMP_PASSWORD_WINDOW_SECONDS);
+    if (count > TEMP_PASSWORD_MAX_PER_DAY) {
+      throw new AppError(
+        'PASSWORD_RESET_EMAIL_LIMIT',
+        'Vous avez atteint la limite de 2 demandes par jour pour cette adresse email. Réessayez demain.',
+        429,
+      );
+    }
+
+    const user = await this.prisma.users.findUnique({ where: { email } });
+    if (!user) return;
+
+    const tempPassword = AuthService.generateTempPassword();
+    const hash = await AuthService.hashPassword(tempPassword);
+    await this.redis.set(`pwtemp:${user.id}`, hash, 'EX', TEMP_PASSWORD_TTL_SECONDS);
+
+    await this.email.sendTemporaryPassword(user.email, tempPassword);
   }
 
   // ───────────────────────────────────────────────── Vérification email ──
@@ -417,8 +485,8 @@ export class AuthService {
   }
 
   /** Limitation de débit sur l'authentification — 5 tentatives / 15 min (§12.1). */
-  private async assertNotLockedOut(phone: string, ip?: string): Promise<void> {
-    for (const key of AuthService.attemptKeys(phone, ip)) {
+  private async assertNotLockedOut(identifier: string, ip?: string): Promise<void> {
+    for (const key of AuthService.attemptKeys(identifier, ip)) {
       const attempts = Number(await this.redis.get(key)) || 0;
       if (attempts >= MAX_LOGIN_ATTEMPTS) {
         throw AppError.accountLocked((await this.redis.ttl(key)) || LOGIN_WINDOW_SECONDS);
@@ -426,20 +494,24 @@ export class AuthService {
     }
   }
 
-  private async recordFailedAttempt(phone: string, ip?: string): Promise<void> {
-    for (const key of AuthService.attemptKeys(phone, ip)) {
+  private async recordFailedAttempt(identifier: string, ip?: string): Promise<void> {
+    for (const key of AuthService.attemptKeys(identifier, ip)) {
       const count = await this.redis.incr(key);
       if (count === 1) await this.redis.expire(key, LOGIN_WINDOW_SECONDS);
     }
   }
 
-  private async clearFailedAttempts(phone: string, ip?: string): Promise<void> {
-    await this.redis.del(...AuthService.attemptKeys(phone, ip));
+  private async clearFailedAttempts(identifier: string, ip?: string): Promise<void> {
+    await this.redis.del(...AuthService.attemptKeys(identifier, ip));
   }
 
-  /** Compteurs par compte ET par IP : ni le blocage ciblé ni le balayage massif. */
-  private static attemptKeys(phone: string, ip?: string): string[] {
-    return ip ? [`login:phone:${phone}`, `login:ip:${ip}`] : [`login:phone:${phone}`];
+  /**
+   * Compteurs par compte ET par IP : ni le blocage ciblé ni le balayage
+   * massif. `identifier` est un numéro normalisé ou un email en minuscules —
+   * les deux espaces de clés ne se chevauchent jamais.
+   */
+  private static attemptKeys(identifier: string, ip?: string): string[] {
+    return ip ? [`login:id:${identifier}`, `login:ip:${ip}`] : [`login:id:${identifier}`];
   }
 
   /** Normalise un numéro malgache en `+261XXXXXXXXX`. */
@@ -472,6 +544,44 @@ export class AuthService {
   static async bcryptCompare(plain: string, hash: string): Promise<boolean> {
     const normalised = hash.replace(/^\$2y\$/, '$2b$');
     return bcrypt.compare(plain, normalised).catch(() => false);
+  }
+
+  /**
+   * Hache un mot de passe dans le même format que celui déjà présent en base
+   * pour les comptes créés par le site web (Laravel/PHP, préfixe `$2y$`).
+   * `bcryptjs` ne sait produire que `$2a$`/`$2b$` — cryptographiquement
+   * identiques, PHP les vérifie sans distinction — mais écrire directement au
+   * format `$2y$` rend un compte créé côté mobile rigoureusement
+   * indiscernable d'un compte créé côté web dans la colonne partagée
+   * `users.password` : aucun doute ne subsiste sur la compatibilité dans un
+   * sens comme dans l'autre.
+   */
+  static async hashPassword(plain: string): Promise<string> {
+    const hash = await bcrypt.hash(plain, 10);
+    return hash.replace(/^\$2b\$/, '$2y$');
+  }
+
+  /**
+   * Mot de passe temporaire lisible (§ mot de passe oublié par email) : au
+   * moins une lettre et un chiffre pour rester valide au regard de
+   * `PASSWORD_RULE` si l'utilisateur le garde comme mot de passe définitif.
+   * Caractères ambigus (0/O, 1/l/I) exclus — recopié depuis un email sur un
+   * petit écran, la confusion serait la première cause d'échec de connexion.
+   */
+  static generateTempPassword(): string {
+    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz';
+    const digits = '23456789';
+    const chars: string[] = [];
+    for (let i = 0; i < 6; i += 1) chars.push(letters[randomInt(0, letters.length)]);
+    for (let i = 0; i < 4; i += 1) chars.push(digits[randomInt(0, digits.length)]);
+
+    // Fisher-Yates : un mot de passe temporaire ne doit pas être reconnaissable
+    // à sa seule structure (lettres puis chiffres).
+    for (let i = chars.length - 1; i > 0; i -= 1) {
+      const j = randomInt(0, i + 1);
+      [chars[i], chars[j]] = [chars[j], chars[i]];
+    }
+    return chars.join('');
   }
 
   private static hashToken(value: string): string {

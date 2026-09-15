@@ -50,15 +50,16 @@ export class PaymentsController {
       { key: 'orange_money', label: 'Orange Money' },
       { key: 'airtel_money', label: 'Airtel Money' },
     ];
-    return {
-      data: [
-        { key: 'cod', label: 'Paiement à la livraison', available: true },
-        ...mobileMoney.map(({ key, label }) => {
-          const available = this.payments.provider(key)?.isAvailable() ?? false;
-          return { key, label, available, message: available ? undefined : 'Ce moyen de paiement sera bientôt disponible.' };
-        }),
-      ],
-    };
+    // Pas d'enveloppe `{ data: ... }` ici : `ResponseInterceptor` s'en charge
+    // déjà pour toute réponse qui n'a pas déjà `data` ET `meta` — un objet
+    // avec seulement `data` se faisait ré-envelopper une seconde fois.
+    return [
+      { key: 'cod', label: 'Paiement à la livraison', available: true },
+      ...mobileMoney.map(({ key, label }) => {
+        const available = this.payments.provider(key)?.isAvailable() ?? false;
+        return { key, label, available, message: available ? undefined : 'Ce moyen de paiement sera bientôt disponible.' };
+      }),
+    ];
   }
 
   @Post('initiate')

@@ -22,15 +22,18 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _phone = TextEditingController();
+  final _email = TextEditingController();
   final _password = TextEditingController();
 
   bool _submitting = false;
   bool _obscure = true;
+  bool _useEmail = false;
   String? _error;
 
   @override
   void dispose() {
     _phone.dispose();
+    _email.dispose();
     _password.dispose();
     super.dispose();
   }
@@ -45,7 +48,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     try {
       await ref.read(sessionControllerProvider.notifier).signIn(
-            phone: _phone.text.trim(),
+            phone: _useEmail ? null : _phone.text.trim(),
+            email: _useEmail ? _email.text.trim() : null,
             password: _password.text,
           );
       if (mounted) context.go(widget.redirectTo ?? '/');
@@ -79,7 +83,45 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            PhoneField(controller: _phone),
+            // Comme sur le site allgo : téléphone (identifiant historique,
+            // §12.2) ou email + mot de passe, au choix — jamais les deux à
+            // la fois.
+            SegmentedButton<bool>(
+              segments: const <ButtonSegment<bool>>[
+                ButtonSegment<bool>(
+                  value: false,
+                  label: Text('Téléphone'),
+                  icon: Icon(Icons.phone_outlined),
+                ),
+                ButtonSegment<bool>(
+                  value: true,
+                  label: Text('Email'),
+                  icon: Icon(Icons.email_outlined),
+                ),
+              ],
+              selected: <bool>{_useEmail},
+              onSelectionChanged: _submitting
+                  ? null
+                  : (selection) => setState(() => _useEmail = selection.first),
+            ),
+            const SizedBox(height: AllGoTokens.space4),
+            if (_useEmail)
+              TextFormField(
+                controller: _email,
+                keyboardType: TextInputType.emailAddress,
+                autofillHints: const <String>[AutofillHints.email],
+                decoration: const InputDecoration(
+                  labelText: 'Adresse email',
+                  prefixIcon: FieldIcon(Icons.email_outlined),
+                ),
+                validator: (value) {
+                  final trimmed = (value ?? '').trim();
+                  final rule = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+                  return rule.hasMatch(trimmed) ? null : 'Entrez une adresse email valide.';
+                },
+              )
+            else
+              PhoneField(controller: _phone),
             const SizedBox(height: AllGoTokens.space4),
 
             TextFormField(

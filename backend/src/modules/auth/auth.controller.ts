@@ -9,6 +9,7 @@ import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { AuthService } from './auth.service';
 import {
   ForgotPasswordDto,
+  ForgotPasswordEmailDto,
   LoginDto,
   RefreshDto,
   RegisterDto,
@@ -91,6 +92,22 @@ export class AuthController {
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     await this.auth.forgotPassword(dto.phone);
     return { message: 'Si un compte existe, un SMS de réinitialisation a été envoyé.' };
+  }
+
+  @Public()
+  @Post('password/forgot-email')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({
+    summary: 'Demander un mot de passe temporaire par email (2 demandes par jour maximum).',
+    description:
+      'Réponse identique que le compte existe ou non. Le mot de passe temporaire ' +
+      'envoyé est valable 30 minutes et à usage unique.',
+  })
+  async forgotPasswordByEmail(@Body() dto: ForgotPasswordEmailDto) {
+    await this.auth.forgotPasswordByEmail(dto.email);
+    return {
+      message: 'Si un compte est associé à cette adresse, un mot de passe temporaire vient d’être envoyé par email.',
+    };
   }
 
   @Public()

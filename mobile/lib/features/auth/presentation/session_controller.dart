@@ -73,9 +73,20 @@ class SessionController extends Notifier<SessionState> {
     }
   }
 
-  Future<void> signIn({required String phone, required String password}) async {
+  /// Connexion par téléphone OU par email — exactement un des deux, comme sur
+  /// le site web.
+  Future<void> signIn({
+    String? phone,
+    String? email,
+    required String password,
+  }) async {
+    assert(
+      (phone != null && phone.isNotEmpty) != (email != null && email.isNotEmpty),
+      'Fournir soit le téléphone, soit l’email — jamais les deux, jamais aucun.',
+    );
     await _authenticate('/auth/login', <String, String>{
-      'phone': phone,
+      if (phone != null && phone.isNotEmpty) 'phone': phone,
+      if (email != null && email.isNotEmpty) 'email': email,
       'password': password,
     });
   }
@@ -120,6 +131,17 @@ class SessionController extends Notifier<SessionState> {
     await ref.read(apiClientProvider).post<Map<String, dynamic>>(
           '/auth/password/forgot',
           data: <String, String>{'phone': phone},
+          options: Options(extra: <String, bool>{'skipAuth': true}),
+        );
+  }
+
+  /// Mot de passe oublié — voie email : envoie un mot de passe temporaire
+  /// (valable 30 minutes, à usage unique), limité à 2 demandes par jour et
+  /// par adresse (§ le SMS n'est pas encore disponible).
+  Future<void> forgotPasswordByEmail(String email) async {
+    await ref.read(apiClientProvider).post<Map<String, dynamic>>(
+          '/auth/password/forgot-email',
+          data: <String, String>{'email': email},
           options: Options(extra: <String, bool>{'skipAuth': true}),
         );
   }
