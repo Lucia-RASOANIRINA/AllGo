@@ -3,6 +3,7 @@ import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/error/failure.dart';
 import 'package:allgo/features/auth/presentation/session_controller.dart';
 import 'package:allgo/shared/widgets/auth_form_fields.dart';
+import 'package:allgo/shared/widgets/sms_not_available_notice.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -104,7 +105,9 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                   ),
                   const SizedBox(height: AllGoTokens.space6),
                   if (!_byEmail)
-                    const _SmsNotAvailable()
+                    const SmsNotAvailableNotice(
+                      detail: 'En attendant, utilisez l’option « Par email » ci-dessus.',
+                    )
                   else if (_sent)
                     _SentConfirmation(email: _email.text.trim())
                   else
@@ -168,40 +171,6 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// Le SMS n'est pas encore branché (§12.2) : dire honnêtement que la
-/// fonctionnalité arrive plutôt que de laisser l'utilisateur soumettre une
-/// demande vouée à échouer.
-class _SmsNotAvailable extends StatelessWidget {
-  const _SmsNotAvailable();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: <Widget>[
-        Icon(Icons.construction_outlined, size: 48, color: theme.colorScheme.outline),
-        const SizedBox(height: AllGoTokens.space4),
-        Text(
-          'La réinitialisation par SMS n’est pas encore disponible. '
-          'Cette fonctionnalité arrive très bientôt.',
-          style: theme.textTheme.bodyMedium,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: AllGoTokens.space2),
-        Text(
-          'En attendant, utilisez l’option « Par email » ci-dessus.',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-          textAlign: TextAlign.center,
-        ),
-      ],
     );
   }
 }
