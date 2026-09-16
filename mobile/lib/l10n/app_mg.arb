@@ -12,6 +12,11 @@
   "navCart": "Harona",
   "navMessages": "Hafatra",
   "navAccount": "Kaonty",
+  "navDashboard": "Fitantanana",
+  "navOrders": "Baiko",
+  "navProducts": "Vokatra",
+  "navRound": "Dia",
+  "navMap": "Sarintany",
 
   "actionRetry": "Andramo indray",
   "actionAddToCart": "Ampidiro anaty harona",
@@ -21,10 +26,139 @@
   "actionCall": "Antsoy",
   "actionSignIn": "Hiditra",
   "actionSignOut": "Hivoaka",
+  "actionOtpLogin": "Handray kaody amin'ny SMS",
+  "actionForgotPassword": "Very ny tenimiafina ?",
+  "actionCreateAccount": "Mamorona kaonty",
+  "actionCreateMyAccount": "Mamorona ny kaontiko",
+  "actionViewCatalog": "Jereo ny katalaogy",
+  "actionContinueShopping": "Hanohy ny fividianana",
+  "actionDecreaseQuantity": "Hampihena ny isa",
+  "actionIncreaseQuantity": "Hampitombo ny isa",
+  "actionDeleteAccount": "Hamafa ny kaontiko",
 
   "fieldPhone": "Laharana finday",
   "fieldPassword": "Teny miafina",
+  "fieldFirstName": "Anarana",
+  "fieldLastName": "Fanampin'anarana",
+  "fieldEmailOptional": "Mailaka (tsy voatery)",
+  "validationEmailInvalid": "Tsy mety ny adiresy mailaka.",
+  "fieldLanguage": "Fiteny",
+  "fieldTheme": "Endrika",
+  "hintPhone": "034 12 345 67",
+
+  "validationPhone": "Ampidiro laharana finday malagasy manan-kery.",
+  "validationPasswordRequired": "Ampidiro ny tenimiafinao.",
+  "validationFirstNameRequired": "Ampidiro ny anaranao.",
+  "validationLastNameRequired": "Ampidiro ny fanampin'anaranao.",
+  "validationPasswordRule": "Farafahakeliny 10 tarehintsoratra, litera iray sy isa iray.",
+  "passwordHelperText": "Farafahakeliny 10 tarehintsoratra, misy litera sy isa",
+  "alreadyHaveAccount": "Manana kaonty efa ?",
+  "taglineRegister": "Mivarotra sy mividy any Mahajanga, na tsy misy fifandraisana aza.",
+
+  "themeLight": "Mazava",
+  "themeDark": "Maizina",
+  "themeSystem": "Araka ny rafitra",
 
   "stateOffline": "Tsy misy fifandraisana",
-  "stockOut": "Lany"
+  "stateOfflineDetail": "Tsy misy fifandraisana. Mety tsy vaovao ny angona aseho.",
+  "stateEmptyCatalog": "Tsy mbola misy vokatra",
+  "stateEmptyCatalogDetail": "Mamoaka isan'andro ny mpivarotra ao Mahajanga. Miverena tsy ho ela.",
+  "stateErrorUnexpected": "Nisy olana tampoka. Andramo indray afaka kelikely.",
+  "stateSessionExpired": "Lany ny fotoanao. Midira indray.",
+
+  "stockAvailable": "{count} sisa",
+  "@stockAvailable": {
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "stockOut": "Lany",
+
+  "orderPendingSync": "Baiko miandry alefa",
+  "orderStatusPending": "Miandry",
+  "orderStatusConfirmed": "Voamarina",
+  "orderStatusPreparing": "Am-panomanana",
+  "orderStatusShipped": "An-dalam-pandefasana",
+  "orderStatusDelivered": "Voatondra",
+  "orderStatusCancelled": "Nofoanana",
+
+  "distanceMetres": "{metres} m",
+  "@distanceMetres": {
+    "placeholders": { "metres": { "type": "int" } }
+  },
+  "distanceKilometres": "{km} km",
+  "@distanceKilometres": {
+    "placeholders": { "km": { "type": "String" } }
+  },
+
+  "updateRequiredTitle": "Ilaina ny fanavaozana",
+  "updateRequiredBody": "Tsy raisina intsony ity kinovan'i AllGo ity. Manavaoza mba hanohizana.",
+
+  "homeMapTooltip": "Varotra akaiky",
+  "homeRecommended": "Nofidiana ho anao",
+  "homeFlashPromotions": "Kabazy mihelina",
+  "homePromotions": "Kabazy",
+  "homePopularProducts": "Vokatra malaza",
+  "homePopularShops": "Fivarotana malaza",
+  "homeNearbyShops": "Fivarotana akaiky",
+  "homeNearbyProducts": "Vokatra akaiky",
+  "homeNewProducts": "Vokatra vaovao",
+  "homeRecentProducts": "Vokatra vao nojerena",
+  "homeRecentShops": "Fivarotana vao nojerena",
+  "homeEmptyTitle": "Tonga any Mahajanga i AllGo",
+  "homeEmptyMessage": "Ho avy tsy ho ela ny fivarotana sy vokatra voalohany. Miverena hitety !",
+  "homeEmptyCta": "Hikaroka ny fivarotana",
+
+  "cartTitle": "Harona",
+  "cartEmptyTitle": "Foana ny haronao",
+  "cartEmptyMessage": "Jereo ny katalaogy ka ampidiro izay ilainao.",
+  "cartMultiShopNotice": "Fivarotana {count} — baiko {count} misaraka, samy manana ny fandefasana sy fanaraha-maso azy.",
+  "@cartMultiShopNotice": {
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "cartPendingItemNotice": "Halefa avy hatrany ny entana sasany rehefa miverina ny fifandraisana. Hoverina jerena ny fahazoana azy amin'izay fotoana izay.",
+  "cartLinePending": "Miandry alefa",
+  "cartSubtotal": "Fitambarana",
+  "cartShippingNotice": "Ho isaina amin'ny dingana manaraka ny sarany fandefasana.",
+  "actionOrderWithCount": "{count, plural, one{Hanafatra · entana {count}} other{Hanafatra · entana {count}}}",
+  "@actionOrderWithCount": {
+    "placeholders": { "count": { "type": "int" } }
+  },
+
+  "accountViewProfile": "Jereo sy hanova ny mombamomba ahy",
+  "accountSwitchProfile": "Hanova profil",
+  "sectionMyPurchases": "Ny fividianako",
+  "menuAddresses": "Adiresin'ny fandefasana",
+  "menuFavorites": "Tiana",
+  "menuBlockedAccounts": "Kaonty voasakana",
+  "menuMySanctions": "Ny sazy nahazoako",
+  "menuSocialNetwork": "Tambajotra sosialy",
+  "menuSocialNetworkSubtitle": "Zavatra navoaka, tantara ary vondrom-piarahamonina AllGo",
+  "menuNotifications": "Fampandrenesana",
+  "sectionApplication": "Rindrankajy",
+  "dataSaverTitle": "Fitsitsiana angona",
+  "dataSaverSubtitle": "Sary ambany kalitao, tsy misy fampidirana mialoha",
+  "sectionNotifications": "Fampandrenesana",
+  "toggleEnableNotifications": "Alefaso ny fampandrenesana",
+  "toggleOrderNotifications": "Fampandrenesana baiko",
+  "togglePromoNotifications": "Fampandrenesana kabazy",
+  "toggleSocialNotifications": "Fampandrenesana sosialy",
+  "toggleMessageNotifications": "Fampandrenesana hafatra",
+  "toggleDeliveryNotifications": "Fampandrenesana fandefasana",
+  "menuPrivacyPolicy": "Politikan'ny fiainana manokana",
+
+  "errorSignInFailed": "Tsy voaray ny fidirana. Andramo indray.",
+  "errorSignUpFailed": "Tsy voaray ny fisoratana anarana.",
+  "errorReference": "Fanondroana : {requestId}",
+  "@errorReference": {
+    "placeholders": { "requestId": { "type": "String" } }
+  },
+  "or": "na",
+
+  "actionCancel": "Foano",
+  "actionClear": "Esory",
+  "hintSearchCategory": "Hikaroka sokajy…",
+  "comingSoonLot": "Ho avy amin'ny dingana {lot} ity asa ity.",
+  "@comingSoonLot": {
+    "placeholders": { "lot": { "type": "String" } }
+  },
+  "smsNotAvailable": "Mbola tsy azo atao ny fandefasana SMS amin'ny AllGo. Ho avy tsy ho ela io asa io."
 }

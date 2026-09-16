@@ -1,5 +1,6 @@
 import 'package:allgo/app/router.dart';
 import 'package:allgo/app/theme.dart';
+import 'package:allgo/l10n/generated/app_localizations.dart';
 import 'package:allgo/shared/widgets/allgo_logo.dart';
 import 'package:allgo/shared/widgets/field_icon.dart';
 import 'package:flutter/material.dart';
@@ -21,17 +22,20 @@ final RegExp malagasyPhone = RegExp(r'^(\+261|0)[23]\d{8}$');
 class PhoneField extends StatelessWidget {
   const PhoneField({
     required this.controller,
-    this.label = 'Numéro de téléphone',
+    this.label,
     this.onSubmitted,
     super.key,
   });
 
   final TextEditingController controller;
-  final String label;
+
+  /// `null` retombe sur la traduction de « Numéro de téléphone ».
+  final String? label;
   final ValueChanged<String>? onSubmitted;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppL10n.of(context);
     // `ListenableBuilder` plutôt qu'un `StatefulWidget` : le seul état à
     // suivre est déjà dans le contrôleur (fourni par l'appelant), inutile
     // d'en dupliquer un second ici pour afficher/masquer le bouton d'effacement.
@@ -45,20 +49,20 @@ class PhoneField extends StatelessWidget {
           FilteringTextInputFormatter.allow(RegExp(r'[0-9+\s]')),
         ],
         decoration: InputDecoration(
-          labelText: label,
-          hintText: '034 12 345 67',
+          labelText: label ?? l10n.fieldPhone,
+          hintText: l10n.hintPhone,
           prefixIcon: const FieldIcon(Icons.phone_outlined),
           suffixIcon: controller.text.isEmpty
               ? null
               : IconButton(
                   onPressed: controller.clear,
                   icon: const Icon(Icons.clear),
-                  tooltip: 'Effacer',
+                  tooltip: l10n.actionClear,
                 ),
         ),
         validator: (value) {
           final digits = (value ?? '').replaceAll(RegExp(r'\s'), '');
-          return malagasyPhone.hasMatch(digits) ? null : 'Entrez un numéro malgache valide.';
+          return malagasyPhone.hasMatch(digits) ? null : l10n.validationPhone;
         },
         onFieldSubmitted: onSubmitted,
       ),

@@ -1,5 +1,6 @@
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/error/failure.dart';
+import 'package:allgo/l10n/generated/app_localizations.dart';
 import 'package:allgo/shared/widgets/shimmer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -92,7 +93,7 @@ class OfflineBanner extends StatelessWidget {
           const SizedBox(width: AllGoTokens.space2),
           Expanded(
             child: Text(
-              'Hors ligne — données enregistrées',
+              AppL10n.of(context).stateOffline,
               style: TextStyle(color: scheme.onTertiaryContainer, fontSize: 14),
             ),
           ),
@@ -177,14 +178,14 @@ class _ErrorState extends StatelessWidget {
             FilledButton.icon(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh),
-              label: const Text('Réessayer'),
+              label: Text(AppL10n.of(context).actionRetry),
             ),
             // Le `requestId` corrèle le rapport de l'utilisateur avec la trace
             // serveur — il rend un incident diagnosticable en une recherche.
             if (failure case ApiFailure(:final requestId?)) ...<Widget>[
               const SizedBox(height: AllGoTokens.space4),
               SelectableText(
-                'Référence : $requestId',
+                AppL10n.of(context).errorReference(requestId),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.outline,
                 ),

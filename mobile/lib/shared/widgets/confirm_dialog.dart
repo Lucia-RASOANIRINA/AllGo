@@ -1,4 +1,5 @@
 import 'package:allgo/app/theme.dart';
+import 'package:allgo/l10n/generated/app_localizations.dart';
 import 'package:flutter/material.dart';
 
 /// Boîte de confirmation générique — icône badgée, titre, message, deux
@@ -11,7 +12,7 @@ class ConfirmDialog extends StatelessWidget {
     required this.title,
     required this.message,
     required this.confirmLabel,
-    this.cancelLabel = 'Annuler',
+    this.cancelLabel,
     this.isDestructive = false,
     super.key,
   });
@@ -20,7 +21,10 @@ class ConfirmDialog extends StatelessWidget {
   final String title;
   final String message;
   final String confirmLabel;
-  final String cancelLabel;
+
+  /// `null` retombe sur la traduction de « Annuler » — un paramètre par
+  /// défaut ne peut pas dépendre du `BuildContext` (langue active).
+  final String? cancelLabel;
   final bool isDestructive;
 
   static Future<bool?> show(
@@ -29,7 +33,7 @@ class ConfirmDialog extends StatelessWidget {
     required String title,
     required String message,
     required String confirmLabel,
-    String cancelLabel = 'Annuler',
+    String? cancelLabel,
     bool isDestructive = false,
   }) {
     return showDialog<bool>(
@@ -108,7 +112,7 @@ class ConfirmDialog extends StatelessWidget {
                       side: BorderSide(color: scheme.outlineVariant),
                     ),
                     onPressed: () => Navigator.pop(context, false),
-                    child: Text(cancelLabel),
+                    child: Text(cancelLabel ?? AppL10n.of(context).actionCancel),
                   ),
                 ),
                 const SizedBox(width: AllGoTokens.space3),

@@ -1,4 +1,5 @@
 import 'package:allgo/app/theme.dart';
+import 'package:allgo/l10n/generated/app_localizations.dart';
 import 'package:flutter/material.dart';
 
 /// Logo AllGo — panier de marché dont l'anse dessine un « A ».
@@ -25,13 +26,13 @@ class AllGoLogo extends StatelessWidget {
           height: size,
           // L'icône porte le nom de l'application : elle est décorative pour
           // un lecteur d'écran dès lors que « AllGo » est écrit juste dessous.
-          semanticLabel: showWordmark ? null : 'AllGo',
+          semanticLabel: showWordmark ? null : AppL10n.of(context).appName,
           excludeFromSemantics: showWordmark,
         ),
         if (showWordmark) ...<Widget>[
           const SizedBox(height: AllGoTokens.space3),
           Text(
-            'AllGo',
+            AppL10n.of(context).appName,
             style: theme.textTheme.displaySmall?.copyWith(
               fontWeight: FontWeight.w700,
               color: AllGoTokens.brand,

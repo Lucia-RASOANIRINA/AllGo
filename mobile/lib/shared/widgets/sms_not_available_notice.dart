@@ -1,4 +1,5 @@
 import 'package:allgo/app/theme.dart';
+import 'package:allgo/l10n/generated/app_localizations.dart';
 import 'package:flutter/material.dart';
 
 /// Le SMS n'est pas encore branché à un vrai fournisseur (§12.2,
@@ -22,8 +23,7 @@ class SmsNotAvailableNotice extends StatelessWidget {
         Icon(Icons.construction_outlined, size: 48, color: theme.colorScheme.outline),
         const SizedBox(height: AllGoTokens.space4),
         Text(
-          'L’envoi de SMS n’est pas encore disponible sur AllGo. '
-          'Cette fonctionnalité arrive très bientôt.',
+          AppL10n.of(context).smsNotAvailable,
           style: theme.textTheme.bodyMedium,
           textAlign: TextAlign.center,
         ),

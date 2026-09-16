@@ -1,5 +1,6 @@
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/features/catalog/domain/repositories/product_repository.dart';
+import 'package:allgo/l10n/generated/app_localizations.dart';
 import 'package:flutter/material.dart';
 
 /// Sélecteur de catégorie avec recherche par nom — partagé entre l'onglet
@@ -51,9 +52,9 @@ class _CategoryPickerSheetState extends State<_CategoryPickerSheet> {
             child: TextField(
               controller: _searchController,
               onChanged: (value) => setState(() => _query = value),
-              decoration: const InputDecoration(
-                hintText: 'Rechercher une catégorie…',
-                prefixIcon: Icon(Icons.search),
+              decoration: InputDecoration(
+                hintText: AppL10n.of(context).hintSearchCategory,
+                prefixIcon: const Icon(Icons.search),
               ),
             ),
           ),

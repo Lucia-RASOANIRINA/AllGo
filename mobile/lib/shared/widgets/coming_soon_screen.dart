@@ -1,4 +1,5 @@
 import 'package:allgo/app/theme.dart';
+import 'package:allgo/l10n/generated/app_localizations.dart';
 import 'package:flutter/material.dart';
 
 /// Écran d'attente pour une fonction planifiée mais non encore livrée.
@@ -41,7 +42,7 @@ class ComingSoonScreen extends StatelessWidget {
               Icon(Icons.construction_outlined, size: 56, color: theme.colorScheme.outline),
               const SizedBox(height: AllGoTokens.space4),
               Text(
-                'Cette fonction arrive au lot $lot.',
+                AppL10n.of(context).comingSoonLot(lot),
                 style: theme.textTheme.titleMedium,
                 textAlign: TextAlign.center,
               ),

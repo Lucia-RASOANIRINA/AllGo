@@ -145,5 +145,18 @@
 
   "errorSignInFailed": "Connexion impossible. Réessayez.",
   "errorSignUpFailed": "Inscription impossible.",
-  "or": "ou"
+  "errorReference": "Référence : {requestId}",
+  "@errorReference": {
+    "placeholders": { "requestId": { "type": "String" } }
+  },
+  "or": "ou",
+
+  "actionCancel": "Annuler",
+  "actionClear": "Effacer",
+  "hintSearchCategory": "Rechercher une catégorie…",
+  "comingSoonLot": "Cette fonction arrive au lot {lot}.",
+  "@comingSoonLot": {
+    "placeholders": { "lot": { "type": "String" } }
+  },
+  "smsNotAvailable": "L’envoi de SMS n’est pas encore disponible sur AllGo. Cette fonctionnalité arrive très bientôt."
 }

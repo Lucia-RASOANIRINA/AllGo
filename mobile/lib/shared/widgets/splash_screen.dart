@@ -1,4 +1,5 @@
 import 'package:allgo/app/theme.dart';
+import 'package:allgo/l10n/generated/app_localizations.dart';
 import 'package:allgo/shared/widgets/allgo_logo.dart';
 import 'package:flutter/material.dart';
 
@@ -115,7 +116,7 @@ class _SplashScreenState extends State<SplashScreen>
               child: FadeTransition(
                 opacity: _wordmarkOpacity,
                 child: Text(
-                  'AllGo',
+                  AppL10n.of(context).appName,
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w700,
