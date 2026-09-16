@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { access, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type Redis from 'ioredis';
@@ -195,17 +196,29 @@ export class MediaService implements OnModuleInit {
    * URL publiques des trois tailles générées par `receiveUpload()`. Une
    * vidéo n'a pas de variante WebP (pas de génération de vignette vidéo pour
    * l'instant) : les trois champs pointent alors vers le fichier original.
+   *
+   * Repli sur le fichier original si une variante manque sur le disque —
+   * cas réel constaté en production : des médias antérieurs au pipeline de
+   * redimensionnement (importés par le site web historique, jamais passés
+   * par `receiveUpload()`) n'ont jamais eu leurs variantes générées.
+   * Fabriquer quand même l'URL `_1600.webp` produisait un lien mort
+   * (image invisible sur mobile, alors que le fichier original existe et
+   * s'affiche très bien côté web).
    */
   publicUrls(key: string): { url: string; previewUrl: string; thumbUrl: string } {
+    const original = `${this.publicBaseUrl}/${key}`;
     if (key.endsWith('.mp4')) {
-      const original = `${this.publicBaseUrl}/${key}`;
       return { url: original, previewUrl: original, thumbUrl: original };
     }
     const stem = key.replace(/\.[^.]+$/, '');
+    const variant = (suffix: string): string => {
+      const relative = `${stem}${suffix}.webp`;
+      return existsSync(join(this.storagePath, relative)) ? `${this.publicBaseUrl}/${relative}` : original;
+    };
     return {
-      thumbUrl: `${this.publicBaseUrl}/${stem}_200.webp`,
-      previewUrl: `${this.publicBaseUrl}/${stem}_800.webp`,
-      url: `${this.publicBaseUrl}/${stem}_1600.webp`,
+      thumbUrl: variant('_200'),
+      previewUrl: variant('_800'),
+      url: variant('_1600'),
     };
   }
 }

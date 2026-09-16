@@ -95,6 +95,18 @@ export class SocialController {
     return this.social.report(user.mysqlId, id, dto.reason, dto.reasonCode);
   }
 
+  @Patch('comments/:id')
+  @RequirePermission(Permission.CommentUpdate)
+  editComment(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: CommentDto) {
+    return this.social.editComment(user.mysqlId, id, dto.content);
+  }
+
+  @Delete('comments/:id')
+  @RequirePermission(Permission.CommentDelete)
+  deleteComment(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.social.deleteComment(user.mysqlId, id);
+  }
+
   @Post('comments/:id/report')
   @RequirePermission(Permission.CommentReport)
   @ApiOperation({ summary: 'Signaler un commentaire à la modération.' })

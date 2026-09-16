@@ -183,10 +183,47 @@ export class SocialService {
     });
     return rows.map((row) => ({
       id: String(row.id),
+      userId: String(row.user_id),
       author: { name: `${row.users.firstname} ${row.users.lastname}`.trim(), avatar: row.users.avatar ?? undefined },
       content: row.content,
       createdAt: row.created_at,
     }));
+  }
+
+  /**
+   * Édition — réservée à l'auteur (même schéma que `update()` pour les
+   * publications). Un commentaire déjà signalé reste modifiable : corriger un
+   * mot maladroit est justement ce qui peut lever un signalement.
+   */
+  async editComment(userMysqlId: number, commentId: string, content: string): Promise<unknown> {
+    if (!content.trim()) throw new AppError('COMMENT_EMPTY', 'Le commentaire ne peut pas être vide.', 400);
+
+    const result = await this.prisma.comments.updateMany({
+      where: { id: Number(commentId), user_id: userMysqlId },
+      data: { content: content.trim() },
+    });
+    if (!result.count) throw AppError.notFound('Commentaire');
+
+    const row = await this.prisma.comments.findUniqueOrThrow({
+      where: { id: Number(commentId) },
+      include: { users: { select: { firstname: true, lastname: true, avatar: true } } },
+    });
+    return {
+      id: String(row.id),
+      userId: String(row.user_id),
+      author: { name: `${row.users.firstname} ${row.users.lastname}`.trim(), avatar: row.users.avatar ?? undefined },
+      content: row.content,
+      createdAt: row.created_at,
+    };
+  }
+
+  /** Suppression — réservée à l'auteur, jamais une simple mise à drapeau ici : contrairement au signalement, l'auteur retire son propre mot. */
+  async deleteComment(userMysqlId: number, commentId: string): Promise<{ deleted: true }> {
+    const result = await this.prisma.comments.deleteMany({
+      where: { id: Number(commentId), user_id: userMysqlId },
+    });
+    if (!result.count) throw AppError.notFound('Commentaire');
+    return { deleted: true };
   }
 
   /**

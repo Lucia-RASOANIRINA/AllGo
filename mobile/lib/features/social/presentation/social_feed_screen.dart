@@ -288,6 +288,7 @@ class _PostCardState extends ConsumerState<_PostCard> {
   late bool _liked = widget.post.reactedLocally;
   late int _likes = widget.post.likes;
   late int _shares = widget.post.shares;
+  late int _comments = widget.post.comments;
   bool _saved = false;
 
   Future<void> _toggleLike() async {
@@ -380,7 +381,10 @@ class _PostCardState extends ConsumerState<_PostCard> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => _CommentsSheet(postId: widget.post.id),
+      builder: (context) => _CommentsSheet(
+        postId: widget.post.id,
+        onCountDelta: (delta) => setState(() => _comments += delta),
+      ),
     );
   }
 
@@ -459,7 +463,7 @@ class _PostCardState extends ConsumerState<_PostCard> {
                 const SizedBox(width: AllGoTokens.space3),
                 _SocialAction(
                   icon: Icons.chat_bubble_outline,
-                  label: '${post.comments}',
+                  label: '$_comments',
                   onTap: _openComments,
                 ),
                 const SizedBox(width: AllGoTokens.space3),
@@ -506,9 +510,15 @@ class _SocialAction extends StatelessWidget {
 }
 
 class _CommentData {
-  const _CommentData({required this.id, required this.author, required this.content});
+  const _CommentData({
+    required this.id,
+    required this.userId,
+    required this.author,
+    required this.content,
+  });
 
   final String id;
+  final String userId;
   final String author;
   final String content;
 
@@ -518,6 +528,7 @@ class _CommentData {
         : const <String, dynamic>{};
     return _CommentData(
       id: idFromJson(json),
+      userId: json['userId']?.toString() ?? '',
       author: author['name'] as String? ?? 'Membre AllGo',
       content: json['content'] as String? ?? '',
     );
@@ -530,13 +541,19 @@ final _commentsProvider = FutureProvider.autoDispose.family<List<_CommentData>, 
   return items.whereType<Map<String, dynamic>>().map(_CommentData.fromJson).toList();
 });
 
-/// Feuille de commentaires — lecture, ajout et signalement (§29). Avant cet
-/// écran, seul le compteur de commentaires était visible : aucune route
-/// mobile ne permettait de les lire ni d'en signaler un.
+/// Feuille de commentaires — lecture, ajout, modification, suppression et
+/// signalement (§29). Avant cet écran, seul le compteur de commentaires était
+/// visible : aucune route mobile ne permettait de les lire ni d'en signaler
+/// un ; modifier/supprimer son propre commentaire n'existait pas du tout.
 class _CommentsSheet extends ConsumerStatefulWidget {
-  const _CommentsSheet({required this.postId});
+  const _CommentsSheet({required this.postId, required this.onCountDelta});
 
   final String postId;
+
+  /// Notifie la carte de publication d'un ajout (+1) ou d'une suppression
+  /// (-1) — le compteur affiché sous la publication vient de son propre état
+  /// local (comme les « J'aime »), il ne se recalcule pas tout seul.
+  final ValueChanged<int> onCountDelta;
 
   @override
   ConsumerState<_CommentsSheet> createState() => _CommentsSheetState();
@@ -564,6 +581,7 @@ class _CommentsSheetState extends ConsumerState<_CommentsSheet> {
       );
       _controller.clear();
       ref.invalidate(_commentsProvider(widget.postId));
+      widget.onCountDelta(1);
     } on DioException {
       messenger.showSnackBar(const SnackBar(content: Text('Impossible d’envoyer ce commentaire.')));
     } finally {
@@ -579,9 +597,75 @@ class _CommentsSheetState extends ConsumerState<_CommentsSheet> {
         successMessage: 'Commentaire signalé à la modération.',
       );
 
+  Future<void> _editComment(_CommentData comment) async {
+    final controller = TextEditingController(text: comment.content);
+    final newContent = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Modifier le commentaire'),
+        content: TextField(controller: controller, autofocus: true, minLines: 1, maxLines: 4),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('Enregistrer'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (newContent == null || newContent.isEmpty || newContent == comment.content) return;
+    if (!mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(apiClientProvider).patch<void>(
+        '/social/comments/${comment.id}',
+        data: <String, String>{'content': newContent},
+      );
+      ref.invalidate(_commentsProvider(widget.postId));
+    } on DioException {
+      messenger.showSnackBar(const SnackBar(content: Text('Modification impossible. Réessayez.')));
+    }
+  }
+
+  Future<void> _deleteComment(String commentId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Supprimer ce commentaire ?'),
+        content: const Text('Cette action est irréversible.'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(apiClientProvider).delete<void>('/social/comments/$commentId');
+      ref.invalidate(_commentsProvider(widget.postId));
+      widget.onCountDelta(-1);
+    } on DioException {
+      messenger.showSnackBar(const SnackBar(content: Text('Suppression impossible. Réessayez.')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final comments = ref.watch(_commentsProvider(widget.postId));
+    final myUserId = ref.watch(sessionControllerProvider).userId;
 
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
@@ -605,14 +689,26 @@ class _CommentsSheetState extends ConsumerState<_CommentsSheet> {
                         itemCount: items.length,
                         itemBuilder: (context, index) {
                           final comment = items[index];
+                          final isMine = comment.userId.isNotEmpty && comment.userId == myUserId;
                           return ListTile(
                             contentPadding: EdgeInsets.zero,
                             title: Text(comment.author, style: Theme.of(context).textTheme.titleSmall),
                             subtitle: Text(comment.content),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.flag_outlined, size: 18),
-                              tooltip: 'Signaler',
-                              onPressed: () => _reportComment(comment.id),
+                            trailing: PopupMenuButton<String>(
+                              icon: const Icon(Icons.more_vert, size: 18),
+                              onSelected: (value) {
+                                if (value == 'edit') unawaited(_editComment(comment));
+                                if (value == 'delete') unawaited(_deleteComment(comment.id));
+                                if (value == 'report') unawaited(_reportComment(comment.id));
+                              },
+                              itemBuilder: (context) => isMine
+                                  ? const <PopupMenuEntry<String>>[
+                                      PopupMenuItem<String>(value: 'edit', child: Text('Modifier')),
+                                      PopupMenuItem<String>(value: 'delete', child: Text('Supprimer')),
+                                    ]
+                                  : const <PopupMenuEntry<String>>[
+                                      PopupMenuItem<String>(value: 'report', child: Text('Signaler')),
+                                    ],
                             ),
                           );
                         },
