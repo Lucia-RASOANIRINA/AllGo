@@ -158,5 +158,41 @@
   "@comingSoonLot": {
     "placeholders": { "lot": { "type": "String" } }
   },
-  "smsNotAvailable": "L’envoi de SMS n’est pas encore disponible sur AllGo. Cette fonctionnalité arrive très bientôt."
+  "smsNotAvailable": "L’envoi de SMS n’est pas encore disponible sur AllGo. Cette fonctionnalité arrive très bientôt.",
+
+  "authTabPhone": "Téléphone",
+  "authTabEmail": "Email",
+  "authTabByPhone": "Par téléphone",
+  "authTabByEmail": "Par email",
+  "fieldEmail": "Adresse email",
+  "fieldNewPassword": "Nouveau mot de passe",
+  "actionShowPassword": "Afficher",
+  "actionHidePassword": "Masquer",
+  "actionContinue": "Continuer",
+  "actionSaving": "Enregistrement...",
+  "actionChangePassword": "Modifier le mot de passe",
+  "actionSendTempPassword": "Envoyer un mot de passe temporaire",
+  "actionBackToLogin": "Retour à la connexion",
+  "actionSignInWithPassword": "Se connecter avec mon mot de passe",
+
+  "errorRequestFailed": "Demande impossible.",
+  "errorResetFailed": "Réinitialisation impossible.",
+
+  "forgotPasswordTitle": "Mot de passe oublié",
+  "forgotPasswordUseEmailInstead": "En attendant, utilisez l’option « Par email » ci-dessus.",
+  "forgotPasswordEmailInstructions": "Indiquez votre adresse email : vous recevrez un mot de passe temporaire, valable 30 minutes (2 demandes par jour maximum).",
+  "forgotPasswordSentTitle": "Demande envoyée",
+  "forgotPasswordSentDetail": "Si un compte est associé à {email}, un mot de passe temporaire vient d’être envoyé par email. Il est valable 30 minutes et ne peut servir qu’une seule fois.",
+  "@forgotPasswordSentDetail": {
+    "placeholders": { "email": { "type": "String" } }
+  },
+
+  "otpScreenTitle": "Connexion par SMS",
+  "otpUsePasswordInstead": "En attendant, connectez-vous avec votre mot de passe.",
+
+  "emailVerificationTitle": "Vérification email",
+  "emailVerifiedMessage": "Votre adresse email est vérifiée.",
+  "linkInvalidOrExpired": "Ce lien est invalide ou expiré.",
+  "passwordChangedMessage": "Mot de passe modifié.",
+  "resetPasswordTitle": "Nouveau mot de passe"
 }

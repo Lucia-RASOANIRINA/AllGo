@@ -142,7 +142,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 suffixIcon: IconButton(
                   onPressed: () => setState(() => _obscure = !_obscure),
                   icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
-                  tooltip: _obscure ? 'Afficher' : 'Masquer',
+                  tooltip: _obscure ? l10n.actionShowPassword : l10n.actionHidePassword,
                 ),
               ),
               validator: (value) {

@@ -160,5 +160,41 @@
   "@comingSoonLot": {
     "placeholders": { "lot": { "type": "String" } }
   },
-  "smsNotAvailable": "Mbola tsy azo atao ny fandefasana SMS amin'ny AllGo. Ho avy tsy ho ela io asa io."
+  "smsNotAvailable": "Mbola tsy azo atao ny fandefasana SMS amin'ny AllGo. Ho avy tsy ho ela io asa io.",
+
+  "authTabPhone": "Laharana finday",
+  "authTabEmail": "Mailaka",
+  "authTabByPhone": "Amin'ny laharana finday",
+  "authTabByEmail": "Amin'ny mailaka",
+  "fieldEmail": "Adiresy mailaka",
+  "fieldNewPassword": "Teny miafina vaovao",
+  "actionShowPassword": "Asehoy",
+  "actionHidePassword": "Afeno",
+  "actionContinue": "Hanohy",
+  "actionSaving": "Mitahiry...",
+  "actionChangePassword": "Hanova ny teny miafina",
+  "actionSendTempPassword": "Handefa teny miafina vonjimaika",
+  "actionBackToLogin": "Hiverina amin'ny fidirana",
+  "actionSignInWithPassword": "Hiditra amin'ny teny miafinako",
+
+  "errorRequestFailed": "Tsy voaray ny fangatahana.",
+  "errorResetFailed": "Tsy voaray ny fanovana.",
+
+  "forgotPasswordTitle": "Very ny tenimiafina",
+  "forgotPasswordUseEmailInstead": "Mandra-pahatongan'izany, ampiasao ny safidy « Amin'ny mailaka » etsy ambony.",
+  "forgotPasswordEmailInstructions": "Ampidiro ny adiresy mailakao : handray teny miafina vonjimaika ianao, manan-kery 30 minitra (2 fangatahana isan'andro fara-fahabetsany).",
+  "forgotPasswordSentTitle": "Nalefa ny fangatahana",
+  "forgotPasswordSentDetail": "Raha misy kaonty mifandray amin'ny {email}, dia vao nalefa taminy amin'ny mailaka ny teny miafina vonjimaika. Manan-kery 30 minitra izy io ary indray mandeha ihany no azo ampiasaina.",
+  "@forgotPasswordSentDetail": {
+    "placeholders": { "email": { "type": "String" } }
+  },
+
+  "otpScreenTitle": "Fidirana amin'ny SMS",
+  "otpUsePasswordInstead": "Mandra-pahatongan'izany, midira amin'ny teny miafinao.",
+
+  "emailVerificationTitle": "Fanamarinana mailaka",
+  "emailVerifiedMessage": "Voamarina ny adiresy mailakao.",
+  "linkInvalidOrExpired": "Tsy manan-kery na lany andro io rohy io.",
+  "passwordChangedMessage": "Novaina ny teny miafina.",
+  "resetPasswordTitle": "Teny miafina vaovao"
 }

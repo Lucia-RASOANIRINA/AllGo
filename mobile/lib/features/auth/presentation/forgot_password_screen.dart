@@ -2,6 +2,7 @@ import 'package:allgo/app/router.dart';
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/error/failure.dart';
 import 'package:allgo/features/auth/presentation/session_controller.dart';
+import 'package:allgo/l10n/generated/app_localizations.dart';
 import 'package:allgo/shared/widgets/auth_form_fields.dart';
 import 'package:allgo/shared/widgets/sms_not_available_notice.dart';
 import 'package:dio/dio.dart';
@@ -59,7 +60,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
     } on DioException catch (error) {
       final failure = error.error;
       setState(() {
-        _error = failure is Failure ? failure.displayMessage : 'Demande impossible.';
+        _error = failure is Failure ? failure.displayMessage : AppL10n.of(context).errorRequestFailed;
       });
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -69,9 +70,10 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppL10n.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mot de passe oublié')),
+      appBar: AppBar(title: Text(l10n.forgotPasswordTitle)),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(AllGoTokens.space6),
@@ -82,16 +84,16 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
                   SegmentedButton<bool>(
-                    segments: const <ButtonSegment<bool>>[
+                    segments: <ButtonSegment<bool>>[
                       ButtonSegment<bool>(
                         value: false,
-                        label: Text('Par téléphone'),
-                        icon: Icon(Icons.sms_outlined),
+                        label: Text(l10n.authTabByPhone),
+                        icon: const Icon(Icons.sms_outlined),
                       ),
                       ButtonSegment<bool>(
                         value: true,
-                        label: Text('Par email'),
-                        icon: Icon(Icons.email_outlined),
+                        label: Text(l10n.authTabByEmail),
+                        icon: const Icon(Icons.email_outlined),
                       ),
                     ],
                     selected: <bool>{_byEmail},
@@ -105,9 +107,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                   ),
                   const SizedBox(height: AllGoTokens.space6),
                   if (!_byEmail)
-                    const SmsNotAvailableNotice(
-                      detail: 'En attendant, utilisez l’option « Par email » ci-dessus.',
-                    )
+                    SmsNotAvailableNotice(detail: l10n.forgotPasswordUseEmailInstead)
                   else if (_sent)
                     _SentConfirmation(email: _email.text.trim())
                   else
@@ -118,8 +118,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: <Widget>[
                           Text(
-                            'Indiquez votre adresse email : vous recevrez un mot de passe '
-                            'temporaire, valable 30 minutes (2 demandes par jour maximum).',
+                            l10n.forgotPasswordEmailInstructions,
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
@@ -129,17 +128,15 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                             controller: _email,
                             keyboardType: TextInputType.emailAddress,
                             autofillHints: const <String>[AutofillHints.email],
-                            decoration: const InputDecoration(
-                              labelText: 'Adresse email',
-                              prefixIcon: FieldIcon(Icons.email_outlined),
+                            decoration: InputDecoration(
+                              labelText: l10n.fieldEmail,
+                              prefixIcon: const FieldIcon(Icons.email_outlined),
                             ),
                             onFieldSubmitted: (_) => _submit(),
                             validator: (value) {
                               final trimmed = (value ?? '').trim();
                               final rule = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-                              return rule.hasMatch(trimmed)
-                                  ? null
-                                  : 'Entrez une adresse email valide.';
+                              return rule.hasMatch(trimmed) ? null : l10n.validationEmailInvalid;
                             },
                           ),
                           if (_error != null) ...<Widget>[
@@ -155,7 +152,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                                     width: 20,
                                     child: CircularProgressIndicator(strokeWidth: 2),
                                   )
-                                : const Text('Envoyer un mot de passe temporaire'),
+                                : Text(l10n.actionSendTempPassword),
                           ),
                         ],
                       ),
@@ -163,7 +160,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                   const SizedBox(height: AllGoTokens.space3),
                   TextButton(
                     onPressed: _submitting ? null : () => context.go(Routes.login),
-                    child: const Text('Retour à la connexion'),
+                    child: Text(l10n.actionBackToLogin),
                   ),
                 ],
               ),
@@ -190,7 +187,7 @@ class _SentConfirmation extends StatelessWidget {
         Icon(Icons.mark_email_read_outlined, size: 56, color: theme.colorScheme.primary),
         const SizedBox(height: AllGoTokens.space4),
         Text(
-          'Demande envoyée',
+          AppL10n.of(context).forgotPasswordSentTitle,
           style: theme.textTheme.titleLarge,
           textAlign: TextAlign.center,
         ),
@@ -198,9 +195,7 @@ class _SentConfirmation extends StatelessWidget {
         Text(
           // Formulation volontairement conditionnelle : confirmer l'existence
           // du compte permettrait d'énumérer les adresses enregistrées.
-          'Si un compte est associé à $email, un mot de passe temporaire '
-          'vient d’être envoyé par email. Il est valable 30 minutes et ne '
-          'peut servir qu’une seule fois.',
+          AppL10n.of(context).forgotPasswordSentDetail(email),
           style: theme.textTheme.bodyMedium?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/network/api_client.dart';
+import 'package:allgo/l10n/generated/app_localizations.dart';
 import 'package:allgo/shared/widgets/auth_form_fields.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -17,7 +18,10 @@ class EmailVerificationScreen extends ConsumerStatefulWidget {
 }
 
 class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScreen> {
-  String? _message;
+  // Résolus en texte affichable dans `build()` : `AppL10n.of(context)` n'est
+  // pas fiable depuis `initState`, avant le premier montage complet de l'arbre.
+  bool _verified = false;
+  String? _serverMessage;
   bool _loading = true;
 
   @override
@@ -29,37 +33,45 @@ class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScree
   Future<void> _verify() async {
     try {
       await ref.read(apiClientProvider).post<void>('/auth/email/verify', data: <String, String>{'token': widget.token});
-      _message = 'Votre adresse email est vérifiée.';
+      _verified = true;
     } on DioException catch (error) {
-      _message = error.response?.data is Map<String, dynamic>
+      _serverMessage = error.response?.data is Map<String, dynamic>
           ? (error.response!.data as Map<String, dynamic>)['message'] as String?
-          : 'Ce lien est invalide ou expiré.';
+          : null;
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Vérification email')),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(AllGoTokens.space6),
-            child: _loading
-                ? const CircularProgressIndicator()
-                : Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Icon(Icons.mark_email_read_outlined, size: 56, color: Theme.of(context).colorScheme.primary),
-                      const SizedBox(height: AllGoTokens.space4),
-                      Text(_message ?? 'Vérification terminée.', textAlign: TextAlign.center),
-                      const SizedBox(height: AllGoTokens.space6),
-                      FilledButton(onPressed: () => context.go('/'), child: const Text('Continuer')),
-                    ],
-                  ),
-          ),
+  Widget build(BuildContext context) {
+    final l10n = AppL10n.of(context);
+    return Scaffold(
+      appBar: AppBar(title: Text(l10n.emailVerificationTitle)),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(AllGoTokens.space6),
+          child: _loading
+              ? const CircularProgressIndicator()
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(Icons.mark_email_read_outlined, size: 56, color: Theme.of(context).colorScheme.primary),
+                    const SizedBox(height: AllGoTokens.space4),
+                    Text(
+                      _verified
+                          ? l10n.emailVerifiedMessage
+                          : _serverMessage ?? l10n.linkInvalidOrExpired,
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: AllGoTokens.space6),
+                    FilledButton(onPressed: () => context.go('/'), child: Text(l10n.actionContinue)),
+                  ],
+                ),
         ),
-      );
+      ),
+    );
+  }
 }
 
 class ResetPasswordScreen extends ConsumerStatefulWidget {
@@ -84,50 +96,59 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    final l10n = AppL10n.of(context);
     setState(() => _loading = true);
     try {
       await ref.read(apiClientProvider).post<void>('/auth/password/reset', data: <String, String>{'token': widget.token, 'password': _password.text});
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mot de passe modifié.')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.passwordChangedMessage)));
         context.go('/connexion');
       }
     } on DioException catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.response?.data is Map<String, dynamic> ? ((error.response!.data as Map<String, dynamic>)['message'] as String? ?? 'Réinitialisation impossible.') : 'Réinitialisation impossible.')));
+      if (mounted) {
+        final serverMessage = error.response?.data is Map<String, dynamic>
+            ? (error.response!.data as Map<String, dynamic>)['message'] as String?
+            : null;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(serverMessage ?? l10n.errorResetFailed)));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Nouveau mot de passe')),
-        body: Form(
-          key: _formKey,
-          autovalidateMode: AutovalidateMode.onUserInteraction,
-          child: ListView(
-            padding: const EdgeInsets.all(AllGoTokens.space6),
-            children: <Widget>[
-              TextFormField(
-                controller: _password,
-                obscureText: _obscure,
-                autofillHints: const <String>[AutofillHints.newPassword],
-                decoration: InputDecoration(
-                  labelText: 'Nouveau mot de passe',
-                  helperText: '10 caractères minimum, dont une lettre et un chiffre',
-                  helperMaxLines: 2,
-                  prefixIcon: const FieldIcon(Icons.lock_outline),
-                  suffixIcon: IconButton(
-                    onPressed: () => setState(() => _obscure = !_obscure),
-                    icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
-                    tooltip: _obscure ? 'Afficher' : 'Masquer',
-                  ),
+  Widget build(BuildContext context) {
+    final l10n = AppL10n.of(context);
+    return Scaffold(
+      appBar: AppBar(title: Text(l10n.resetPasswordTitle)),
+      body: Form(
+        key: _formKey,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
+        child: ListView(
+          padding: const EdgeInsets.all(AllGoTokens.space6),
+          children: <Widget>[
+            TextFormField(
+              controller: _password,
+              obscureText: _obscure,
+              autofillHints: const <String>[AutofillHints.newPassword],
+              decoration: InputDecoration(
+                labelText: l10n.fieldNewPassword,
+                helperText: l10n.passwordHelperText,
+                helperMaxLines: 2,
+                prefixIcon: const FieldIcon(Icons.lock_outline),
+                suffixIcon: IconButton(
+                  onPressed: () => setState(() => _obscure = !_obscure),
+                  icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                  tooltip: _obscure ? l10n.actionShowPassword : l10n.actionHidePassword,
                 ),
-                validator: (value) => RegExp(r'^(?=.*[A-Za-zÀ-ÿ])(?=.*\d).{10,128}$').hasMatch(value ?? '') ? null : '10 caractères minimum, avec une lettre et un chiffre.',
               ),
-              const SizedBox(height: AllGoTokens.space6),
-              FilledButton(onPressed: _loading ? null : _submit, child: Text(_loading ? 'Enregistrement...' : 'Modifier le mot de passe')),
-            ],
-          ),
+              validator: (value) => RegExp(r'^(?=.*[A-Za-zÀ-ÿ])(?=.*\d).{10,128}$').hasMatch(value ?? '') ? null : l10n.validationPasswordRule,
+            ),
+            const SizedBox(height: AllGoTokens.space6),
+            FilledButton(onPressed: _loading ? null : _submit, child: Text(_loading ? l10n.actionSaving : l10n.actionChangePassword)),
+          ],
         ),
-      );
+      ),
+    );
+  }
 }

@@ -87,16 +87,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             // §12.2) ou email + mot de passe, au choix — jamais les deux à
             // la fois.
             SegmentedButton<bool>(
-              segments: const <ButtonSegment<bool>>[
+              segments: <ButtonSegment<bool>>[
                 ButtonSegment<bool>(
                   value: false,
-                  label: Text('Téléphone'),
-                  icon: Icon(Icons.phone_outlined),
+                  label: Text(l10n.authTabPhone),
+                  icon: const Icon(Icons.phone_outlined),
                 ),
                 ButtonSegment<bool>(
                   value: true,
-                  label: Text('Email'),
-                  icon: Icon(Icons.email_outlined),
+                  label: Text(l10n.authTabEmail),
+                  icon: const Icon(Icons.email_outlined),
                 ),
               ],
               selected: <bool>{_useEmail},
@@ -110,14 +110,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 controller: _email,
                 keyboardType: TextInputType.emailAddress,
                 autofillHints: const <String>[AutofillHints.email],
-                decoration: const InputDecoration(
-                  labelText: 'Adresse email',
-                  prefixIcon: FieldIcon(Icons.email_outlined),
+                decoration: InputDecoration(
+                  labelText: l10n.fieldEmail,
+                  prefixIcon: const FieldIcon(Icons.email_outlined),
                 ),
                 validator: (value) {
                   final trimmed = (value ?? '').trim();
                   final rule = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-                  return rule.hasMatch(trimmed) ? null : 'Entrez une adresse email valide.';
+                  return rule.hasMatch(trimmed) ? null : l10n.validationEmailInvalid;
                 },
               )
             else
@@ -134,7 +134,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 suffixIcon: IconButton(
                   onPressed: () => setState(() => _obscure = !_obscure),
                   icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
-                  tooltip: _obscure ? 'Afficher' : 'Masquer',
+                  tooltip: _obscure ? l10n.actionShowPassword : l10n.actionHidePassword,
                 ),
               ),
               validator: (value) =>

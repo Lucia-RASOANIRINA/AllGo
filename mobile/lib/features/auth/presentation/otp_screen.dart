@@ -1,5 +1,6 @@
 import 'package:allgo/app/router.dart';
 import 'package:allgo/app/theme.dart';
+import 'package:allgo/l10n/generated/app_localizations.dart';
 import 'package:allgo/shared/widgets/sms_not_available_notice.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -18,8 +19,9 @@ class OtpScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppL10n.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Connexion par SMS')),
+      appBar: AppBar(title: Text(l10n.otpScreenTitle)),
       body: SafeArea(
         child: Center(
           child: Padding(
@@ -29,9 +31,7 @@ class OtpScreen extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  const SmsNotAvailableNotice(
-                    detail: 'En attendant, connectez-vous avec votre mot de passe.',
-                  ),
+                  SmsNotAvailableNotice(detail: l10n.otpUsePasswordInstead),
                   const SizedBox(height: AllGoTokens.space6),
                   FilledButton(
                     onPressed: () => context.go(
@@ -39,7 +39,7 @@ class OtpScreen extends StatelessWidget {
                           ? Routes.login
                           : '${Routes.login}?redirect=${Uri.encodeComponent(redirectTo!)}',
                     ),
-                    child: const Text('Se connecter avec mon mot de passe'),
+                    child: Text(l10n.actionSignInWithPassword),
                   ),
                 ],
               ),
