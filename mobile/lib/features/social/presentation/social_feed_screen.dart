@@ -853,12 +853,18 @@ class _CommentData {
     required this.userId,
     required this.author,
     required this.content,
+    this.parentId,
   });
 
   final String id;
   final String userId;
   final String author;
   final String content;
+
+  /// Non nul pour une réponse à un autre commentaire — colonne `parent_id`
+  /// déjà présente en base (partagée avec le site web) mais jamais exposée
+  /// jusqu'ici : les fils de discussion n'existaient pas côté mobile.
+  final String? parentId;
 
   factory _CommentData.fromJson(Map<String, dynamic> json) {
     final author = json['author'] is Map<String, dynamic>
@@ -869,6 +875,7 @@ class _CommentData {
       userId: json['userId']?.toString() ?? '',
       author: author['name'] as String? ?? 'Membre AllGo',
       content: json['content'] as String? ?? '',
+      parentId: json['parentId']?.toString(),
     );
   }
 }
@@ -901,10 +908,18 @@ class _CommentsSheetState extends ConsumerState<_CommentsSheet> {
   final _controller = TextEditingController();
   bool _sending = false;
 
+  /// Commentaire auquel la prochaine saisie répond — `null` pour un
+  /// commentaire de premier niveau, comme sur Facebook.
+  _CommentData? _replyTo;
+
   @override
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  void _startReply(_CommentData comment) {
+    setState(() => _replyTo = comment);
   }
 
   Future<void> _send() async {
@@ -912,12 +927,17 @@ class _CommentsSheetState extends ConsumerState<_CommentsSheet> {
     if (content.isEmpty || _sending) return;
     setState(() => _sending = true);
     final messenger = ScaffoldMessenger.of(context);
+    final replyTo = _replyTo;
     try {
       await ref.read(apiClientProvider).post<void>(
         '/social/posts/${widget.postId}/comments',
-        data: <String, String>{'content': content},
+        data: <String, String>{
+          'content': content,
+          if (replyTo != null) 'parentId': replyTo.id,
+        },
       );
       _controller.clear();
+      if (mounted) setState(() => _replyTo = null);
       ref.invalidate(_commentsProvider(widget.postId));
       widget.onCountDelta(1);
     } on DioException {
@@ -1020,40 +1040,69 @@ class _CommentsSheetState extends ConsumerState<_CommentsSheet> {
               child: comments.when(
                 loading: () => const AvatarLineSkeletonList(itemCount: 4),
                 error: (_, __) => const Center(child: Text('Commentaires indisponibles hors ligne.')),
-                data: (items) => items.isEmpty
-                    ? const Center(child: Text('Aucun commentaire pour l’instant.'))
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space4),
-                        itemCount: items.length,
-                        itemBuilder: (context, index) {
-                          final comment = items[index];
-                          final isMine = comment.userId.isNotEmpty && comment.userId == myUserId;
-                          return ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: Text(isMine ? 'Vous' : comment.author,
-                                style: Theme.of(context).textTheme.titleSmall),
-                            subtitle: Text(comment.content),
-                            trailing: PopupMenuButton<String>(
-                              icon: const Icon(Icons.more_vert, size: 18),
-                              onSelected: (value) {
-                                if (value == 'edit') unawaited(_editComment(comment));
-                                if (value == 'delete') unawaited(_deleteComment(comment.id));
-                                if (value == 'report') unawaited(_reportComment(comment.id));
-                              },
-                              itemBuilder: (context) => isMine
-                                  ? const <PopupMenuEntry<String>>[
-                                      PopupMenuItem<String>(value: 'edit', child: Text('Modifier')),
-                                      PopupMenuItem<String>(value: 'delete', child: Text('Supprimer')),
-                                    ]
-                                  : const <PopupMenuEntry<String>>[
-                                      PopupMenuItem<String>(value: 'report', child: Text('Signaler')),
-                                    ],
+                data: (items) {
+                  if (items.isEmpty) {
+                    return const Center(child: Text('Aucun commentaire pour l’instant.'));
+                  }
+                  // Fil de discussion à plat en base (`parent_id`) — regroupé
+                  // ici en commentaires de premier niveau suivis de leurs
+                  // réponses, comme sur Facebook.
+                  final topLevel = items.where((c) => c.parentId == null).toList();
+                  final repliesByParent = <String, List<_CommentData>>{};
+                  for (final comment in items) {
+                    if (comment.parentId == null) continue;
+                    (repliesByParent[comment.parentId!] ??= <_CommentData>[]).add(comment);
+                  }
+
+                  return ListView(
+                    padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space4),
+                    children: <Widget>[
+                      for (final comment in topLevel) ...<Widget>[
+                        _CommentTile(
+                          comment: comment,
+                          isMine: comment.userId.isNotEmpty && comment.userId == myUserId,
+                          onEdit: () => unawaited(_editComment(comment)),
+                          onDelete: () => unawaited(_deleteComment(comment.id)),
+                          onReport: () => unawaited(_reportComment(comment.id)),
+                          onReply: () => _startReply(comment),
+                        ),
+                        for (final reply in repliesByParent[comment.id] ?? const <_CommentData>[])
+                          Padding(
+                            padding: const EdgeInsets.only(left: AllGoTokens.space6),
+                            child: _CommentTile(
+                              comment: reply,
+                              isMine: reply.userId.isNotEmpty && reply.userId == myUserId,
+                              onEdit: () => unawaited(_editComment(reply)),
+                              onDelete: () => unawaited(_deleteComment(reply.id)),
+                              onReport: () => unawaited(_reportComment(reply.id)),
+                              onReply: () => _startReply(comment),
                             ),
-                          );
-                        },
-                      ),
+                          ),
+                      ],
+                    ],
+                  );
+                },
               ),
             ),
+            if (_replyTo != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AllGoTokens.space4),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        'Réponse à ${_replyTo!.author}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => setState(() => _replyTo = null),
+                      icon: const Icon(Icons.close, size: 16),
+                      tooltip: 'Annuler la réponse',
+                    ),
+                  ],
+                ),
+              ),
             SafeArea(
               top: false,
               child: Padding(
@@ -1064,8 +1113,8 @@ class _CommentsSheetState extends ConsumerState<_CommentsSheet> {
                       child: TextField(
                         controller: _controller,
                         maxLength: 2000,
-                        decoration: const InputDecoration(
-                          hintText: 'Ajouter un commentaire…',
+                        decoration: InputDecoration(
+                          hintText: _replyTo == null ? 'Ajouter un commentaire…' : 'Répondre…',
                           counterText: '',
                         ),
                       ),
@@ -1080,6 +1129,65 @@ class _CommentsSheetState extends ConsumerState<_CommentsSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Une ligne de commentaire ou de réponse — extrait de `_CommentsSheet` pour
+/// être réutilisé identiquement aux deux niveaux du fil de discussion.
+class _CommentTile extends StatelessWidget {
+  const _CommentTile({
+    required this.comment,
+    required this.isMine,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onReport,
+    required this.onReply,
+  });
+
+  final _CommentData comment;
+  final bool isMine;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final VoidCallback onReport;
+  final VoidCallback onReply;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(isMine ? 'Vous' : comment.author, style: Theme.of(context).textTheme.titleSmall),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(comment.content),
+          TextButton(
+            onPressed: onReply,
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.zero,
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('Répondre'),
+          ),
+        ],
+      ),
+      trailing: PopupMenuButton<String>(
+        icon: const Icon(Icons.more_vert, size: 18),
+        onSelected: (value) {
+          if (value == 'edit') onEdit();
+          if (value == 'delete') onDelete();
+          if (value == 'report') onReport();
+        },
+        itemBuilder: (context) => isMine
+            ? const <PopupMenuEntry<String>>[
+                PopupMenuItem<String>(value: 'edit', child: Text('Modifier')),
+                PopupMenuItem<String>(value: 'delete', child: Text('Supprimer')),
+              ]
+            : const <PopupMenuEntry<String>>[
+                PopupMenuItem<String>(value: 'report', child: Text('Signaler')),
+              ],
       ),
     );
   }

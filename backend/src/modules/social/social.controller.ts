@@ -32,6 +32,8 @@ export class CreatePostDto {
 
 export class CommentDto {
   @ApiProperty() @IsString() @MaxLength(2000) content!: string;
+  @ApiProperty({ required: false, description: 'Commentaire auquel on répond, pour un fil de discussion.' })
+  @IsOptional() @IsNumberString() parentId?: string;
 }
 
 @ApiTags('Publications')
@@ -85,7 +87,7 @@ export class SocialController {
   @Post('posts/:id/comments')
   @RequirePermission(Permission.CommentCreate)
   comment(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: CommentDto) {
-    return this.social.comment(user, id, dto.content);
+    return this.social.comment(user, id, dto.content, dto.parentId);
   }
 
   @Post('posts/:id/share')

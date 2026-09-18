@@ -188,23 +188,53 @@ export class SocialService {
     return { reacted: true };
   }
 
-  async comment(user: AuthenticatedUser, postId: string, content: string): Promise<unknown> {
+  async comment(user: AuthenticatedUser, postId: string, content: string, parentId?: string): Promise<unknown> {
     if (!content.trim()) throw new AppError('COMMENT_EMPTY', 'Le commentaire ne peut pas être vide.', 400);
     const post = await this.prisma.posts.findUnique({ where: { id: Number(postId) } });
     if (!post) throw AppError.notFound('Publication');
 
+    // `parent_id` existe en base (colonne partagée avec le site web) mais
+    // n'était jusqu'ici jamais renseigné côté API — aucune réponse à un
+    // commentaire précis n'était possible, seulement des commentaires à plat.
+    let parent: { id: number; user_id: number } | null = null;
+    if (parentId) {
+      parent = await this.prisma.comments.findFirst({
+        where: { id: Number(parentId), post_id: Number(postId) },
+        select: { id: true, user_id: true },
+      });
+      if (!parent) throw AppError.notFound('Commentaire');
+    }
+
     const comment = await this.prisma.comments.create({
-      data: { post_id: Number(postId), user_id: user.mysqlId, content: content.trim() },
+      data: {
+        post_id: Number(postId),
+        user_id: user.mysqlId,
+        content: content.trim(),
+        parent_id: parent?.id,
+      },
       include: { users: { select: { firstname: true, lastname: true, avatar: true } } },
     });
 
     const flagged = await this.moderation.autoModerate('comment', String(comment.id), content);
+    const commenterName = `${comment.users.firstname} ${comment.users.lastname}`.trim();
 
     if (post.user_id !== user.mysqlId) {
       await this.notifications.create({
         userId: post.user_id,
         type: 'social.comment',
-        title: `${comment.users.firstname} ${comment.users.lastname}`.trim() + ' a commenté votre publication',
+        title: `${commenterName} a commenté votre publication`,
+        body: content.trim(),
+        data: { screen: 'post', postId },
+      });
+    }
+    // Réponse à quelqu'un d'autre que l'auteur du post (déjà notifié
+    // ci-dessus) et pas à soi-même — comme Facebook, qui distingue « on a
+    // commenté ma publication » de « on m'a répondu ».
+    if (parent && parent.user_id !== user.mysqlId && parent.user_id !== post.user_id) {
+      await this.notifications.create({
+        userId: parent.user_id,
+        type: 'social.comment_reply',
+        title: `${commenterName} a répondu à votre commentaire`,
         body: content.trim(),
         data: { screen: 'post', postId },
       });
@@ -213,7 +243,8 @@ export class SocialService {
     return {
       id: String(comment.id),
       userId: user.id,
-      author: { name: `${comment.users.firstname} ${comment.users.lastname}`.trim(), avatar: comment.users.avatar ?? undefined },
+      parentId: comment.parent_id ? String(comment.parent_id) : undefined,
+      author: { name: commenterName, avatar: comment.users.avatar ?? undefined },
       content: comment.content,
       reported: flagged?.reported ?? false,
       createdAt: comment.created_at,
@@ -230,6 +261,7 @@ export class SocialService {
     return rows.map((row) => ({
       id: String(row.id),
       userId: String(row.user_id),
+      parentId: row.parent_id ? String(row.parent_id) : undefined,
       author: { name: `${row.users.firstname} ${row.users.lastname}`.trim(), avatar: row.users.avatar ?? undefined },
       content: row.content,
       createdAt: row.created_at,
