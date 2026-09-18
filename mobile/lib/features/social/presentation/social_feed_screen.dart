@@ -239,10 +239,14 @@ class _ComposerDialogState extends ConsumerState<_ComposerDialog> {
           if (_selectedShopId != null) 'shopId': _selectedShopId,
           if (uploaded != null)
             'media': <Map<String, dynamic>>[
+              // `CreatePostDto.media[].url` est en réalité stocké tel quel
+              // comme clé interne (`file_path`) — jamais une URL complète.
+              // `SocialService.toJson()` reconstruit thumbUrl/previewUrl/url
+              // à la lecture à partir de cette seule clé (`MediaService.
+              // publicUrls`) ; les renvoyer ici double le préfixe du domaine
+              // (constaté en direct : une URL imbriquée dans elle-même).
               <String, dynamic>{
-                'url': uploaded['url'],
-                'thumbUrl': uploaded['thumbUrl'],
-                'previewUrl': uploaded['previewUrl'],
+                'url': uploaded['key'],
                 'type': 'image',
               },
             ],
