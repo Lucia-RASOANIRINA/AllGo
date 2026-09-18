@@ -123,7 +123,7 @@ class AuthScaffold extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: AllGoTokens.space4),
-                  AllGoLogo(size: logoSize),
+                  AllGoLogo(size: logoSize, wordmarkColor: Colors.white),
                   const SizedBox(height: AllGoTokens.space2),
                   Text(
                     tagline,

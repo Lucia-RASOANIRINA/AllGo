@@ -8,10 +8,22 @@ import 'package:flutter/material.dart';
 /// icônes de lanceur Android (`tool/generate_icons.js`), et deux tracés
 /// distincts finiraient par diverger.
 class AllGoLogo extends StatelessWidget {
-  const AllGoLogo({this.size = 72, this.showWordmark = true, super.key});
+  const AllGoLogo({
+    this.size = 72,
+    this.showWordmark = true,
+    this.wordmarkColor,
+    super.key,
+  });
 
   final double size;
   final bool showWordmark;
+
+  /// `null` retombe sur le vert de marque — visible seulement sur un fond
+  /// clair. Un appelant qui pose le logo sur un fond de la même teinte
+  /// (`AuthScaffold`, bandeau vert) doit fournir une couleur qui contraste,
+  /// sinon le mot-symbole devient invisible (constaté en direct : le texte
+  /// rendait bien, mais dans la même couleur que le fond derrière lui).
+  final Color? wordmarkColor;
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +47,7 @@ class AllGoLogo extends StatelessWidget {
             AppL10n.of(context).appName,
             style: theme.textTheme.displaySmall?.copyWith(
               fontWeight: FontWeight.w700,
-              color: AllGoTokens.brand,
+              color: wordmarkColor ?? AllGoTokens.brand,
               letterSpacing: -0.5,
             ),
           ),
