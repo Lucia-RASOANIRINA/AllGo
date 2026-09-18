@@ -8,6 +8,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -27,6 +28,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool _uploadingPhoto = false;
   bool _emailVerified = false;
   bool _sendingVerification = false;
+  String _phone = '';
+  DateTime? _memberSince;
 
   @override
   void initState() {
@@ -54,6 +57,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         _email.text = data['email'] as String? ?? '';
         _bio.text = data['bio'] as String? ?? '';
         _emailVerified = data['emailVerifiedAt'] != null;
+        _phone = data['phone'] as String? ?? '';
+        _memberSince = data['createdAt'] == null
+            ? null
+            : DateTime.tryParse(data['createdAt'] as String);
       }
     } on DioException catch (error) {
       if (mounted) _showError(error);
@@ -205,6 +212,29 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       ],
                     ),
                   ),
+                  if (_phone.isNotEmpty || _memberSince != null) ...<Widget>[
+                    const SizedBox(height: AllGoTokens.space3),
+                    Center(
+                      child: Column(
+                        children: <Widget>[
+                          if (_phone.isNotEmpty)
+                            Text(_phone,
+                                style: Theme.of(context).textTheme.bodyMedium),
+                          if (_memberSince != null)
+                            Text(
+                              'Membre depuis ${DateFormat.yMMMM('fr').format(_memberSince!)}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: AllGoTokens.space6),
                   TextFormField(
                       controller: _firstName,
