@@ -105,7 +105,11 @@ class SocialFeedScreen extends ConsumerWidget {
                 ? ListView(
                     padding: const EdgeInsets.all(AllGoTokens.space4),
                     children: <Widget>[
-                      _Composer(onTap: () => _showComposer(context, ref)),
+                      _Composer(
+                        onTap: () => _showComposer(context, ref),
+                        onPickPhoto: () => _showComposer(context, ref, pickImageOnOpen: true),
+                        onCreateStory: () => _createStory(context, ref),
+                      ),
                       const SizedBox(height: AllGoTokens.space8),
                       const Center(
                         child: Text('Aucune publication pour l’instant. Soyez le premier.'),
@@ -115,7 +119,11 @@ class SocialFeedScreen extends ConsumerWidget {
                 : ListView(
                     padding: const EdgeInsets.all(AllGoTokens.space4),
                     children: <Widget>[
-                      _Composer(onTap: () => _showComposer(context, ref)),
+                      _Composer(
+                        onTap: () => _showComposer(context, ref),
+                        onPickPhoto: () => _showComposer(context, ref, pickImageOnOpen: true),
+                        onCreateStory: () => _createStory(context, ref),
+                      ),
                       const SizedBox(height: AllGoTokens.space4),
                       ...list.map(
                         (post) => Padding(
@@ -166,7 +174,12 @@ class SocialFeedScreen extends ConsumerWidget {
     }
   }
 
-  Future<void> _showComposer(BuildContext context, WidgetRef ref) async {
+  Future<void> _showComposer(
+    BuildContext context,
+    WidgetRef ref, {
+    bool pickImageOnOpen = false,
+    _PostData? editingPost,
+  }) async {
     // Boutiques où je détiens un rôle — le composeur propose de publier « en
     // tant que » l'une d'elles, plutôt qu'en mon nom propre par défaut sans
     // recours (§22). Le backend seul sait quel rôle autorise réellement à
@@ -187,7 +200,11 @@ class SocialFeedScreen extends ConsumerWidget {
 
     final published = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => _ComposerDialog(shops: shops),
+      builder: (dialogContext) => _ComposerDialog(
+        shops: shops,
+        pickImageOnOpen: pickImageOnOpen,
+        editingPost: editingPost,
+      ),
     );
     if (published == true) ref.invalidate(socialPostsProvider);
   }
@@ -200,9 +217,18 @@ class SocialFeedScreen extends ConsumerWidget {
 /// commentable). `CreatePostDto` acceptait déjà `media` côté serveur — rien
 /// ne l'exposait côté mobile.
 class _ComposerDialog extends ConsumerStatefulWidget {
-  const _ComposerDialog({required this.shops});
+  const _ComposerDialog({required this.shops, this.pickImageOnOpen = false, this.editingPost});
 
   final List<Map<String, dynamic>> shops;
+
+  /// Ouvre directement le sélecteur d'image — pour le bouton « Photo » du
+  /// composeur en un tap, comme sur Facebook, plutôt que de forcer un
+  /// deuxième geste une fois la boîte de dialogue déjà ouverte.
+  final bool pickImageOnOpen;
+
+  /// Non nul en mode édition — pré-remplit le contenu/l'image existante et
+  /// bascule `_publish()` sur `PUT` au lieu de `POST`.
+  final _PostData? editingPost;
 
   @override
   ConsumerState<_ComposerDialog> createState() => _ComposerDialogState();
@@ -212,7 +238,23 @@ class _ComposerDialogState extends ConsumerState<_ComposerDialog> {
   final _contentController = TextEditingController();
   String? _selectedShopId;
   XFile? _image;
+  String? _existingImageUrl;
   bool _publishing = false;
+
+  bool get _isEditing => widget.editingPost != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final editing = widget.editingPost;
+    if (editing != null) {
+      _contentController.text = editing.content;
+      _existingImageUrl = editing.image.isEmpty ? null : editing.image;
+    }
+    if (widget.pickImageOnOpen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _pickImage());
+    }
+  }
 
   @override
   void dispose() {
@@ -257,7 +299,7 @@ class _ComposerDialogState extends ConsumerState<_ComposerDialog> {
 
   Future<void> _publish() async {
     final content = _contentController.text.trim();
-    if (content.isEmpty && _image == null) return;
+    if (content.isEmpty && _image == null && _existingImageUrl == null) return;
 
     setState(() => _publishing = true);
     final messenger = ScaffoldMessenger.of(context);
@@ -265,30 +307,38 @@ class _ComposerDialogState extends ConsumerState<_ComposerDialog> {
       Map<String, dynamic>? uploaded;
       if (_image != null) uploaded = await _uploadImage();
 
-      await ref.read(apiClientProvider).post<Map<String, dynamic>>(
-        '/social/posts',
-        data: <String, dynamic>{
-          if (content.isNotEmpty) 'content': content,
-          if (_selectedShopId != null) 'shopId': _selectedShopId,
-          if (uploaded != null)
-            'media': <Map<String, dynamic>>[
-              // `CreatePostDto.media[].url` est en réalité stocké tel quel
-              // comme clé interne (`file_path`) — jamais une URL complète.
-              // `SocialService.toJson()` reconstruit thumbUrl/previewUrl/url
-              // à la lecture à partir de cette seule clé (`MediaService.
-              // publicUrls`) ; les renvoyer ici double le préfixe du domaine
-              // (constaté en direct : une URL imbriquée dans elle-même).
-              <String, dynamic>{
-                'url': uploaded['key'],
-                'type': 'image',
-              },
-            ],
-        },
-      );
+      final mediaField = uploaded != null
+          // `CreatePostDto.media[].url` est en réalité stocké tel quel comme
+          // clé interne (`file_path`) — jamais une URL complète.
+          // `SocialService.toJson()` reconstruit thumbUrl/previewUrl/url à la
+          // lecture à partir de cette seule clé (`MediaService.publicUrls`) ;
+          // les renvoyer ici double le préfixe du domaine (constaté en
+          // direct : une URL imbriquée dans elle-même).
+          ? <Map<String, dynamic>>[
+              <String, dynamic>{'url': uploaded['key'], 'type': 'image'},
+            ]
+          // Édition, image existante retirée sans nouvelle image choisie :
+          // un tableau vide efface le média côté serveur (`update()` ne
+          // touche `post_media` que si `media` est fourni).
+          : (_isEditing && _existingImageUrl == null)
+              ? const <Map<String, dynamic>>[]
+              : null;
+
+      final api = ref.read(apiClientProvider);
+      final body = <String, dynamic>{
+        if (content.isNotEmpty) 'content': content,
+        if (_selectedShopId != null) 'shopId': _selectedShopId,
+        if (mediaField != null) 'media': mediaField,
+      };
+      if (_isEditing) {
+        await api.put<Map<String, dynamic>>('/social/posts/${widget.editingPost!.id}', data: body);
+      } else {
+        await api.post<Map<String, dynamic>>('/social/posts', data: body);
+      }
       if (!mounted) return;
       Navigator.of(context).pop(true);
       messenger.showSnackBar(
-        const SnackBar(content: Text('Publication envoyée à la communauté.')),
+        SnackBar(content: Text(_isEditing ? 'Publication modifiée.' : 'Publication envoyée à la communauté.')),
       );
     } on DioException catch (error) {
       final response = error.response?.data;
@@ -305,11 +355,11 @@ class _ComposerDialogState extends ConsumerState<_ComposerDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final canPublish =
-        !_publishing && (_contentController.text.trim().isNotEmpty || _image != null);
+    final canPublish = !_publishing &&
+        (_contentController.text.trim().isNotEmpty || _image != null || _existingImageUrl != null);
 
     return AlertDialog(
-      title: const Text('Nouvelle publication'),
+      title: Text(_isEditing ? 'Modifier la publication' : 'Nouvelle publication'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -341,19 +391,26 @@ class _ComposerDialogState extends ConsumerState<_ComposerDialog> {
               hintText: 'Partagez une nouveauté avec votre communauté…',
             ),
           ),
-          if (_image != null)
+          if (_image != null || _existingImageUrl != null)
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Stack(
                 children: <Widget>[
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: Image.file(
-                      File(_image!.path),
-                      height: 160,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                    ),
+                    child: _image != null
+                        ? Image.file(
+                            File(_image!.path),
+                            height: 160,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                          )
+                        : CachedNetworkImage(
+                            imageUrl: _existingImageUrl!,
+                            height: 160,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                          ),
                   ),
                   Positioned(
                     top: 4,
@@ -362,7 +419,12 @@ class _ComposerDialogState extends ConsumerState<_ComposerDialog> {
                       color: Colors.black54,
                       shape: const CircleBorder(),
                       child: IconButton(
-                        onPressed: _publishing ? null : () => setState(() => _image = null),
+                        onPressed: _publishing
+                            ? null
+                            : () => setState(() {
+                                  _image = null;
+                                  _existingImageUrl = null;
+                                }),
                         icon: const Icon(Icons.close, color: Colors.white, size: 18),
                         tooltip: 'Retirer l’image',
                       ),
@@ -395,45 +457,88 @@ class _ComposerDialogState extends ConsumerState<_ComposerDialog> {
                   width: 18,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Text('Publier'),
+              : Text(_isEditing ? 'Enregistrer' : 'Publier'),
         ),
       ],
     );
   }
 }
 
-class _Composer extends StatelessWidget {
-  const _Composer({required this.onTap});
+/// Point d'entrée du composeur — à la Facebook : avatar + champ « Quoi de
+/// neuf ? » en pilule, puis une rangée d'actions rapides (Photo, Story) sous
+/// une fine séparation, plutôt qu'une simple bannière pleine couleur.
+class _Composer extends ConsumerWidget {
+  const _Composer({required this.onTap, required this.onPickPhoto, required this.onCreateStory});
 
   final VoidCallback onTap;
+  final VoidCallback onPickPhoto;
+  final VoidCallback onCreateStory;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final name = ref.watch(sessionControllerProvider).displayName ?? 'Moi';
+    final firstName = name.trim().isEmpty ? 'vous' : name.trim().split(' ').first;
+
     return Container(
-      padding: const EdgeInsets.all(AllGoTokens.space4),
+      padding: const EdgeInsets.all(AllGoTokens.space3),
       decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer,
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(AllGoTokens.radiusCard),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          const CircleAvatar(radius: 24, child: Icon(Icons.person_outline)),
-          const SizedBox(width: AllGoTokens.space3),
-          Expanded(
-            child: Text(
-              'Partager une nouveauté avec votre communauté ?',
-              style: theme.textTheme.titleMedium,
-            ),
+          Row(
+            children: <Widget>[
+              ShopAvatar(name: name, size: 40),
+              const SizedBox(width: AllGoTokens.space3),
+              Expanded(
+                child: InkWell(
+                  onTap: onTap,
+                  borderRadius: BorderRadius.circular(AllGoTokens.radiusPill),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(AllGoTokens.radiusPill),
+                    ),
+                    child: Text(
+                      'Quoi de neuf, $firstName ?',
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-          // Le thème impose une largeur minimale infinie aux `FilledButton`
-          // (pour les CTA pleine largeur des formulaires) — sans cette
-          // annulation locale, ce bouton posé dans un `Row` sans `Expanded`
-          // demande une largeur infinie et fait planter la mise en page.
-          FilledButton.tonal(
-            style: FilledButton.styleFrom(minimumSize: Size.zero),
-            onPressed: onTap,
-            child: const Text('Créer'),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: AllGoTokens.space2),
+            child: Divider(height: 1),
+          ),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: onPickPhoto,
+                  icon: Icon(Icons.image_outlined, color: theme.colorScheme.tertiary),
+                  label: const Text('Photo'),
+                ),
+              ),
+              SizedBox(
+                height: 20,
+                child: VerticalDivider(width: 1, color: theme.colorScheme.outlineVariant),
+              ),
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: onCreateStory,
+                  icon: Icon(Icons.auto_awesome_outlined, color: theme.colorScheme.secondary),
+                  label: const Text('Story'),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -542,6 +647,48 @@ class _PostCardState extends ConsumerState<_PostCard> {
     }
   }
 
+  Future<void> _editPost() async {
+    final published = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => _ComposerDialog(
+        shops: const <Map<String, dynamic>>[],
+        editingPost: widget.post,
+      ),
+    );
+    if (published == true) ref.invalidate(socialPostsProvider);
+  }
+
+  Future<void> _deletePost() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Supprimer cette publication ?'),
+        content: const Text('Cette action est irréversible.'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(apiClientProvider).delete<void>('/social/posts/${widget.post.id}');
+      ref.invalidate(socialPostsProvider);
+    } on DioException {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Suppression impossible. Réessayez.')),
+      );
+    }
+  }
+
   Future<void> _messageAuthor() async {
     final post = widget.post;
     final messenger = ScaffoldMessenger.of(context);
@@ -601,21 +748,26 @@ class _PostCardState extends ConsumerState<_PostCard> {
                     if (value == 'report_author') unawaited(_reportAuthor());
                     if (value == 'block') unawaited(_blockAuthor());
                     if (value == 'message') unawaited(_messageAuthor());
+                    if (value == 'edit_post') unawaited(_editPost());
+                    if (value == 'delete_post') unawaited(_deletePost());
                   },
-                  itemBuilder: (context) => <PopupMenuEntry<String>>[
-                    const PopupMenuItem<String>(value: 'report_post', child: Text('Signaler la publication')),
-                    if (!isMine) ...<PopupMenuEntry<String>>[
-                      // Espace MP à la Messenger : n'importe quel client peut
-                      // écrire à l'auteur, pas seulement à une boutique.
-                      const PopupMenuItem<String>(value: 'message', child: Text('Envoyer un message')),
-                      PopupMenuItem<String>(
-                        value: 'report_author',
-                        child: Text(post.authorType == 'shop' ? 'Signaler la boutique' : 'Signaler ce compte'),
-                      ),
-                      if (post.authorType != 'shop')
-                        const PopupMenuItem<String>(value: 'block', child: Text('Bloquer ce compte')),
-                    ],
-                  ],
+                  itemBuilder: (context) => isMine
+                      ? const <PopupMenuEntry<String>>[
+                          PopupMenuItem<String>(value: 'edit_post', child: Text('Modifier')),
+                          PopupMenuItem<String>(value: 'delete_post', child: Text('Supprimer')),
+                        ]
+                      : <PopupMenuEntry<String>>[
+                          const PopupMenuItem<String>(value: 'report_post', child: Text('Signaler la publication')),
+                          // Espace MP à la Messenger : n'importe quel client
+                          // peut écrire à l'auteur, pas seulement à une boutique.
+                          const PopupMenuItem<String>(value: 'message', child: Text('Envoyer un message')),
+                          PopupMenuItem<String>(
+                            value: 'report_author',
+                            child: Text(post.authorType == 'shop' ? 'Signaler la boutique' : 'Signaler ce compte'),
+                          ),
+                          if (post.authorType != 'shop')
+                            const PopupMenuItem<String>(value: 'block', child: Text('Bloquer ce compte')),
+                        ],
                 ),
               ],
             ),
@@ -878,7 +1030,8 @@ class _CommentsSheetState extends ConsumerState<_CommentsSheet> {
                           final isMine = comment.userId.isNotEmpty && comment.userId == myUserId;
                           return ListTile(
                             contentPadding: EdgeInsets.zero,
-                            title: Text(comment.author, style: Theme.of(context).textTheme.titleSmall),
+                            title: Text(isMine ? 'Vous' : comment.author,
+                                style: Theme.of(context).textTheme.titleSmall),
                             subtitle: Text(comment.content),
                             trailing: PopupMenuButton<String>(
                               icon: const Icon(Icons.more_vert, size: 18),
@@ -989,6 +1142,47 @@ class _PostData {
       comments: (counters['comments'] as num?)?.toInt() ?? 0,
       shares: (counters['shares'] as num?)?.toInt() ?? 0,
       reactedLocally: json['reactedByMe'] as bool? ?? false,
+    );
+  }
+}
+
+final _singlePostProvider =
+    FutureProvider.autoDispose.family<_PostData?, String>((ref, id) async {
+  try {
+    final response = await ref
+        .watch(apiClientProvider)
+        .get<Map<String, dynamic>>('/social/posts/$id');
+    final data = response.data?['data'];
+    return data is Map<String, dynamic> ? _PostData.fromJson(data) : null;
+  } on DioException catch (error) {
+    if (error.response?.statusCode == 404) return null;
+    rethrow;
+  }
+});
+
+/// Ouvre une publication précise — point d'atterrissage d'une notification
+/// « j'adore »/« commentaire », comme sur Facebook, plutôt que de renvoyer
+/// vers le fil général où il faut la retrouver soi-même.
+class PostDetailScreen extends ConsumerWidget {
+  const PostDetailScreen({required this.postId, super.key});
+
+  final String postId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final post = ref.watch(_singlePostProvider(postId));
+    return Scaffold(
+      appBar: AppBar(title: const Text('Publication')),
+      body: post.when(
+        loading: () => const FeedPostSkeletonList(),
+        error: (_, __) => const Center(child: Text('Publication indisponible hors ligne.')),
+        data: (data) => data == null
+            ? const Center(child: Text('Cette publication n’existe plus.'))
+            : SingleChildScrollView(
+                padding: const EdgeInsets.all(AllGoTokens.space4),
+                child: _PostCard(post: data),
+              ),
+      ),
     );
   }
 }

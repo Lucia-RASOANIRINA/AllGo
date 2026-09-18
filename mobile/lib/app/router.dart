@@ -75,6 +75,7 @@ abstract final class Routes {
   static const String sanctions = '/compte/sanctions';
   static const String blockedUsers = '/compte/comptes-bloques';
   static const String publish = '/publier';
+  static const String postDetail = '/publier/:id';
   static const String stories = '/stories';
   static const String messages = '/messages';
   static const String message = '/messages/:id';
@@ -102,6 +103,7 @@ abstract final class Routes {
   static String orderPath(String id) => '/commandes/$id';
   static String shopPath(String slug) => '/boutique/$slug';
   static String messagePath(String id) => '/messages/$id';
+  static String postDetailPath(String id) => '/publier/$id';
 
   /// Tous les chemins déclarés — vérifiés un à un par `router_test.dart`.
   ///
@@ -132,6 +134,7 @@ abstract final class Routes {
     sanctions,
     blockedUsers,
     publish,
+    postDetail,
     stories,
     messages,
     message,
@@ -276,6 +279,12 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: Routes.publish,
         parentNavigatorKey: rootKey,
         builder: (context, state) => const SocialFeedScreen(),
+      ),
+      GoRoute(
+        path: Routes.postDetail,
+        parentNavigatorKey: rootKey,
+        builder: (context, state) =>
+            PostDetailScreen(postId: state.pathParameters['id']!),
       ),
       GoRoute(
         path: Routes.stories,

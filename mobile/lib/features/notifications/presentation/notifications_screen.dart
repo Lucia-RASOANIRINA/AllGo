@@ -156,7 +156,10 @@ class NotificationsScreen extends ConsumerWidget {
           context.push(Routes.orderDetail.replaceFirst(':id', '$orderId'));
         }
       case 'post':
-        context.push(Routes.publish);
+        final postId = notification.data['postId'];
+        if (postId != null) {
+          context.push(Routes.postDetailPath('$postId'));
+        }
     }
   }
 }
