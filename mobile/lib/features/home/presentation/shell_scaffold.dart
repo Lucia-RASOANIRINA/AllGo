@@ -88,11 +88,23 @@ class ShellScaffold extends ConsumerWidget {
 
   final Widget child;
 
+  /// Un onglet par catégorie quand il en existe un pour le profil actif —
+  /// Commandes pour `orders`, Messages pour `messages`, Tournée pour
+  /// `delivery` — sinon la catégorie retombe sur Compte, seul endroit d'où
+  /// `NotificationsScreen` reste de toute façon atteignable (§ demande :
+  /// « le chiffre sur la fonctionnalité concernée » plutôt que tout sous
+  /// Compte sans distinction).
+  static const Map<String, List<String>> _categoryRoutes = <String, List<String>>{
+    'orders': <String>[Routes.orders, Routes.shopOrders],
+    'messages': <String>[Routes.messages],
+    'delivery': <String>[Routes.round],
+  };
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(sessionControllerProvider).activeProfile;
     final cartCount = ref.watch(cartCountProvider);
-    final unreadNotifications = ref.watch(unreadNotificationsCountProvider);
+    final notificationCounts = ref.watch(unreadNotificationCountsByCategoryProvider);
 
     final destinations = ShellDestinations.forProfile(profile, AppL10n.of(context));
     final location = GoRouterState.of(context).matchedLocation;
@@ -103,13 +115,29 @@ class ShellScaffold extends ConsumerWidget {
       (d) => location == d.route || location.startsWith('${d.route}/'),
     );
 
+    final routeBadges = <String, int>{};
+    var uncategorised = 0;
+    for (final entry in notificationCounts.entries) {
+      final candidateRoutes = _categoryRoutes[entry.key];
+      final matchedRoute = candidateRoutes?.firstWhere(
+        (route) => destinations.any((d) => d.route == route),
+        orElse: () => '',
+      );
+      if (matchedRoute != null && matchedRoute.isNotEmpty) {
+        routeBadges[matchedRoute] = (routeBadges[matchedRoute] ?? 0) + entry.value;
+      } else {
+        uncategorised += entry.value;
+      }
+    }
+    routeBadges[Routes.account] = (routeBadges[Routes.account] ?? 0) + uncategorised;
+
     return Scaffold(
       body: child,
       bottomNavigationBar: _FloatingNavBar(
         destinations: destinations,
         selectedIndex: index < 0 ? 0 : index,
         cartCount: cartCount,
-        unreadNotifications: unreadNotifications,
+        routeBadges: routeBadges,
         onSelected: (i) => context.go(destinations[i].route),
       ),
     );
@@ -127,14 +155,17 @@ class _FloatingNavBar extends StatelessWidget {
     required this.selectedIndex,
     required this.onSelected,
     required this.cartCount,
-    required this.unreadNotifications,
+    required this.routeBadges,
   });
 
   final List<NavDestination> destinations;
   final int selectedIndex;
   final ValueChanged<int> onSelected;
   final int cartCount;
-  final int unreadNotifications;
+
+  /// Route de destination -> nombre à afficher (notifications déjà réparties
+  /// par catégorie, cf. `ShellScaffold._categoryRoutes`).
+  final Map<String, int> routeBadges;
 
   @override
   Widget build(BuildContext context) {
@@ -167,11 +198,9 @@ class _FloatingNavBar extends StatelessWidget {
               _NavItem(
                 destination: destinations[i],
                 selected: i == selectedIndex,
-                badgeCount: switch (destinations[i].route) {
-                  Routes.cart => cartCount,
-                  Routes.account => unreadNotifications,
-                  _ => 0,
-                },
+                badgeCount: destinations[i].route == Routes.cart
+                    ? cartCount
+                    : routeBadges[destinations[i].route] ?? 0,
                 onTap: () => onSelected(i),
               ),
           ],

@@ -43,6 +43,8 @@ export class StoriesService {
     user: AuthenticatedUser,
     input: { key: string; type: 'image' | 'video'; productId?: string; promotionId?: string },
   ): Promise<unknown> {
+    this.media.assertUploaded(input.key);
+
     const row = await this.prisma.stories.create({
       data: {
         user_id: user.mysqlId,

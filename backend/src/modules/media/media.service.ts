@@ -139,13 +139,26 @@ export class MediaService implements OnModuleInit {
   }
 
   /**
-   * Reçoit les octets du `PUT` sur `uploadUrl`. Le jeton est consommé
-   * (`GETDEL`) avant toute validation de contenu : un jeton ne sert qu'une
-   * fois, qu'il aboutisse ou non — rejouer un jeton expiré/déjà utilisé ne
-   * doit jamais réussir.
+   * Reçoit les octets du `PUT` sur `uploadUrl`. Le jeton est consommé avant
+   * toute validation de contenu : un jeton ne sert qu'une fois, qu'il
+   * aboutisse ou non — rejouer un jeton expiré/déjà utilisé ne doit jamais
+   * réussir.
+   *
+   * `GET` puis `DEL` plutôt que `GETDEL` (constaté en direct : cette route
+   * échouait systématiquement en production) — `GETDEL` exige Redis ≥ 6.2,
+   * une version que le Redis Manager o2switch ne garantit pas forcément.
+   * Même motif non atomique déjà utilisé partout ailleurs dans ce fichier
+   * pour des jetons à usage unique (OTP, réinitialisation de mot de passe) :
+   * la fenêtre de course est la même que celle déjà acceptée là-bas.
    */
-  async receiveUpload(token: string, userId: string, buffer: Buffer): Promise<{ key: string }> {
-    const raw = await this.redis.getdel(`media:upload:${token}`);
+  async receiveUpload(
+    token: string,
+    userId: string,
+    buffer: Buffer,
+  ): Promise<{ key: string; url: string; previewUrl: string; thumbUrl: string }> {
+    const redisKey = `media:upload:${token}`;
+    const raw = await this.redis.get(redisKey);
+    if (raw) await this.redis.del(redisKey);
     if (!raw) {
       throw new AppError('UPLOAD_TOKEN_INVALID', 'Ce lien de téléversement est invalide ou expiré.', 410);
     }
@@ -189,7 +202,29 @@ export class MediaService implements OnModuleInit {
       await writeFile(destination, buffer);
     }
 
-    return { key: ticket.key };
+    // Renvoyer directement les URL publiques évite au client de deviner le
+    // schéma `_200/_800/_1600.webp` — jusqu'ici seul `key` revenait, laissant
+    // par exemple le composeur de publications sans moyen simple d'obtenir
+    // une URL pour `CreatePostDto.media[].url` (requis, contrairement aux
+    // stories qui n'exigent qu'une clé).
+    return { key: ticket.key, ...this.publicUrls(ticket.key) };
+  }
+
+  /**
+   * Garde-fou avant d'accepter une clé dans une story/publication : sans ce
+   * contrôle, un envoi qui a échoué en amont (jeton expiré, panne du
+   * téléversement…) laisse quand même créer un contenu qui pointe vers un
+   * fichier qui n'a jamais existé — constaté en direct, une story se créait
+   * malgré un `PUT /media/upload/:token` en échec.
+   */
+  assertUploaded(key: string): void {
+    if (!existsSync(join(this.storagePath, key))) {
+      throw new AppError(
+        'MEDIA_NOT_FOUND',
+        'Ce fichier n’a pas été reçu correctement. Réessayez le téléversement.',
+        422,
+      );
+    }
   }
 
   /**

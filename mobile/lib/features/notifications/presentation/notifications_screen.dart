@@ -18,24 +18,50 @@ final notificationsProvider =
       .toList();
 });
 
-/// Pastille sur l'onglet Compte (`ShellScaffold`) — même mécanisme que le
-/// compteur du panier. `0` tant que la liste n'a pas encore chargé plutôt
-/// que d'attendre : une pastille qui clignote à zéro puis au bon chiffre
-/// serait plus distrayante qu'utile.
-final unreadNotificationsCountProvider = Provider.autoDispose<int>((ref) {
-  final notifications = ref.watch(notificationsProvider).valueOrNull;
-  return notifications?.where((n) => !n.read).length ?? 0;
+/// Pastilles de `ShellScaffold` — même mécanisme que le compteur du panier,
+/// mais réparti par catégorie (`AppNotification.category`, même règle de
+/// préfixe que `NotificationsService.categoryFor` côté serveur) pour que le
+/// chiffre apparaisse sur l'onglet concerné (Commandes, Messages…) plutôt
+/// que systématiquement sur Compte. `{}` tant que la liste n'a pas encore
+/// chargé plutôt que d'attendre : une pastille qui clignote à zéro puis au
+/// bon chiffre serait plus distrayante qu'utile.
+final unreadNotificationCountsByCategoryProvider = Provider.autoDispose<Map<String, int>>((ref) {
+  final notifications = ref.watch(notificationsProvider).valueOrNull ?? const <AppNotification>[];
+  final counts = <String, int>{};
+  for (final notification in notifications) {
+    if (notification.read) continue;
+    counts[notification.category] = (counts[notification.category] ?? 0) + 1;
+  }
+  return counts;
 });
 
 class AppNotification {
-  const AppNotification(
-      {required this.title, required this.body, required this.read});
+  const AppNotification({
+    required this.type,
+    required this.title,
+    required this.body,
+    required this.read,
+  });
+
+  final String type;
   final String title;
   final String body;
   final bool read;
 
+  /// Même règle de préfixe que `NotificationsService.categoryFor` côté
+  /// serveur — dupliquée plutôt qu'exposée par l'API, pour rester la seule
+  /// donnée déjà transportée (`type`) sans aller-retour réseau supplémentaire.
+  String get category {
+    if (type.startsWith('order.')) return 'orders';
+    if (type.startsWith('promo.')) return 'promotions';
+    if (type.startsWith('message.')) return 'messages';
+    if (type.startsWith('delivery.')) return 'delivery';
+    return 'social';
+  }
+
   factory AppNotification.fromJson(Map<String, dynamic> json) =>
       AppNotification(
+        type: json['type'] as String? ?? '',
         title: json['title'] as String? ?? 'Notification',
         body: json['body'] as String? ?? '',
         read: json['isRead'] as bool? ?? false,

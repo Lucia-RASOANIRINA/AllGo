@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:allgo/app/router.dart';
 import 'package:allgo/app/theme.dart';
@@ -135,8 +136,6 @@ class SocialFeedScreen extends ConsumerWidget {
   }
 
   Future<void> _showComposer(BuildContext context, WidgetRef ref) async {
-    final contentController = TextEditingController();
-
     // Boutiques où je détiens un rôle — le composeur propose de publier « en
     // tant que » l'une d'elles, plutôt qu'en mon nom propre par défaut sans
     // recours (§22). Le backend seul sait quel rôle autorise réellement à
@@ -155,84 +154,214 @@ class SocialFeedScreen extends ConsumerWidget {
     }
     if (!context.mounted) return;
 
-    String? selectedShopId;
-    final result = await showDialog<String>(
+    final published = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setState) => AlertDialog(
-          title: const Text('Nouvelle publication'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              if (shops.isNotEmpty) ...<Widget>[
-                DropdownButtonFormField<String?>(
-                  initialValue: selectedShopId,
-                  decoration: const InputDecoration(labelText: 'Publier en tant que'),
-                  items: <DropdownMenuItem<String?>>[
-                    const DropdownMenuItem<String?>(value: null, child: Text('Moi-même')),
-                    for (final shop in shops)
-                      DropdownMenuItem<String?>(
-                        value: (shop['id'] ?? shop['_id']).toString(),
-                        child: Text(shop['name']?.toString() ?? 'Boutique'),
-                      ),
-                  ],
-                  onChanged: (value) => setState(() => selectedShopId = value),
-                ),
-                const SizedBox(height: 12),
-              ],
-              TextField(
-                controller: contentController,
-                autofocus: true,
-                maxLines: 5,
-                maxLength: 5000,
-                decoration: const InputDecoration(
-                  hintText: 'Partagez une nouveauté avec votre communauté…',
-                ),
-              ),
-            ],
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Annuler'),
-            ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(contentController.text),
-              child: const Text('Publier'),
-            ),
-          ],
-        ),
+      builder: (dialogContext) => _ComposerDialog(shops: shops),
+    );
+    if (published == true) ref.invalidate(socialPostsProvider);
+  }
+}
+
+/// Composeur de publication — texte, boutique « en tant que » et,
+/// désormais, une image : jusqu'ici le seul moyen mobile de publier une
+/// image passait par une story (24 h, pas de légende), alors que le site web
+/// permet d'en joindre une à une publication normale (§22, persistante,
+/// commentable). `CreatePostDto` acceptait déjà `media` côté serveur — rien
+/// ne l'exposait côté mobile.
+class _ComposerDialog extends ConsumerStatefulWidget {
+  const _ComposerDialog({required this.shops});
+
+  final List<Map<String, dynamic>> shops;
+
+  @override
+  ConsumerState<_ComposerDialog> createState() => _ComposerDialogState();
+}
+
+class _ComposerDialogState extends ConsumerState<_ComposerDialog> {
+  final _contentController = TextEditingController();
+  String? _selectedShopId;
+  XFile? _image;
+  bool _publishing = false;
+
+  @override
+  void dispose() {
+    _contentController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickImage() async {
+    final image = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 82);
+    if (image != null && mounted) setState(() => _image = image);
+  }
+
+  /// Même déroulé en deux temps que `_createStory` (`upload-url` puis `PUT`
+  /// des octets), mais l'URL publique renvoyée directement par le serveur
+  /// évite de reconstruire le schéma `_200/_800/_1600.webp` ici — un détail
+  /// d'implémentation du stockage média, pas une règle que le client devrait
+  /// connaître.
+  Future<Map<String, dynamic>> _uploadImage() async {
+    final bytes = await _image!.readAsBytes();
+    final api = ref.read(apiClientProvider);
+    final upload = await api.post<Map<String, dynamic>>(
+      '/media/upload-url',
+      data: <String, dynamic>{'type': 'image/jpeg', 'size': bytes.length},
+    );
+    final ticket = upload.data?['data'];
+    if (ticket is! Map<String, dynamic>) {
+      throw const FormatException('Réponse média invalide.');
+    }
+    // Le jeton de l'URL de dépôt est à usage unique (§ `MediaService`) : un
+    // seul `PUT`, dont la réponse porte déjà l'URL publique.
+    final received = await api.put<Map<String, dynamic>>(
+      ticket['uploadUrl'] as String,
+      data: bytes,
+      options: Options(
+        headers: <String, dynamic>{'Content-Type': 'image/jpeg', 'Content-Length': bytes.length},
       ),
     );
-    contentController.dispose();
-    if (result == null || result.trim().isEmpty || !context.mounted) return;
+    return (received.data?['data'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+  }
 
+  Future<void> _publish() async {
+    final content = _contentController.text.trim();
+    if (content.isEmpty && _image == null) return;
+
+    setState(() => _publishing = true);
+    final messenger = ScaffoldMessenger.of(context);
     try {
+      Map<String, dynamic>? uploaded;
+      if (_image != null) uploaded = await _uploadImage();
+
       await ref.read(apiClientProvider).post<Map<String, dynamic>>(
         '/social/posts',
         data: <String, dynamic>{
-          'content': result.trim(),
-          if (selectedShopId != null) 'shopId': selectedShopId,
+          if (content.isNotEmpty) 'content': content,
+          if (_selectedShopId != null) 'shopId': _selectedShopId,
+          if (uploaded != null)
+            'media': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'url': uploaded['url'],
+                'thumbUrl': uploaded['thumbUrl'],
+                'previewUrl': uploaded['previewUrl'],
+                'type': 'image',
+              },
+            ],
         },
       );
-      ref.invalidate(socialPostsProvider);
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+      messenger.showSnackBar(
         const SnackBar(content: Text('Publication envoyée à la communauté.')),
       );
     } on DioException catch (error) {
-      if (!context.mounted) return;
       final response = error.response?.data;
       final message = response is Map<String, dynamic>
           ? ((response['error'] as Map<String, dynamic>?)?['message'] as String?)
           : null;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(message ?? 'Impossible de publier pour le moment.')),
+      messenger.showSnackBar(
+        SnackBar(content: Text(message ?? 'Impossible de publier pour le moment.')),
       );
+    } finally {
+      if (mounted) setState(() => _publishing = false);
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canPublish =
+        !_publishing && (_contentController.text.trim().isNotEmpty || _image != null);
+
+    return AlertDialog(
+      title: const Text('Nouvelle publication'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          if (widget.shops.isNotEmpty) ...<Widget>[
+            DropdownButtonFormField<String?>(
+              initialValue: _selectedShopId,
+              decoration: const InputDecoration(labelText: 'Publier en tant que'),
+              items: <DropdownMenuItem<String?>>[
+                const DropdownMenuItem<String?>(value: null, child: Text('Moi-même')),
+                for (final shop in widget.shops)
+                  DropdownMenuItem<String?>(
+                    value: (shop['id'] ?? shop['_id']).toString(),
+                    child: Text(shop['name']?.toString() ?? 'Boutique'),
+                  ),
+              ],
+              onChanged: _publishing ? null : (value) => setState(() => _selectedShopId = value),
+            ),
+            const SizedBox(height: 12),
+          ],
+          TextField(
+            controller: _contentController,
+            autofocus: true,
+            maxLines: 5,
+            maxLength: 5000,
+            enabled: !_publishing,
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(
+              hintText: 'Partagez une nouveauté avec votre communauté…',
+            ),
+          ),
+          if (_image != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Stack(
+                children: <Widget>[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.file(
+                      File(_image!.path),
+                      height: 160,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: Material(
+                      color: Colors.black54,
+                      shape: const CircleBorder(),
+                      child: IconButton(
+                        onPressed: _publishing ? null : () => setState(() => _image = null),
+                        icon: const Icon(Icons.close, color: Colors.white, size: 18),
+                        tooltip: 'Retirer l’image',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: OutlinedButton.icon(
+                onPressed: _publishing ? null : _pickImage,
+                icon: const Icon(Icons.image_outlined),
+                label: const Text('Ajouter une image'),
+              ),
+            ),
+        ],
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: _publishing ? null : () => Navigator.of(context).pop(),
+          child: const Text('Annuler'),
+        ),
+        FilledButton(
+          onPressed: canPublish ? _publish : null,
+          child: _publishing
+              ? const SizedBox(
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Publier'),
+        ),
+      ],
+    );
   }
 }
 
