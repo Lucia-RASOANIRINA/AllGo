@@ -320,10 +320,16 @@ class _ConversationList extends ConsumerWidget {
                         itemBuilder: (_) => <PopupMenuEntry<String>>[
                           if (!archived)
                             const PopupMenuItem(
-                                value: 'archive', child: Text('Archiver')),
+                                value: 'archive',
+                                child: Text('Supprimer la conversation')),
                           if (archived)
                             const PopupMenuItem(
                                 value: 'unarchive', child: Text('Désarchiver')),
+                          PopupMenuItem(
+                            value: conversation.isBlocked ? 'unblock' : 'block',
+                            child: Text(
+                                conversation.isBlocked ? 'Débloquer' : 'Bloquer'),
+                          ),
                         ],
                       ),
                   ],
@@ -369,10 +375,18 @@ class _ConversationList extends ConsumerWidget {
             ),
           ListTile(
             leading: Icon(
-                archived ? Icons.unarchive_outlined : Icons.archive_outlined),
-            title: Text(archived ? 'Désarchiver' : 'Archiver'),
+                archived ? Icons.unarchive_outlined : Icons.delete_outline),
+            title: Text(archived ? 'Désarchiver' : 'Supprimer la conversation'),
             onTap: () =>
                 Navigator.pop(context, archived ? 'unarchive' : 'archive'),
+          ),
+          ListTile(
+            leading: Icon(conversation.isBlocked
+                ? Icons.lock_open_outlined
+                : Icons.block_outlined),
+            title: Text(conversation.isBlocked ? 'Débloquer' : 'Bloquer'),
+            onTap: () => Navigator.pop(
+                context, conversation.isBlocked ? 'unblock' : 'block'),
           ),
           const SizedBox(height: AllGoTokens.space4),
         ],
@@ -390,6 +404,10 @@ class _ConversationList extends ConsumerWidget {
       await setConversationArchived(ref, conversation.id, archived: true);
     } else if (action == 'unarchive') {
       await setConversationArchived(ref, conversation.id, archived: false);
+    } else if (action == 'block') {
+      await blockConversation(ref, conversation.id);
+    } else if (action == 'unblock') {
+      await unblockConversation(ref, conversation.id);
     }
     ref.invalidate(conversationsProvider(false));
     ref.invalidate(conversationsProvider(true));

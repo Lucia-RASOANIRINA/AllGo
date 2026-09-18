@@ -143,6 +143,20 @@ Future<String> startConversationWithShop(WidgetRef ref, String shopId) async {
   return idFromJson(response.data!['data'] as Map<String, dynamic>);
 }
 
+/// Ouvre (ou reprend) une conversation directe avec un autre utilisateur —
+/// l'API accepte déjà n'importe quelle paire de comptes (`participantId`,
+/// pas seulement client ↔ boutique) : seul un point d'entrée manquait côté
+/// réseau social pour qu'un client puisse écrire à un autre client, comme
+/// dans Messenger.
+Future<String> startConversationWithUser(
+    WidgetRef ref, String participantId) async {
+  final response = await ref.read(apiClientProvider).post<Map<String, dynamic>>(
+    '/conversations',
+    data: <String, String>{'participantId': participantId},
+  );
+  return idFromJson(response.data!['data'] as Map<String, dynamic>);
+}
+
 /// Historique d'une conversation + réception temps réel des nouveaux messages.
 class ConversationController
     extends AutoDisposeFamilyAsyncNotifier<List<Message>, String> {

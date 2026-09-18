@@ -6,6 +6,7 @@ import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/core/network/json_parsing.dart';
 import 'package:allgo/features/auth/presentation/session_controller.dart';
+import 'package:allgo/features/messaging/presentation/messaging_providers.dart';
 import 'package:allgo/features/moderation/presentation/moderation_actions.dart';
 import 'package:allgo/shared/widgets/shimmer.dart';
 import 'package:allgo/shared/widgets/shop_avatar.dart';
@@ -541,6 +542,22 @@ class _PostCardState extends ConsumerState<_PostCard> {
     }
   }
 
+  Future<void> _messageAuthor() async {
+    final post = widget.post;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final conversationId =
+          await startConversationWithUser(ref, post.authorId);
+      if (mounted) {
+        context.push(Routes.messagePath(conversationId), extra: post.author);
+      }
+    } on DioException {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Impossible d’ouvrir la conversation.')),
+      );
+    }
+  }
+
   void _openComments() {
     showModalBottomSheet<void>(
       context: context,
@@ -583,10 +600,14 @@ class _PostCardState extends ConsumerState<_PostCard> {
                     if (value == 'report_post') unawaited(_reportPost());
                     if (value == 'report_author') unawaited(_reportAuthor());
                     if (value == 'block') unawaited(_blockAuthor());
+                    if (value == 'message') unawaited(_messageAuthor());
                   },
                   itemBuilder: (context) => <PopupMenuEntry<String>>[
                     const PopupMenuItem<String>(value: 'report_post', child: Text('Signaler la publication')),
                     if (!isMine) ...<PopupMenuEntry<String>>[
+                      // Espace MP à la Messenger : n'importe quel client peut
+                      // écrire à l'auteur, pas seulement à une boutique.
+                      const PopupMenuItem<String>(value: 'message', child: Text('Envoyer un message')),
                       PopupMenuItem<String>(
                         value: 'report_author',
                         child: Text(post.authorType == 'shop' ? 'Signaler la boutique' : 'Signaler ce compte'),
