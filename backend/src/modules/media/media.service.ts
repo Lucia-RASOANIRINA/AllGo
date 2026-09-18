@@ -74,14 +74,23 @@ export class MediaService implements OnModuleInit {
   }
 
   /**
-   * Le dossier de stockage vit dans le docroot du site web historique
-   * (Apache/PHP) — un `.htaccess` désactivant l'exécution de scripts y est
-   * indispensable : sans lui, un fichier malicieux qui passerait les
-   * contrôles de contenu (§ `receiveUpload`) pourrait s'exécuter côté serveur.
+   * `storagePath` est désormais le dossier `public/` partagé avec le site web
+   * historique (Apache/PHP) lui-même — plus un dossier dédié aux médias —
+   * pour que l'API et le site lisent les mêmes fichiers sous `uploads/`
+   * (§ constat du 2026-09-18 : les publications importées par le site web
+   * pointaient vers `public/uploads`, jamais vers l'ancien dossier dédié
+   * `mediaAllGo`, d'où des images cassées côté mobile mais visibles côté web).
+   *
+   * Le `.htaccess` de durcissement (désactivation de l'exécution de scripts)
+   * ne doit donc JAMAIS être écrit à la racine de `storagePath` : ce serait
+   * le `.htaccess` du site PHP lui-même, et le désactiver casserait tout le
+   * site. Il ne cible que le sous-dossier `uploads/`, seul endroit qui reçoit
+   * des fichiers déposés par des utilisateurs.
    */
   async onModuleInit(): Promise<void> {
-    await mkdir(this.storagePath, { recursive: true });
-    const htaccessPath = join(this.storagePath, '.htaccess');
+    const uploadsPath = join(this.storagePath, 'uploads');
+    await mkdir(uploadsPath, { recursive: true });
+    const htaccessPath = join(uploadsPath, '.htaccess');
     try {
       await access(htaccessPath);
     } catch {
@@ -98,7 +107,7 @@ export class MediaService implements OnModuleInit {
         ].join('\n'),
         'utf8',
       );
-      this.logger.log(`.htaccess de sécurité créé dans ${this.storagePath}`);
+      this.logger.log(`.htaccess de sécurité créé dans ${uploadsPath}`);
     }
   }
 
