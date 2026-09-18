@@ -31,6 +31,34 @@ final socialPostsProvider =
       .toList();
 });
 
+/// Choix caméra/galerie — même déroulé qu'un réseau social grand public :
+/// jamais uniquement la galerie, toujours la possibilité de prendre la photo
+/// sur l'instant (stories, publications, avatar).
+Future<ImageSource?> _chooseImageSource(BuildContext context) {
+  return showModalBottomSheet<ImageSource>(
+    context: context,
+    showDragHandle: true,
+    builder: (context) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          ListTile(
+            leading: const Icon(Icons.photo_camera_outlined),
+            title: const Text('Prendre une photo'),
+            onTap: () => Navigator.pop(context, ImageSource.camera),
+          ),
+          ListTile(
+            leading: const Icon(Icons.photo_library_outlined),
+            title: const Text('Choisir depuis la galerie'),
+            onTap: () => Navigator.pop(context, ImageSource.gallery),
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    ),
+  );
+}
+
 class SocialFeedScreen extends ConsumerWidget {
   const SocialFeedScreen({super.key});
 
@@ -103,7 +131,9 @@ class SocialFeedScreen extends ConsumerWidget {
   }
 
   Future<void> _createStory(BuildContext context, WidgetRef ref) async {
-    final image = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 82);
+    final source = await _chooseImageSource(context);
+    if (source == null || !context.mounted) return;
+    final image = await ImagePicker().pickImage(source: source, imageQuality: 82);
     if (image == null || !context.mounted) return;
 
     final messenger = ScaffoldMessenger.of(context);
@@ -190,7 +220,9 @@ class _ComposerDialogState extends ConsumerState<_ComposerDialog> {
   }
 
   Future<void> _pickImage() async {
-    final image = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 82);
+    final source = await _chooseImageSource(context);
+    if (source == null || !mounted) return;
+    final image = await ImagePicker().pickImage(source: source, imageQuality: 82);
     if (image != null && mounted) setState(() => _image = image);
   }
 

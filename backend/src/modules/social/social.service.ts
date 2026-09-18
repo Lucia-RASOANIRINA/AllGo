@@ -10,6 +10,7 @@ import { ModerationService } from '../moderation/moderation.service';
 import type { ReportReasonCode } from '../moderation/schemas/report.schema';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { MediaService } from '../media/media.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 /** Rôles autorisés à publier « en tant que » la boutique plutôt qu'en leur nom propre. */
 const SHOP_POST_ROLES: readonly string[] = [Role.ShopOwner, Role.ShopManager, Role.ShopMarketing];
@@ -35,6 +36,7 @@ export class SocialService {
     private readonly prisma: PrismaService,
     private readonly moderation: ModerationService,
     private readonly media: MediaService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async feed(limit: number, cursor: string | undefined, viewerMysqlId?: number): Promise<Paginated<unknown>> {
@@ -150,6 +152,24 @@ export class SocialService {
       return { reacted: false };
     }
     await this.prisma.reactions.create({ data: { post_id: id, user_id: userMysqlId, type: type as never } });
+
+    // Notifie l'auteur — jamais soi-même (réagir à sa propre publication ne
+    // doit pas générer de notification, même comportement que Facebook).
+    const post = await this.prisma.posts.findUnique({ where: { id }, select: { user_id: true } });
+    if (post && post.user_id !== userMysqlId) {
+      const actor = await this.prisma.users.findUnique({
+        where: { id: userMysqlId },
+        select: { firstname: true, lastname: true },
+      });
+      const actorName = actor ? `${actor.firstname} ${actor.lastname}`.trim() : 'Quelqu’un';
+      await this.notifications.create({
+        userId: post.user_id,
+        type: 'social.reaction',
+        title: `${actorName} a aimé votre publication`,
+        body: '',
+        data: { screen: 'post', postId },
+      });
+    }
     return { reacted: true };
   }
 
@@ -164,6 +184,17 @@ export class SocialService {
     });
 
     const flagged = await this.moderation.autoModerate('comment', String(comment.id), content);
+
+    if (post.user_id !== user.mysqlId) {
+      await this.notifications.create({
+        userId: post.user_id,
+        type: 'social.comment',
+        title: `${comment.users.firstname} ${comment.users.lastname}`.trim() + ' a commenté votre publication',
+        body: content.trim(),
+        data: { screen: 'post', postId },
+      });
+    }
+
     return {
       id: String(comment.id),
       userId: user.id,

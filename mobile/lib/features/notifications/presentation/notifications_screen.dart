@@ -1,8 +1,12 @@
+import 'dart:async';
+
+import 'package:allgo/app/router.dart';
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/core/network/api_client.dart';
 import 'package:allgo/shared/widgets/async_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 final notificationsProvider =
     FutureProvider.autoDispose<List<AppNotification>>((ref) async {
@@ -37,16 +41,20 @@ final unreadNotificationCountsByCategoryProvider = Provider.autoDispose<Map<Stri
 
 class AppNotification {
   const AppNotification({
+    required this.id,
     required this.type,
     required this.title,
     required this.body,
     required this.read,
+    required this.data,
   });
 
+  final String id;
   final String type;
   final String title;
   final String body;
   final bool read;
+  final Map<String, dynamic> data;
 
   /// Même règle de préfixe que `NotificationsService.categoryFor` côté
   /// serveur — dupliquée plutôt qu'exposée par l'API, pour rester la seule
@@ -61,10 +69,14 @@ class AppNotification {
 
   factory AppNotification.fromJson(Map<String, dynamic> json) =>
       AppNotification(
+        id: json['id']?.toString() ?? '',
         type: json['type'] as String? ?? '',
         title: json['title'] as String? ?? 'Notification',
         body: json['body'] as String? ?? '',
         read: json['isRead'] as bool? ?? false,
+        data: json['data'] is Map<String, dynamic>
+            ? json['data'] as Map<String, dynamic>
+            : const <String, dynamic>{},
       );
 }
 
@@ -103,10 +115,48 @@ class NotificationsScreen extends ConsumerWidget {
                 ),
               ),
               subtitle: Text(items[index].body),
+              onTap: () => _openNotification(context, ref, items[index]),
             ),
           ),
         ),
       ),
     );
+  }
+
+  /// Comportement « à la Facebook » : le tap marque immédiatement la
+  /// notification comme lue (la pastille non-lue disparaît sans attendre un
+  /// rechargement) et ouvre directement le contenu concerné plutôt que de
+  /// laisser l'utilisateur sur une liste inerte.
+  Future<void> _openNotification(
+    BuildContext context,
+    WidgetRef ref,
+    AppNotification notification,
+  ) async {
+    if (!notification.read && notification.id.isNotEmpty) {
+      unawaited(
+        ref.read(apiClientProvider).post<void>(
+          '/notifications/read',
+          data: <String, dynamic>{
+            'ids': <String>[notification.id]
+          },
+        ).then((_) => ref.invalidate(notificationsProvider)),
+      );
+    }
+
+    final screen = notification.data['screen'] as String?;
+    switch (screen) {
+      case 'conversation':
+        final conversationId = notification.data['conversationId'];
+        if (conversationId != null) {
+          context.push(Routes.message.replaceFirst(':id', '$conversationId'));
+        }
+      case 'order':
+        final orderId = notification.data['orderId'];
+        if (orderId != null) {
+          context.push(Routes.orderDetail.replaceFirst(':id', '$orderId'));
+        }
+      case 'post':
+        context.push(Routes.publish);
+    }
   }
 }

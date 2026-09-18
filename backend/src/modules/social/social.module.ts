@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { MediaModule } from '../media/media.module';
 import { ModerationModule } from '../moderation/moderation.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { FavoritesController } from './favorites.controller';
 import { FavoritesService } from './favorites.service';
 import { FollowsController } from './follows.controller';
@@ -20,7 +21,7 @@ import { StoriesService } from './stories.service';
  * (Phase 6) — plus besoin d'`AuthModule`.
  */
 @Module({
-  imports: [MediaModule, ModerationModule],
+  imports: [MediaModule, ModerationModule, NotificationsModule],
   controllers: [FavoritesController, FollowsController, SocialController, StoriesController],
   providers: [FavoritesService, FollowsService, SocialService, StoriesService, StoriesCleanupService],
 })

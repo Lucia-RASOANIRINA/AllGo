@@ -139,23 +139,22 @@ class AccountScreen extends ConsumerWidget {
                 .read(settingsControllerProvider.notifier)
                 .setPushEnabled(enabled: value),
           ),
-          for (final entry in <(String, String)>[
-            ('orders', l10n.toggleOrderNotifications),
-            ('promotions', l10n.togglePromoNotifications),
-            ('social', l10n.toggleSocialNotifications),
-            ('messages', l10n.toggleMessageNotifications),
-            ('delivery', l10n.toggleDeliveryNotifications),
-          ])
-            SwitchListTile(
-              title: Text(entry.$2),
-              contentPadding: const EdgeInsets.only(left: 56, right: 16),
-              value: settings.notificationCategories[entry.$1] ?? true,
-              onChanged: settings.pushEnabled
-                  ? (value) => ref
-                      .read(settingsControllerProvider.notifier)
-                      .setNotificationCategory(entry.$1, enabled: value)
-                  : null,
-            ),
+          if (settings.pushEnabled)
+            for (final entry in <(String, String)>[
+              ('orders', l10n.toggleOrderNotifications),
+              ('promotions', l10n.togglePromoNotifications),
+              ('social', l10n.toggleSocialNotifications),
+              ('messages', l10n.toggleMessageNotifications),
+              ('delivery', l10n.toggleDeliveryNotifications),
+            ])
+              SwitchListTile(
+                title: Text(entry.$2),
+                contentPadding: const EdgeInsets.only(left: 56, right: 16),
+                value: settings.notificationCategories[entry.$1] ?? true,
+                onChanged: (value) => ref
+                    .read(settingsControllerProvider.notifier)
+                    .setNotificationCategory(entry.$1, enabled: value),
+              ),
 
           ListTile(
             leading: const Icon(Icons.language),
