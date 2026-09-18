@@ -935,10 +935,7 @@ class _PostData {
       likes: (counters['reactions'] as num?)?.toInt() ?? 0,
       comments: (counters['comments'] as num?)?.toInt() ?? 0,
       shares: (counters['shares'] as num?)?.toInt() ?? 0,
-      // Aucune route ne renvoie l'historique de mes réactions passées (même
-      // décision de portée que `ShopPostsController`) : vrai seulement si
-      // j'ai réagi PENDANT cette session.
-      reactedLocally: false,
+      reactedLocally: json['reactedByMe'] as bool? ?? false,
     );
   }
 }

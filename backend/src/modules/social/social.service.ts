@@ -51,7 +51,7 @@ export class SocialService {
       orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
       take: limit + 1,
     });
-    return this.paginate(rows, limit);
+    return this.paginate(rows, limit, viewerMysqlId);
   }
 
   async create(user: AuthenticatedUser, input: {
@@ -266,10 +266,23 @@ export class SocialService {
     return { reported: true };
   }
 
-  private async paginate(rows: PostRow[], limit: number): Promise<Paginated<unknown>> {
+  private async paginate(rows: PostRow[], limit: number, viewerMysqlId?: number): Promise<Paginated<unknown>> {
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
-    const items = await Promise.all(page.map((row) => this.toJson(row)));
+
+    // Une seule requête groupée pour tous les posts de la page plutôt qu'un
+    // aller-retour par post — sinon un post réagi hier redevient « non
+    // réagi » à chaque relance de l'écran (le cœur ne restait jamais rempli).
+    let reactedPostIds: Set<number> = new Set();
+    if (viewerMysqlId && page.length > 0) {
+      const reactions = await this.prisma.reactions.findMany({
+        where: { user_id: viewerMysqlId, post_id: { in: page.map((row) => row.id) } },
+        select: { post_id: true },
+      });
+      reactedPostIds = new Set(reactions.map((r) => r.post_id));
+    }
+
+    const items = await Promise.all(page.map((row) => this.toJson(row, reactedPostIds.has(row.id))));
     const last = page[page.length - 1];
 
     return {
@@ -280,7 +293,7 @@ export class SocialService {
     };
   }
 
-  private toJson(row: PostRow): unknown {
+  private toJson(row: PostRow, reactedByMe = false): unknown {
     const authorMirrorId = String(row.user_id);
     const isShopAuthor = row.shop_id != null && row.shops;
 
@@ -300,6 +313,7 @@ export class SocialService {
       shopId: row.shop_id ? String(row.shop_id) : undefined,
       visibility: row.visibility,
       counters: { reactions: row._count.reactions, comments: row._count.comments, shares: row._count.shares, views: 0 },
+      reactedByMe,
       reported: row.reported,
       reportReason: row.report_reason ?? undefined,
       createdAt: row.created_at,
