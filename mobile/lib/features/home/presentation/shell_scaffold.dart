@@ -2,6 +2,7 @@ import 'package:allgo/app/router.dart';
 import 'package:allgo/app/theme.dart';
 import 'package:allgo/features/auth/presentation/session_controller.dart';
 import 'package:allgo/features/cart/presentation/cart_controller.dart';
+import 'package:allgo/features/notifications/presentation/notifications_screen.dart';
 import 'package:allgo/l10n/generated/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -91,6 +92,7 @@ class ShellScaffold extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(sessionControllerProvider).activeProfile;
     final cartCount = ref.watch(cartCountProvider);
+    final unreadNotifications = ref.watch(unreadNotificationsCountProvider);
 
     final destinations = ShellDestinations.forProfile(profile, AppL10n.of(context));
     final location = GoRouterState.of(context).matchedLocation;
@@ -107,6 +109,7 @@ class ShellScaffold extends ConsumerWidget {
         destinations: destinations,
         selectedIndex: index < 0 ? 0 : index,
         cartCount: cartCount,
+        unreadNotifications: unreadNotifications,
         onSelected: (i) => context.go(destinations[i].route),
       ),
     );
@@ -124,12 +127,14 @@ class _FloatingNavBar extends StatelessWidget {
     required this.selectedIndex,
     required this.onSelected,
     required this.cartCount,
+    required this.unreadNotifications,
   });
 
   final List<NavDestination> destinations;
   final int selectedIndex;
   final ValueChanged<int> onSelected;
   final int cartCount;
+  final int unreadNotifications;
 
   @override
   Widget build(BuildContext context) {
@@ -162,8 +167,11 @@ class _FloatingNavBar extends StatelessWidget {
               _NavItem(
                 destination: destinations[i],
                 selected: i == selectedIndex,
-                badgeCount:
-                    destinations[i].route == Routes.cart ? cartCount : 0,
+                badgeCount: switch (destinations[i].route) {
+                  Routes.cart => cartCount,
+                  Routes.account => unreadNotifications,
+                  _ => 0,
+                },
                 onTap: () => onSelected(i),
               ),
           ],

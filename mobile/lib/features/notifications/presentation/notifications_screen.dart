@@ -18,6 +18,15 @@ final notificationsProvider =
       .toList();
 });
 
+/// Pastille sur l'onglet Compte (`ShellScaffold`) — même mécanisme que le
+/// compteur du panier. `0` tant que la liste n'a pas encore chargé plutôt
+/// que d'attendre : une pastille qui clignote à zéro puis au bon chiffre
+/// serait plus distrayante qu'utile.
+final unreadNotificationsCountProvider = Provider.autoDispose<int>((ref) {
+  final notifications = ref.watch(notificationsProvider).valueOrNull;
+  return notifications?.where((n) => !n.read).length ?? 0;
+});
+
 class AppNotification {
   const AppNotification(
       {required this.title, required this.body, required this.read});

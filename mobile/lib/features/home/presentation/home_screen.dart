@@ -8,6 +8,7 @@ import 'package:allgo/features/catalog/presentation/catalog_providers.dart';
 import 'package:allgo/features/favorites/presentation/favorites_controller.dart';
 import 'package:allgo/features/geo/domain/nearby_shop.dart';
 import 'package:allgo/features/home/presentation/home_providers.dart';
+import 'package:allgo/features/settings/presentation/settings_controller.dart';
 import 'package:allgo/l10n/generated/app_localizations.dart';
 import 'package:allgo/shared/widgets/allgo_logo.dart';
 import 'package:allgo/shared/widgets/product_image.dart';
@@ -30,6 +31,7 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppL10n.of(context);
+    final themeMode = ref.watch(settingsControllerProvider).themeMode;
 
     return Scaffold(
       appBar: AppBar(
@@ -41,6 +43,29 @@ class HomeScreen extends ConsumerWidget {
           ],
         ),
         actions: <Widget>[
+          // Bascule rapide, en un geste, sans passer par Compte > Application
+          // : le réglage complet (Clair/Sombre/Système) y reste disponible,
+          // celui-ci ne fait qu'avancer d'un cran dans le même cycle depuis
+          // la toute première page vue après connexion.
+          IconButton(
+            onPressed: () => ref.read(settingsControllerProvider.notifier).setThemeMode(
+                  switch (themeMode) {
+                    ThemeMode.system => ThemeMode.light,
+                    ThemeMode.light => ThemeMode.dark,
+                    ThemeMode.dark => ThemeMode.system,
+                  },
+                ),
+            icon: Icon(switch (themeMode) {
+              ThemeMode.system => Icons.brightness_auto_outlined,
+              ThemeMode.light => Icons.light_mode_outlined,
+              ThemeMode.dark => Icons.dark_mode_outlined,
+            }),
+            tooltip: switch (themeMode) {
+              ThemeMode.system => l10n.themeSystem,
+              ThemeMode.light => l10n.themeLight,
+              ThemeMode.dark => l10n.themeDark,
+            },
+          ),
           IconButton(
             onPressed: () => context.push(Routes.map),
             icon: const Icon(Icons.map_outlined),
