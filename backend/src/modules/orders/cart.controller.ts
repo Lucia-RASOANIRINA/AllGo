@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Put, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsInt, IsNumberString, IsOptional, Max, Min } from 'class-validator';
 
@@ -51,7 +51,7 @@ export class CartController {
     return this.cart.addItem(user.mysqlId, dto.productId, dto.quantity, dto.variantId);
   }
 
-  @Patch('items/:id')
+  @Put('items/:id')
   @RequirePermission(Permission.CartManage)
   @ApiOperation({ summary: 'Modifier la quantité d’une ligne.' })
   update(

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Header, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Param, Put, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsBoolean, IsIn, IsNumber, IsNumberString, IsOptional, IsString, Min } from 'class-validator';
@@ -71,7 +71,7 @@ export class CatalogController {
     return this.catalog.createProduct(shopId, dto);
   }
 
-  @Patch('shop/:shopId/products/:id')
+  @Put('shop/:shopId/products/:id')
   @RequirePermission(Permission.ProductUpdate, 'shopId')
   updateProduct(@Param('shopId') shopId: string, @Param('id') id: string, @Body() dto: UpdateProductDto) {
     return this.catalog.updateProduct(shopId, id, dto);

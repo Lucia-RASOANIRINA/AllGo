@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Put, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
 import { AppError } from '../../common/http/app-error';
@@ -100,7 +100,7 @@ export class ModerationController {
     return this.moderation.listReports(status, targetType);
   }
 
-  @Patch('reports/:id')
+  @Put('reports/:id')
   @RequirePermission(Permission.PlatformModerate)
   resolveReport(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: ResolveReportDto) {
     return this.moderation.resolveReport(id, user.mysqlId, dto);

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Put, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsArray, IsIn, IsNumberString, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -119,7 +119,7 @@ export class MessagingController {
     return this.messaging.setArchived(id, user.mysqlId, false);
   }
 
-  @Patch(':id/messages/:messageId')
+  @Put(':id/messages/:messageId')
   @RequirePermission(Permission.MessageSend)
   @ApiOperation({ summary: 'Modifier un message déjà envoyé — auteur uniquement.' })
   editMessage(

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Put, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsOptional, IsString } from 'class-validator';
 
@@ -48,7 +48,7 @@ export class ShopsController {
     return this.shops.create(user.mysqlId, dto);
   }
 
-  @Patch('shop/:shopId')
+  @Put('shop/:shopId')
   @RequirePermission(Permission.ShopUpdate, 'shopId')
   update(@CurrentUser() user: AuthenticatedUser, @Param('shopId') shopId: string, @Body() dto: UpdateShopDto) {
     return this.shops.update(user.mysqlId, shopId, dto);
@@ -110,7 +110,7 @@ export class ShopsController {
     return this.shops.addTeamMember(shopId, dto);
   }
 
-  @Patch('shop/:shopId/team/:userId')
+  @Put('shop/:shopId/team/:userId')
   @RequirePermission(Permission.TeamManage, 'shopId')
   updateTeamMember(@Param('shopId') shopId: string, @Param('userId') userId: string, @Body() dto: UpdateTeamMemberDto) {
     return this.shops.updateTeamMember(shopId, userId, dto);

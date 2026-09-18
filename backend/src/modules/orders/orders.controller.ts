@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, Post, Query, UseInterceptors } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
@@ -76,7 +76,7 @@ export class OrdersController {
     return this.orders.findForUser(user.mysqlId, id);
   }
 
-  @Patch('orders/:id/cancel')
+  @Put('orders/:id/cancel')
   @RequirePermission(Permission.OrderCancel)
   @ApiOperation({ summary: 'Annuler une commande non payée.' })
   cancel(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
@@ -99,7 +99,7 @@ export class OrdersController {
     return this.orders.listForShop(shopId, query.limit, query.status, query.cursor, query.q);
   }
 
-  @Patch('shop/:shopId/orders/:id/status')
+  @Put('shop/:shopId/orders/:id/status')
   @RequirePermission(Permission.OrderUpdateStatus, 'shopId')
   @ApiOperation({
     summary: 'Faire avancer une commande.',
@@ -116,13 +116,13 @@ export class OrdersController {
     return this.orders.updateStatus(id, shopId, dto.status, user.mysqlId, dto.note);
   }
 
-  @Patch('shop/:shopId/orders/:id/cancel')
+  @Put('shop/:shopId/orders/:id/cancel')
   @RequirePermission(Permission.OrderCancel, 'shopId')
   cancelForShop(@Param('shopId') shopId: string, @Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.orders.cancelForShop(id, shopId, user.mysqlId);
   }
 
-  @Patch('shop/:shopId/orders/:id/collect-payment')
+  @Put('shop/:shopId/orders/:id/collect-payment')
   @RequirePermission(Permission.PaymentCollect, 'shopId')
   @ApiOperation({
     summary: 'Confirmer l’encaissement d’un paiement à la livraison (contre-remboursement).',
@@ -136,15 +136,15 @@ export class OrdersController {
   @RequirePermission(Permission.DeliveryReadOwn)
   missions(@CurrentUser() user: AuthenticatedUser) { return this.orders.courierMissions(user.mysqlId); }
 
-  @Patch('courier/missions/:id/accept')
+  @Put('courier/missions/:id/accept')
   @RequirePermission(Permission.DeliveryUpdate)
   acceptMission(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.orders.acceptMission(id, user.mysqlId); }
 
-  @Patch('courier/missions/:id/refuse')
+  @Put('courier/missions/:id/refuse')
   @RequirePermission(Permission.DeliveryUpdate)
   refuseMission(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.orders.refuseMission(id, user.mysqlId); }
 
-  @Patch('courier/missions/:id/workflow')
+  @Put('courier/missions/:id/workflow')
   @RequirePermission(Permission.DeliveryUpdate)
   workflow(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body('status') status: string) { return this.orders.updateCourierWorkflow(id, user.mysqlId, status); }
 

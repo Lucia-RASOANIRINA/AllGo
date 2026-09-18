@@ -33,6 +33,19 @@ final apiClientProvider = Provider<Dio>((ref) {
   );
 
   dio.interceptors.addAll(<Interceptor>[
+    // o2switch (WAF/proxy devant l'API, constaté en direct le 2026-09-18)
+    // coupe la connexion sur toute requête PATCH, quel que soit le chemin ou
+    // le corps — GET/POST/PUT/DELETE passent sans problème. Plutôt que de
+    // changer un par un tous les appels `.patch()` de l'application (plus de
+    // 25 à travers une douzaine d'écrans), la méthode est réécrite ici, au
+    // même endroit que celui qui la construit : le serveur expose déjà les
+    // mêmes routes en PUT (`@Patch` → `@Put` côté NestJS).
+    InterceptorsWrapper(
+      onRequest: (options, handler) {
+        if (options.method.toUpperCase() == 'PATCH') options.method = 'PUT';
+        handler.next(options);
+      },
+    ),
     AuthInterceptor(ref.read(tokenStoreProvider), dio),
     RetryInterceptor(dio),
     ErrorInterceptor(),

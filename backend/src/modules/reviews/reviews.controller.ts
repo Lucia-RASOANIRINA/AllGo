@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Put, Post, Query } from '@nestjs/common';
 import { ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsNumberString } from 'class-validator';
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators';
@@ -35,7 +35,7 @@ export class ReviewsController {
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateReviewDto & { orderId: string }) {
     return this.reviews.create(user, dto);
   }
-  @Patch(':id') @RequirePermission(Permission.ReviewUpdate)
+  @Put(':id') @RequirePermission(Permission.ReviewUpdate)
   update(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: UpdateReviewDto) {
     return this.reviews.update(user.mysqlId, id, dto);
   }

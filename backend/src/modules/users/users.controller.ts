@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Put, Post } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators';
@@ -20,7 +20,7 @@ export class UsersController {
     return this.users.findById(user);
   }
 
-  @Patch()
+  @Put()
   @RequirePermission(Permission.ProfileUpdate)
   @ApiOperation({ summary: 'Modifier mon profil.' })
   update(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateProfileDto) {

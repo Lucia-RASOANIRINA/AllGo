@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators';
@@ -94,7 +94,7 @@ export class FinanceController {
     return this.finance.listMerchantWithdrawals(undefined, status);
   }
 
-  @Patch('withdrawals/merchants/:id')
+  @Put('withdrawals/merchants/:id')
   @RequirePermission(Permission.PlatformModerate)
   resolveMerchantWithdrawal(@Param('id') id: string, @Body() dto: ResolveWithdrawalDto) {
     return this.finance.resolveMerchantWithdrawal(id, dto.status);
@@ -106,7 +106,7 @@ export class FinanceController {
     return this.finance.listCourierWithdrawals(status);
   }
 
-  @Patch('withdrawals/couriers/:id')
+  @Put('withdrawals/couriers/:id')
   @RequirePermission(Permission.PlatformModerate)
   resolveCourierWithdrawal(@Param('id') id: string, @Body() dto: ResolveWithdrawalDto) {
     return this.finance.resolveCourierWithdrawal(id, dto.status);

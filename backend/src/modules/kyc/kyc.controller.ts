@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Put, Post } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators';
@@ -33,7 +33,7 @@ export class KycController {
     return this.kyc.listPending();
   }
 
-  @Patch(':id')
+  @Put(':id')
   @RequirePermission(Permission.KycReview)
   @ApiOperation({ summary: 'Approuver ou rejeter un document — modération plateforme.' })
   review(

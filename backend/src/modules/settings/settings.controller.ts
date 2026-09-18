@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Get, Param, Put } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { Public, RequirePermission } from '../../common/decorators/auth.decorators';
@@ -18,7 +18,7 @@ export class SettingsController {
     return this.settings.getAll();
   }
 
-  @Patch(':key')
+  @Put(':key')
   @RequirePermission(Permission.PlatformSettings)
   @ApiOperation({ summary: 'Modifier un paramètre existant — modération plateforme.' })
   update(@Param('key') key: string, @Body() dto: UpdateSettingDto) {

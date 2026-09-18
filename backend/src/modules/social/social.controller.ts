@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Put, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { IsArray, IsDateString, IsIn, IsNumberString, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -51,7 +51,14 @@ export class SocialController {
     return this.social.create(user, dto);
   }
 
-  @Patch('posts/:id')
+  @Get('posts/:id')
+  @RequirePermission(Permission.PostRead)
+  @ApiOperation({ summary: 'Ouvrir une publication précise (depuis une notification, par exemple).' })
+  findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.social.findOne(id, user.mysqlId);
+  }
+
+  @Put('posts/:id')
   @RequirePermission(Permission.PostUpdate)
   update(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: CreatePostDto) {
     return this.social.update(user.mysqlId, id, dto);
@@ -95,7 +102,7 @@ export class SocialController {
     return this.social.report(user.mysqlId, id, dto.reason, dto.reasonCode);
   }
 
-  @Patch('comments/:id')
+  @Put('comments/:id')
   @RequirePermission(Permission.CommentUpdate)
   editComment(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: CommentDto) {
     return this.social.editComment(user.mysqlId, id, dto.content);

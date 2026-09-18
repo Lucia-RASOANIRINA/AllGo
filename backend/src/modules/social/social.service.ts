@@ -142,6 +142,21 @@ export class SocialService {
     return { deleted: true };
   }
 
+  /** Publication isolée — pour ouvrir directement une publication depuis une notification. */
+  async findOne(postId: string, viewerMysqlId?: number): Promise<unknown> {
+    const row = await this.prisma.posts.findUnique({ where: { id: Number(postId) }, include: POST_INCLUDE });
+    if (!row) throw AppError.notFound('Publication');
+
+    let reactedByMe = false;
+    if (viewerMysqlId) {
+      const reaction = await this.prisma.reactions.findUnique({
+        where: { post_id_user_id: { post_id: row.id, user_id: viewerMysqlId } },
+      });
+      reactedByMe = reaction != null;
+    }
+    return this.toJson(row, reactedByMe);
+  }
+
   async toggleReaction(userMysqlId: number, postId: string, type = 'like'): Promise<{ reacted: boolean }> {
     const id = Number(postId);
     const existing = await this.prisma.reactions.findUnique({
